@@ -16,6 +16,7 @@ import { Route as AuthenticatedFriendsRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
 import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authenticated/chats/index'
 import { Route as AuthenticatedChatsIdRouteImport } from './routes/_authenticated/chats/$id'
+import { Route as AuthenticatedGroupsIdRouteImport } from './routes/_authenticated/groups/$id'
 import { Route as AuthenticatedGroupsNewRouteImport } from './routes/_authenticated/groups/new'
 
 const IndexRoute = IndexRouteImport.update({
@@ -52,6 +53,11 @@ const AuthenticatedChatsIdRoute = AuthenticatedChatsIdRouteImport.update({
   path: '/chats/$id',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedGroupsIdRoute = AuthenticatedGroupsIdRouteImport.update({
+  id: '/groups/$id',
+  path: '/groups/$id',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedGroupsNewRoute = AuthenticatedGroupsNewRouteImport.update({
   id: '/groups/new',
   path: '/groups/new',
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/friends': typeof AuthenticatedFriendsRoute
   '/setup': typeof AuthenticatedSetupRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
+  '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
   '/chats/': typeof AuthenticatedChatsIndexRoute
 }
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/friends': typeof AuthenticatedFriendsRoute
   '/setup': typeof AuthenticatedSetupRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
+  '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
   '/chats': typeof AuthenticatedChatsIndexRoute
 }
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/_authenticated/friends': typeof AuthenticatedFriendsRoute
   '/_authenticated/setup': typeof AuthenticatedSetupRoute
   '/_authenticated/chats/$id': typeof AuthenticatedChatsIdRoute
+  '/_authenticated/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/_authenticated/groups/new': typeof AuthenticatedGroupsNewRoute
   '/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute
 }
@@ -95,6 +104,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/setup'
     | '/chats/$id'
+    | '/groups/$id'
     | '/groups/new'
     | '/chats/'
   fileRoutesByTo: FileRoutesByTo
@@ -104,6 +114,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/setup'
     | '/chats/$id'
+    | '/groups/$id'
     | '/groups/new'
     | '/chats'
   id:
@@ -114,6 +125,7 @@ export interface FileRouteTypes {
     | '/_authenticated/friends'
     | '/_authenticated/setup'
     | '/_authenticated/chats/$id'
+    | '/_authenticated/groups/$id'
     | '/_authenticated/groups/new'
     | '/_authenticated/chats/'
   fileRoutesById: FileRoutesById
@@ -175,6 +187,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedChatsIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/groups/$id': {
+      id: '/_authenticated/groups/$id'
+      path: '/groups/$id'
+      fullPath: '/groups/$id'
+      preLoaderRoute: typeof AuthenticatedGroupsIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/groups/new': {
       id: '/_authenticated/groups/new'
       path: '/groups/new'
@@ -189,6 +208,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedFriendsRoute: typeof AuthenticatedFriendsRoute
   AuthenticatedSetupRoute: typeof AuthenticatedSetupRoute
   AuthenticatedChatsIdRoute: typeof AuthenticatedChatsIdRoute
+  AuthenticatedGroupsIdRoute: typeof AuthenticatedGroupsIdRoute
   AuthenticatedGroupsNewRoute: typeof AuthenticatedGroupsNewRoute
   AuthenticatedChatsIndexRoute: typeof AuthenticatedChatsIndexRoute
 }
@@ -197,6 +217,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedFriendsRoute: AuthenticatedFriendsRoute,
   AuthenticatedSetupRoute: AuthenticatedSetupRoute,
   AuthenticatedChatsIdRoute: AuthenticatedChatsIdRoute,
+  AuthenticatedGroupsIdRoute: AuthenticatedGroupsIdRoute,
   AuthenticatedGroupsNewRoute: AuthenticatedGroupsNewRoute,
   AuthenticatedChatsIndexRoute: AuthenticatedChatsIndexRoute,
 }
