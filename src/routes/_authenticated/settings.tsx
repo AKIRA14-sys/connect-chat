@@ -37,7 +37,7 @@ function SettingsPage() {
   const [busy, setBusy] = useState(false);
 
   async function patch(fields: Record<string, unknown>) {
-    const { error } = await supabase.from("profiles").update(fields).eq("id", user!.id);
+    const { error } = await supabase.from("profiles").update(fields as never).eq("id", user!.id);
     if (error) toast.error(error.message);
     else void qc.invalidateQueries({ queryKey: ["profile"] });
   }
@@ -66,7 +66,7 @@ function SettingsPage() {
 
   return (
     <AppShell>
-      <PageHeader title="You" subtitle={profile ? `@${profile.username}` : undefined} />
+      <PageHeader title="You" {...(profile?.username ? { subtitle: `@${profile.username}` } : {})} />
       <div className="space-y-6 p-4">
         <div className="flex flex-col items-center gap-3">
           <button className="relative" onClick={() => fileRef.current?.click()} disabled={busy}>
