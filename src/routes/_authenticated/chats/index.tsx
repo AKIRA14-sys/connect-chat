@@ -125,7 +125,7 @@ function ChatsPage() {
               </Link>
             </Button>
             <Button asChild size="sm">
-              <Link to="/friends">
+              <Link to="/contacts">
                 <PenSquare className="h-4 w-4" /> New
               </Link>
             </Button>
@@ -143,10 +143,10 @@ function ChatsPage() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-10 text-center">
           <h2 className="text-lg font-semibold">No conversations yet</h2>
           <p className="text-sm text-muted-foreground">
-            Find friends by their username and start your first chat.
+            Find people by their username and start your first chat.
           </p>
           <Button asChild>
-            <Link to="/friends">Find friends</Link>
+            <Link to="/contacts">Find people</Link>
           </Button>
         </div>
       ) : (
