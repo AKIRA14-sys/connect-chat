@@ -1,5 +1,5 @@
 // src/lib/webpush.server.ts
-// Web Push using WebCrypto + VAPID.
+// Web Push using WebCrypto + VAPID - FIXED.
 // Server-only: do not import this file into client-side code.
 
 const encoder = new TextEncoder();
