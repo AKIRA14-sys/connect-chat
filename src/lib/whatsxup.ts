@@ -111,3 +111,11 @@ export function durationLabel(seconds: number) {
 }
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+
+export function lastSeenLabel(iso: string) {
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 90) return "last seen just now";
+  if (diff < 3600) return `last seen ${Math.round(diff / 60)}m ago`;
+  if (diff < 86400) return `last seen ${Math.round(diff / 3600)}h ago`;
+  return `last seen ${timeLabel(iso)}`;
+}
