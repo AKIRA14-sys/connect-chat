@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertCircle,
   ArrowLeft,
   Check,
   CheckCheck,
+  Clock,
   ImagePlus,
   Mic,
   Pencil,
@@ -13,6 +15,7 @@ import {
   Send,
   Square,
   Trash2,
+  UserPlus,
   Video as VideoIcon,
   X,
 } from "lucide-react";
@@ -23,8 +26,12 @@ import { useRealtime } from "@/components/RealtimeProvider";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useOnlineStatus } from "@/components/ConnectionBanner";
+import { dequeue, enqueue, outboxFor, updateItem, type OutboxItem } from "@/lib/outbox";
+import { notifyNewMessage } from "@/lib/push.functions";
 import {
   durationLabel,
+  lastSeenLabel,
   signedUrl,
   timeLabel,
   uploadChatMedia,
@@ -33,11 +40,16 @@ import {
   type Profile,
 } from "@/lib/whatsxup";
 
+const PAGE_SIZE = 40;
+
 export const Route = createFileRoute("/_authenticated/chats/$id")({
   head: () => ({
     meta: [
       { title: "Conversation — WHATSXUP" },
-      { name: "description", content: "A private real-time WHATSXUP conversation with text, media, voice notes and calls." },
+      {
+        name: "description",
+        content: "A private real-time WHATSXUP conversation with text, media, voice notes and calls.",
+      },
       { property: "og:title", content: "Conversation — WHATSXUP" },
       { property: "og:description", content: "Private real-time messaging with media and calls." },
     ],
@@ -52,9 +64,10 @@ function MediaBubble({ path, type }: { path: string; type: "image" | "video" | "
     staleTime: 50 * 60 * 1000,
   });
   if (!url) return <div className="h-40 w-56 animate-pulse rounded-xl bg-surface-2" />;
-  if (type === "image") return <img src={url} alt="Shared" className="max-h-72 rounded-xl object-cover" />;
-  if (type === "video") return <video src={url} controls className="max-h-72 rounded-xl" />;
-  return <audio src={url} controls className="w-56" />;
+  if (type === "image")
+    return <img src={url} alt="Shared" loading="lazy" decoding="async" className="max-h-72 rounded-xl object-cover" />;
+  if (type === "video") return <video src={url} controls preload="metadata" className="max-h-72 rounded-xl" />;
+  return <audio src={url} controls preload="none" className="w-56" />;
 }
 
 function ChatRoom() {
@@ -63,17 +76,25 @@ function ChatRoom() {
   const { onlineIds, startCall } = useRealtime();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const online = useOnlineStatus();
 
   const [text, setText] = useState("");
+  const [limit, setLimit] = useState(PAGE_SIZE);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [typingUsers, setTypingUsers] = useState<string[]>([]);
   const [recording, setRecording] = useState(false);
   const [recSecs, setRecSecs] = useState(0);
+  const [pending, setPending] = useState<OutboxItem[]>([]);
+  const [sendingIds, setSendingIds] = useState<string[]>([]);
   const recorder = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const bottom = useRef<HTMLDivElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const roomChannel = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingSent = useRef(0);
+
+  const messagesKey = useMemo(() => ["messages", id, limit] as const, [id, limit]);
 
   const { data: conv } = useQuery({
     queryKey: ["conversation", id],
@@ -96,23 +117,23 @@ function ChatRoom() {
     },
   });
 
-  const { data: messages = [] } = useQuery({
-    queryKey: ["messages", id],
+  const { data: messages = [], isFetching: fetchingMessages } = useQuery({
+    queryKey: messagesKey,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("messages")
         .select("*")
         .eq("conversation_id", id)
-        .order("created_at", { ascending: true })
-        .limit(300);
+        .order("created_at", { ascending: false })
+        .limit(limit);
       if (error) throw error;
-      return (data ?? []) as Message[];
+      return ((data ?? []) as Message[]).slice().reverse();
     },
   });
 
   const other = members.find((m) => m.user_id !== user?.id);
   const title = conv?.type === "group" ? (conv.name ?? "Group") : (other?.profiles.display_name ?? "Chat");
-  const isOnline = other ? onlineIds.has(other.user_id) : false;
+  const isOnline = other ? onlineIds.has(other.user_id) && other.profiles.show_online_status : false;
 
   const readsQuery = useQuery({
     queryKey: ["reads", id],
@@ -131,50 +152,96 @@ function ChatRoom() {
     return rows.map((r) => r.last_read_at).sort().at(-1) ?? null;
   }, [readsQuery.data, user?.id]);
 
-  // realtime messages + typing
+  const isContact = useQuery({
+    queryKey: ["is-contact", other?.user_id],
+    enabled: !!other?.user_id && !!user,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("contacts")
+        .select("id")
+        .eq("owner_id", user!.id)
+        .eq("contact_id", other!.user_id)
+        .maybeSingle();
+      return !!data;
+    },
+  });
+
+  const applyMessage = useCallback(
+    (row: Message) => {
+      qc.setQueryData<Message[]>(messagesKey, (prev = []) => {
+        const without = prev.filter((m) => m.id !== row.id);
+        const next = [...without, row].sort((a, b) => a.created_at.localeCompare(b.created_at));
+        return next;
+      });
+      void qc.invalidateQueries({ queryKey: ["chat-list"] });
+    },
+    [qc, messagesKey],
+  );
+
+  // Single realtime channel for this conversation (messages, members, group info, typing).
   useEffect(() => {
     if (!user) return;
     const ch = supabase
-      .channel(`room:${id}`)
+      .channel(`room:${id}`, { config: { broadcast: { self: false } } })
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${id}` },
-        () => {
-          void qc.invalidateQueries({ queryKey: ["messages", id] });
-          void qc.invalidateQueries({ queryKey: ["chat-list"] });
+        (payload) => {
+          const row = (payload.new ?? payload.old) as Message | undefined;
+          if (!row) return;
+          if (payload.eventType === "DELETE") {
+            qc.setQueryData<Message[]>(messagesKey, (prev = []) => prev.filter((m) => m.id !== row.id));
+            void qc.invalidateQueries({ queryKey: ["chat-list"] });
+            return;
+          }
+          applyMessage(row);
         },
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "conversation_members", filter: `conversation_id=eq.${id}` },
-        () => void qc.invalidateQueries({ queryKey: ["reads", id] }),
+        () => {
+          void qc.invalidateQueries({ queryKey: ["reads", id] });
+          void qc.invalidateQueries({ queryKey: ["conv-members", id] });
+        },
+      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "conversations", filter: `id=eq.${id}` }, () =>
+        qc.invalidateQueries({ queryKey: ["conversation", id] }),
       )
       .on("broadcast", { event: "typing" }, ({ payload }) => {
         const p = payload as { userId: string; name: string };
         if (p.userId === user.id) return;
         setTypingUsers((prev) => (prev.includes(p.name) ? prev : [...prev, p.name]));
-        setTimeout(() => setTypingUsers((prev) => prev.filter((n) => n !== p.name)), 3000);
+        setTimeout(() => setTypingUsers((prev) => prev.filter((n) => n !== p.name)), 3500);
       })
-      .subscribe();
+      .subscribe((status) => {
+        // On (re)connect, resync anything missed while the socket was down.
+        if (status === "SUBSCRIBED") {
+          void qc.invalidateQueries({ queryKey: ["messages", id] });
+          void qc.invalidateQueries({ queryKey: ["reads", id] });
+        }
+      });
+    roomChannel.current = ch;
     return () => {
+      roomChannel.current = null;
       void supabase.removeChannel(ch);
     };
-  }, [id, user, qc]);
+  }, [id, user, qc, applyMessage, messagesKey]);
 
-  // mark read
+  // Mark conversation read.
   useEffect(() => {
-    if (!user || !messages.length) return;
+    if (!user || !messages.length || !online) return;
     void supabase
       .from("conversation_members")
       .update({ last_read_at: new Date().toISOString() })
       .eq("conversation_id", id)
-      .eq("user_id", user.id);
-    void qc.invalidateQueries({ queryKey: ["chat-list"] });
-  }, [messages.length, id, user, qc]);
+      .eq("user_id", user.id)
+      .then(() => qc.invalidateQueries({ queryKey: ["chat-list"] }));
+  }, [messages.length, id, user, qc, online]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, typingUsers.length]);
+  }, [messages.length, typingUsers.length, pending.length]);
 
   useEffect(() => {
     if (!recording) return;
@@ -182,32 +249,93 @@ function ChatRoom() {
     return () => clearInterval(t);
   }, [recording]);
 
-  async function broadcastTyping() {
-    const ch = supabase.channel(`room:${id}`);
-    await ch.send({
-      type: "broadcast",
-      event: "typing",
-      payload: { userId: user!.id, name: "Someone" },
-    });
+  // Outbox: reflect stored items and flush them when the connection returns.
+  const refreshOutbox = useCallback(() => setPending(outboxFor(id)), [id]);
+
+  const flushOutbox = useCallback(async () => {
+    if (!user || !navigator.onLine) return;
+    for (const item of outboxFor(id)) {
+      updateItem(item.id, { state: "sending" });
+      const { data, error } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: item.conversationId,
+          sender_id: user.id,
+          type: "text",
+          content: item.content,
+          reply_to: item.replyTo,
+        })
+        .select("*")
+        .single();
+      if (error) {
+        updateItem(item.id, { state: "failed", error: error.message });
+      } else {
+        dequeue(item.id);
+        applyMessage(data as Message);
+      }
+    }
+    refreshOutbox();
+  }, [id, user, applyMessage, refreshOutbox]);
+
+  useEffect(() => {
+    refreshOutbox();
+    const onChange = () => refreshOutbox();
+    window.addEventListener("whatsxup:outbox", onChange);
+    window.addEventListener("online", () => void flushOutbox());
+    void flushOutbox();
+    return () => {
+      window.removeEventListener("whatsxup:outbox", onChange);
+    };
+  }, [refreshOutbox, flushOutbox]);
+
+  function broadcastTyping() {
+    const now = Date.now();
+    if (now - lastTypingSent.current < 1500) return;
+    lastTypingSent.current = now;
+    const me = members.find((m) => m.user_id === user?.id)?.profiles.display_name ?? "Someone";
+    void roomChannel.current?.send({ type: "broadcast", event: "typing", payload: { userId: user!.id, name: me } });
   }
 
-  async function sendMessage(payload: Partial<Message>) {
-    const { error } = await supabase.from("messages").insert({
-      conversation_id: id,
-      sender_id: user!.id,
-      type: payload.type ?? "text",
-      content: payload.content ?? null,
-      media_url: payload.media_url ?? null,
-      media_duration: payload.media_duration ?? null,
-      reply_to: replyTo?.id ?? null,
-    });
-    if (error) {
-      toast.error(error.message);
-      return;
+  async function pushNotify(preview: string) {
+    try {
+      const me = members.find((m) => m.user_id === user?.id)?.profiles;
+      await notifyNewMessage({
+        data: {
+          conversationId: id,
+          title: conv?.type === "group" ? (conv.name ?? "WHATSXUP group") : (me?.display_name ?? "WHATSXUP"),
+          preview: `${conv?.type === "group" ? `${me?.display_name ?? "Someone"}: ` : ""}${preview}`.slice(0, 160),
+        },
+      });
+    } catch {
+      /* notifications are best-effort */
+    }
+  }
+
+  async function sendMessage(payload: Partial<Message>, preview: string) {
+    const optimisticId = crypto.randomUUID();
+    setSendingIds((prev) => [...prev, optimisticId]);
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({
+        conversation_id: id,
+        sender_id: user!.id,
+        type: payload.type ?? "text",
+        content: payload.content ?? null,
+        media_url: payload.media_url ?? null,
+        media_duration: payload.media_duration ?? null,
+        reply_to: replyTo?.id ?? null,
+      })
+      .select("*")
+      .single();
+    setSendingIds((prev) => prev.filter((x) => x !== optimisticId));
+    if (error || !data) {
+      toast.error(error?.message ?? "Could not send message");
+      return false;
     }
     setReplyTo(null);
-    void supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", id);
-    void qc.invalidateQueries({ queryKey: ["messages", id] });
+    applyMessage(data as Message);
+    void pushNotify(preview);
+    return true;
   }
 
   async function submit(e: React.FormEvent) {
@@ -215,17 +343,50 @@ function ChatRoom() {
     const body = text.trim();
     if (!body) return;
     setText("");
+
     if (editing) {
+      const target = editing;
+      setEditing(null);
+      qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
+        prev.map((m) => (m.id === target.id ? { ...m, content: body, edited_at: new Date().toISOString() } : m)),
+      );
       const { error } = await supabase
         .from("messages")
         .update({ content: body, edited_at: new Date().toISOString() })
-        .eq("id", editing.id);
-      if (error) toast.error(error.message);
-      setEditing(null);
-      void qc.invalidateQueries({ queryKey: ["messages", id] });
+        .eq("id", target.id);
+      if (error) {
+        toast.error(error.message);
+        void qc.invalidateQueries({ queryKey: ["messages", id] });
+      }
       return;
     }
-    await sendMessage({ type: "text", content: body });
+
+    if (!navigator.onLine) {
+      enqueue({
+        id: crypto.randomUUID(),
+        conversationId: id,
+        senderId: user!.id,
+        content: body,
+        replyTo: replyTo?.id ?? null,
+        createdAt: new Date().toISOString(),
+      });
+      setReplyTo(null);
+      refreshOutbox();
+      return;
+    }
+
+    const ok = await sendMessage({ type: "text", content: body }, body);
+    if (!ok) {
+      enqueue({
+        id: crypto.randomUUID(),
+        conversationId: id,
+        senderId: user!.id,
+        content: body,
+        replyTo: replyTo?.id ?? null,
+        createdAt: new Date().toISOString(),
+      });
+      refreshOutbox();
+    }
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -239,7 +400,7 @@ function ChatRoom() {
     const kind = file.type.startsWith("video") ? "video" : "image";
     try {
       const path = await uploadChatMedia(id, file, kind === "video" ? "mp4" : "jpg");
-      await sendMessage({ type: kind, media_url: path });
+      await sendMessage({ type: kind, media_url: path }, kind === "video" ? "🎬 Video" : "📷 Photo");
     } catch (err) {
       toast.error((err as Error).message);
     }
@@ -263,7 +424,7 @@ function ChatRoom() {
         setRecSecs(0);
         try {
           const path = await uploadChatMedia(id, blob, "webm");
-          await sendMessage({ type: "audio", media_url: path, media_duration: seconds });
+          await sendMessage({ type: "audio", media_url: path, media_duration: seconds }, "🎙️ Voice note");
         } catch (err) {
           toast.error((err as Error).message);
         }
@@ -283,13 +444,31 @@ function ChatRoom() {
   }
 
   async function deleteMessage(m: Message) {
+    qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
+      prev.map((x) => (x.id === m.id ? { ...x, deleted_at: new Date().toISOString(), content: null } : x)),
+    );
     const { error } = await supabase
       .from("messages")
       .update({ deleted_at: new Date().toISOString(), content: null, media_url: null })
       .eq("id", m.id);
-    if (error) toast.error(error.message);
-    void qc.invalidateQueries({ queryKey: ["messages", id] });
+    if (error) {
+      toast.error(error.message);
+      void qc.invalidateQueries({ queryKey: ["messages", id] });
+    }
   }
+
+  async function addContact() {
+    if (!other) return;
+    const { error } = await supabase.from("contacts").insert({ owner_id: user!.id, contact_id: other.user_id });
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Added to your WHATSXUP contacts");
+      void qc.invalidateQueries({ queryKey: ["is-contact", other.user_id] });
+      void qc.invalidateQueries({ queryKey: ["contacts"] });
+    }
+  }
+
+  const hasMore = messages.length >= limit;
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col app-gradient">
@@ -302,7 +481,9 @@ function ChatRoom() {
             <UserAvatar path={conv.avatar_url} name={title} bucket="chat-media" size="sm" />
             <div className="min-w-0">
               <p className="truncate font-medium leading-tight">{title}</p>
-              <p className="truncate text-xs text-muted-foreground">{members.length} members</p>
+              <p className="truncate text-xs text-muted-foreground">
+                {typingUsers.length ? `${typingUsers[0]} is typing…` : `${members.length} members`}
+              </p>
             </div>
           </Link>
         ) : (
@@ -311,13 +492,24 @@ function ChatRoom() {
             <div className="min-w-0">
               <p className="truncate font-medium leading-tight">{title}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {typingUsers.length ? "typing…" : isOnline ? "online" : "offline"}
+                {typingUsers.length
+                  ? "typing…"
+                  : isOnline
+                    ? "online"
+                    : other?.profiles.show_online_status
+                      ? lastSeenLabel(other.profiles.last_seen)
+                      : "offline"}
               </p>
             </div>
           </div>
         )}
         {conv?.type === "direct" && other && (
           <>
+            {isContact.data === false && (
+              <Button size="icon" variant="ghost" title="Add to contacts" onClick={() => void addContact()}>
+                <UserPlus className="h-5 w-5" />
+              </Button>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -347,6 +539,18 @@ function ChatRoom() {
       </header>
 
       <div className="flex-1 space-y-2 px-3 py-4">
+        {hasMore && (
+          <div className="flex justify-center pb-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={fetchingMessages}
+              onClick={() => setLimit((l) => l + PAGE_SIZE)}
+            >
+              {fetchingMessages ? "Loading…" : "Load older messages"}
+            </Button>
+          </div>
+        )}
         {messages.map((m) => {
           const mine = m.sender_id === user?.id;
           const sender = members.find((x) => x.user_id === m.sender_id)?.profiles;
@@ -414,9 +618,43 @@ function ChatRoom() {
             </div>
           );
         })}
-        {typingUsers.length > 0 && (
-          <p className="px-2 text-xs text-muted-foreground">Typing…</p>
-        )}
+
+        {sendingIds.map((sid) => (
+          <div key={sid} className="flex justify-end">
+            <div className="max-w-[80%] rounded-2xl bg-primary/60 px-3 py-2 text-sm text-primary-foreground">
+              <span className="inline-flex items-center gap-1 text-[11px] opacity-80">
+                <Clock className="h-3 w-3" /> Sending…
+              </span>
+            </div>
+          </div>
+        ))}
+
+        {pending.map((p) => (
+          <div key={p.id} className="flex justify-end">
+            <div className="max-w-[80%] rounded-2xl border border-dashed border-primary/50 bg-primary/20 px-3 py-2 text-sm">
+              <p className="whitespace-pre-wrap break-words">{p.content}</p>
+              <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
+                {p.state === "failed" ? (
+                  <>
+                    <AlertCircle className="h-3 w-3" /> Failed
+                    <button className="underline" onClick={() => void flushOutbox()}>
+                      Retry
+                    </button>
+                    <button className="underline" onClick={() => dequeue(p.id)}>
+                      Discard
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-3 w-3" /> Waiting for connection
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {typingUsers.length > 0 && <p className="px-2 text-xs text-muted-foreground">Typing…</p>}
         <div ref={bottom} />
       </div>
 
@@ -443,16 +681,22 @@ function ChatRoom() {
         )}
         <div className="flex items-center gap-2">
           <input ref={fileInput} type="file" accept="image/*,video/*" hidden onChange={(e) => void onFile(e)} />
-          <Button type="button" size="icon" variant="ghost" onClick={() => fileInput.current?.click()}>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            disabled={!online}
+            onClick={() => fileInput.current?.click()}
+          >
             <ImagePlus className="h-5 w-5" />
           </Button>
           <Input
             value={text}
             onChange={(e) => {
               setText(e.target.value);
-              void broadcastTyping();
+              broadcastTyping();
             }}
-            placeholder={recording ? `Recording ${durationLabel(recSecs)}` : "Message"}
+            placeholder={recording ? `Recording ${durationLabel(recSecs)}` : online ? "Message" : "Message (offline)"}
             disabled={recording}
           />
           {text.trim() ? (
@@ -464,6 +708,7 @@ function ChatRoom() {
               type="button"
               size="icon"
               variant={recording ? "destructive" : "default"}
+              disabled={!online && !recording}
               onClick={() => void toggleRecording()}
             >
               {recording ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
