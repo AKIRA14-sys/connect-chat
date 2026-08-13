@@ -56,11 +56,9 @@ async function fanout(userIds: string[], payload: Record<string, unknown>) {
       try {
         const { expired: gone } = await sendWebPush(s, payload);
         if (gone) expired.push(s.endpoint);
-      } catch {
-        /* a single failed endpoint must not break the fanout */
-      }
-    }),
-  );
+      } catch (error) {
+  console.error("[WHATSXUP PUSH] Failed to send notification:", error);
+}
   if (expired.length) await supabaseAdmin.from("push_subscriptions").delete().in("endpoint", expired);
 }
 
