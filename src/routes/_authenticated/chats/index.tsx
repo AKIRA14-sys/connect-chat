@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtime } from "@/components/RealtimeProvider";
 import { AppShell, PageHeader } from "@/components/AppShell";
+import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { timeLabel, type Conversation, type Message, type Profile } from "@/lib/whatsxup";
@@ -132,6 +133,8 @@ function ChatsPage() {
           </div>
         }
       />
+
+      <NotificationPrompt />
 
       {isLoading ? (
         <div className="space-y-3 p-4">
