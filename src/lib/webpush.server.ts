@@ -124,6 +124,17 @@ export async function sendWebPush(target: PushTarget, payload: unknown): Promise
   const authorization = await vapidHeader(target.endpoint, publicKey, privateKey, subject);
 
   const res = await fetch(target.endpoint, {
+  // existing code...
+});
+
+if (!res.ok) {
+  const errorText = await res.text().catch(() => "");
+  throw new Error(
+    `Web Push failed: HTTP ${res.status} ${res.statusText} ${errorText}`,
+  );
+}
+
+return { expired: res.status === 404 || res.status === 410 };
     method: "POST",
     headers: {
       Authorization: authorization,
