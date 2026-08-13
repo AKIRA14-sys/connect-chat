@@ -300,12 +300,14 @@ function ChatRoom() {
     try {
       const me = members.find((m) => m.user_id === user?.id)?.profiles;
       await notifyNewMessage({
-        data: {
-          conversationId: id,
-          title: conv?.type === "group" ? (conv.name ?? "WHATSXUP group") : (me?.display_name ?? "WHATSXUP"),
-          preview: `${conv?.type === "group" ? `${me?.display_name ?? "Someone"}: ` : ""}${preview}`.slice(0, 160),
-        },
-      });
+  conversationId: id,
+  title:
+    conv?.type === "group"
+      ? (conv.name ?? "WHATSXUP group")
+      : (me?.display_name ?? "WHATSXUP"),
+  preview:
+    `${conv?.type === "group" ? `${me?.display_name ?? "Someone"}: ` : ""}${preview}`.slice(0, 160),
+});
     } catch {
       /* notifications are best-effort */
     }
