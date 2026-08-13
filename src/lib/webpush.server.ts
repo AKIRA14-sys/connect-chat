@@ -112,7 +112,13 @@ export async function sendWebPush(target: PushTarget, payload: unknown): Promise
   const publicKey = process.env["VAPID_PUBLIC_KEY"];
   const privateKey = process.env["VAPID_PRIVATE_KEY"];
   const subject = process.env["VAPID_SUBJECT"] ?? "mailto:push@whatsxup.app";
-  if (!publicKey || !privateKey) return { expired: false };
+  if (!publicKey || !privateKey) {
+  throw new Error(
+    `Missing VAPID environment variables: ${
+      !publicKey ? "VAPID_PUBLIC_KEY " : ""
+    }${!privateKey ? "VAPID_PRIVATE_KEY" : ""}`.trim(),
+  );
+}
 
   const body = await encryptPayload(JSON.stringify(payload), target.p256dh, target.auth);
   const authorization = await vapidHeader(target.endpoint, publicKey, privateKey, subject);
