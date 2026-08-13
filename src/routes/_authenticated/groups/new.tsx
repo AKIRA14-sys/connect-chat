@@ -34,19 +34,15 @@ function NewGroup() {
   const [busy, setBusy] = useState(false);
 
   const { data: friends = [] } = useQuery({
-    queryKey: ["accepted-friends", user?.id],
+    queryKey: ["contacts", user?.id],
     enabled: !!user,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("friendships")
-        .select("requester_id, addressee_id, requester:requester_id(*), addressee:addressee_id(*)")
-        .eq("status", "accepted")
-        .or(`requester_id.eq.${user!.id},addressee_id.eq.${user!.id}`);
+        .from("contacts")
+        .select("contact_id, profiles:contact_id(*)")
+        .eq("owner_id", user!.id);
       if (error) throw error;
-      return (data ?? []).map((r) => {
-        const rec = r as unknown as { requester_id: string; requester: Profile; addressee: Profile };
-        return rec.requester_id === user!.id ? rec.addressee : rec.requester;
-      });
+      return (data ?? []).map((r) => (r as unknown as { profiles: Profile }).profiles);
     },
   });
 
@@ -104,7 +100,7 @@ function NewGroup() {
         </div>
 
         <div className="space-y-2">
-          <Label>Add friends ({selected.length})</Label>
+          <Label>Add contacts ({selected.length})</Label>
           <ul className="space-y-2">
             {friends.map((f) => (
               <li key={f.id} className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
@@ -123,7 +119,7 @@ function NewGroup() {
             ))}
             {friends.length === 0 && (
               <li className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-                Add friends first to invite them here.
+                Add contacts first to invite them here.
               </li>
             )}
           </ul>

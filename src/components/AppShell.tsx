@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 const tabs = [
   { to: "/chats", label: "Chats", icon: MessageCircle },
-  { to: "/friends", label: "Friends", icon: Users },
+  { to: "/contacts", label: "Contacts", icon: Users },
   { to: "/calls", label: "Calls", icon: Phone },
   { to: "/settings", label: "You", icon: Settings },
 ];

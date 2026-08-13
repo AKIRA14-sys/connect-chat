@@ -14,6 +14,8 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AuthProvider } from "@/hooks/useAuth";
 import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
+
 
 function NotFoundComponent() {
   return (
@@ -130,11 +132,44 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+
+  // Persist the query cache so previously loaded chats render instantly and offline.
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void (async () => {
+      const [{ persistQueryClient }, { createSyncStoragePersister }] = await Promise.all([
+        import("@tanstack/react-query-persist-client"),
+        import("@tanstack/query-sync-storage-persister"),
+      ]);
+      const [unsubscribe] = persistQueryClient({
+        queryClient,
+        persister: createSyncStoragePersister({ storage: window.localStorage, key: "whatsxup.cache.v1" }),
+        maxAge: 24 * 60 * 60 * 1000,
+      });
+      dispose = unsubscribe;
+
+    })();
+    return () => dispose?.();
+  }, [queryClient]);
+
+  // Service worker (production, non-preview only) + notification tap routing.
+  useEffect(() => {
+    void import("@/lib/pwa").then(({ registerServiceWorker }) => void registerServiceWorker());
+    if (!("serviceWorker" in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; to?: string } | undefined;
+      if (data?.type === "whatsxup-navigate" && data.to) void router.navigate({ to: data.to });
+    };
+    navigator.serviceWorker.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+  }, [router]);
 
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <RealtimeProvider>
+          <ConnectionBanner />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
           <Outlet />
           <Toaster position="top-center" />
@@ -143,3 +178,4 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
+

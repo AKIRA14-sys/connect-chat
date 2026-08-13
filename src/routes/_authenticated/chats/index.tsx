@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtime } from "@/components/RealtimeProvider";
 import { AppShell, PageHeader } from "@/components/AppShell";
+import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { timeLabel, type Conversation, type Message, type Profile } from "@/lib/whatsxup";
@@ -125,13 +126,15 @@ function ChatsPage() {
               </Link>
             </Button>
             <Button asChild size="sm">
-              <Link to="/friends">
+              <Link to="/contacts">
                 <PenSquare className="h-4 w-4" /> New
               </Link>
             </Button>
           </div>
         }
       />
+
+      <NotificationPrompt />
 
       {isLoading ? (
         <div className="space-y-3 p-4">
@@ -143,10 +146,10 @@ function ChatsPage() {
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-10 text-center">
           <h2 className="text-lg font-semibold">No conversations yet</h2>
           <p className="text-sm text-muted-foreground">
-            Find friends by their username and start your first chat.
+            Find people by their username and start your first chat.
           </p>
           <Button asChild>
-            <Link to="/friends">Find friends</Link>
+            <Link to="/contacts">Find people</Link>
           </Button>
         </div>
       ) : (

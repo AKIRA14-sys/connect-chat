@@ -14,7 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedCallsRouteImport } from './routes/_authenticated/calls'
-import { Route as AuthenticatedFriendsRouteImport } from './routes/_authenticated/friends'
+import { Route as AuthenticatedContactsRouteImport } from './routes/_authenticated/contacts'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
 import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authenticated/chats/index'
@@ -46,9 +46,9 @@ const AuthenticatedCallsRoute = AuthenticatedCallsRouteImport.update({
   path: '/calls',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedFriendsRoute = AuthenticatedFriendsRouteImport.update({
-  id: '/friends',
-  path: '/friends',
+const AuthenticatedContactsRoute = AuthenticatedContactsRouteImport.update({
+  id: '/contacts',
+  path: '/contacts',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -87,7 +87,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calls': typeof AuthenticatedCallsRoute
-  '/friends': typeof AuthenticatedFriendsRoute
+  '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/setup': typeof AuthenticatedSetupRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
@@ -100,7 +100,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/calls': typeof AuthenticatedCallsRoute
-  '/friends': typeof AuthenticatedFriendsRoute
+  '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/setup': typeof AuthenticatedSetupRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
@@ -115,7 +115,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/calls': typeof AuthenticatedCallsRoute
-  '/_authenticated/friends': typeof AuthenticatedFriendsRoute
+  '/_authenticated/contacts': typeof AuthenticatedContactsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/setup': typeof AuthenticatedSetupRoute
   '/_authenticated/chats/$id': typeof AuthenticatedChatsIdRoute
@@ -130,7 +130,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admin'
     | '/calls'
-    | '/friends'
+    | '/contacts'
     | '/settings'
     | '/setup'
     | '/chats/$id'
@@ -143,7 +143,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/admin'
     | '/calls'
-    | '/friends'
+    | '/contacts'
     | '/settings'
     | '/setup'
     | '/chats/$id'
@@ -157,7 +157,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/admin'
     | '/_authenticated/calls'
-    | '/_authenticated/friends'
+    | '/_authenticated/contacts'
     | '/_authenticated/settings'
     | '/_authenticated/setup'
     | '/_authenticated/chats/$id'
@@ -209,11 +209,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedCallsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/friends': {
-      id: '/_authenticated/friends'
-      path: '/friends'
-      fullPath: '/friends'
-      preLoaderRoute: typeof AuthenticatedFriendsRouteImport
+    '/_authenticated/contacts': {
+      id: '/_authenticated/contacts'
+      path: '/contacts'
+      fullPath: '/contacts'
+      preLoaderRoute: typeof AuthenticatedContactsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/settings': {
@@ -264,7 +264,7 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedCallsRoute: typeof AuthenticatedCallsRoute
-  AuthenticatedFriendsRoute: typeof AuthenticatedFriendsRoute
+  AuthenticatedContactsRoute: typeof AuthenticatedContactsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSetupRoute: typeof AuthenticatedSetupRoute
   AuthenticatedChatsIdRoute: typeof AuthenticatedChatsIdRoute
@@ -276,7 +276,7 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedCallsRoute: AuthenticatedCallsRoute,
-  AuthenticatedFriendsRoute: AuthenticatedFriendsRoute,
+  AuthenticatedContactsRoute: AuthenticatedContactsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSetupRoute: AuthenticatedSetupRoute,
   AuthenticatedChatsIdRoute: AuthenticatedChatsIdRoute,
