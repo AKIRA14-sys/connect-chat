@@ -2,6 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
+/* ---------------------------------------------------------
+ * PUSH SUBSCRIPTION SCHEMA
+ * --------------------------------------------------------- */
+
 const subscriptionSchema = z.object({
   endpoint: z.string().url(),
   p256dh: z.string().min(10),
@@ -9,245 +13,392 @@ const subscriptionSchema = z.object({
   userAgent: z.string().max(300).optional(),
 });
 
-export const savePushSubscription = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((data: unknown) => subscriptionSchema.parse(data))
-  .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("push_subscriptions")
-      .upsert(
-        {
-          user_id: context.userId,
-          endpoint: data.endpoint,
-          p256dh: data.p256dh,
-          auth: data.auth,
-          user_agent: data.userAgent ?? null,
-        },
-        {
-          onConflict: "endpoint",
-        },
-      );
+/* ---------------------------------------------------------
+ * SAVE PUSH SUBSCRIPTION
+ * --------------------------------------------------------- */
 
-    if (error) {
-      throw new Error(error.message);
-    }
+export const savePushSubscription =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .inputValidator(
+      (data: unknown) =>
+        subscriptionSchema.parse(data),
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const { error } =
+          await context.supabase
+            .from(
+              "push_subscriptions",
+            )
+            .upsert(
+              {
+                user_id:
+                  context.userId,
+                endpoint:
+                  data.endpoint,
+                p256dh:
+                  data.p256dh,
+                auth:
+                  data.auth,
+                user_agent:
+                  data.userAgent ??
+                  null,
+              },
+              {
+                onConflict:
+                  "endpoint",
+              },
+            );
 
-    return { ok: true };
-  });
+        if (error) {
+          throw new Error(
+            error.message,
+          );
+        }
 
-export const removePushSubscription = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .validator((data: unknown) =>
-    z
-      .object({
-        endpoint: z.string().url(),
-      })
-      .parse(data),
-  )
-  .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("push_subscriptions")
-      .delete()
-      .eq("endpoint", data.endpoint)
-      .eq("user_id", context.userId);
+        return {
+          ok: true,
+        };
+      },
+    );
 
-    if (error) {
-      throw new Error(error.message);
-    }
+/* ---------------------------------------------------------
+ * REMOVE PUSH SUBSCRIPTION
+ * --------------------------------------------------------- */
 
-    return { ok: true };
-  });
+export const removePushSubscription =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .inputValidator(
+      (data: unknown) =>
+        z
+          .object({
+            endpoint:
+              z.string().url(),
+          })
+          .parse(data),
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        await context.supabase
+          .from(
+            "push_subscriptions",
+          )
+          .delete()
+          .eq(
+            "endpoint",
+            data.endpoint,
+          )
+          .eq(
+            "user_id",
+            context.userId,
+          );
+
+        return {
+          ok: true,
+        };
+      },
+    );
+
+/* ---------------------------------------------------------
+ * FANOUT PUSH NOTIFICATION
+ * --------------------------------------------------------- */
 
 async function fanout(
   userIds: string[],
-  payload: Record<string, unknown>,
+  payload: Record<
+    string,
+    unknown
+  >,
 ) {
-  if (!userIds.length) return;
-
-  const [{ supabaseAdmin }, { sendWebPush }] = await Promise.all([
-    import("@/integrations/supabase/client.server"),
-    import("./webpush.server"),
-  ]);
-
-  const { data: subscriptions, error } = await supabaseAdmin
-    .from("push_subscriptions")
-    .select("endpoint, p256dh, auth")
-    .in("user_id", userIds);
-
-  if (error) {
-    throw new Error(
-      `Could not load push subscriptions: ${error.message}`,
-    );
+  if (!userIds.length) {
+    return;
   }
 
-  const expired: string[] = [];
+  const [
+    { supabaseAdmin },
+    { sendWebPush },
+  ] = await Promise.all([
+    import(
+      "@/integrations/supabase/client.server"
+    ),
+    import(
+      "./webpush.server"
+    ),
+  ]);
+
+  const {
+    data: subscriptions,
+  } =
+    await supabaseAdmin
+      .from(
+        "push_subscriptions",
+      )
+      .select(
+        "endpoint, p256dh, auth",
+      )
+      .in(
+        "user_id",
+        userIds,
+      );
+
+  const expired: string[] =
+    [];
 
   await Promise.all(
-    (subscriptions ?? []).map(async (subscription) => {
+    (
+      subscriptions ?? []
+    ).map(async (subscription) => {
       try {
-        const result = await sendWebPush(
-          subscription,
-          payload,
-        );
+        const {
+          expired: isExpired,
+        } =
+          await sendWebPush(
+            subscription,
+            payload,
+          );
 
-        if (result.expired) {
-          expired.push(subscription.endpoint);
+        if (isExpired) {
+          expired.push(
+            subscription.endpoint,
+          );
         }
       } catch (error) {
         console.error(
-          "[WHATSXUP PUSH] Failed:",
+          "[WHATSXUP PUSH] Failed to send notification:",
           error,
         );
       }
     }),
   );
 
+  /*
+   * Remove expired subscriptions.
+   */
+
   if (expired.length) {
     await supabaseAdmin
-      .from("push_subscriptions")
+      .from(
+        "push_subscriptions",
+      )
       .delete()
-      .in("endpoint", expired);
+      .in(
+        "endpoint",
+        expired,
+      );
   }
 }
 
-/*
- * ---------------------------------------------------------
- * MESSAGE NOTIFICATION
- * ---------------------------------------------------------
- */
+/* ---------------------------------------------------------
+ * NEW MESSAGE NOTIFICATION
+ * --------------------------------------------------------- */
 
-export const notifyNewMessage = createServerFn({
-  method: "POST",
-})
-  .middleware([requireSupabaseAuth])
-  .validator((data: unknown) =>
-    z
-      .object({
-        conversationId: z.string().uuid(),
-        preview: z.string().max(160),
-      })
-      .parse(data),
-  )
-  .handler(async ({ data, context }) => {
-    /*
-     * Find everyone in this conversation.
-     */
-    const { data: members, error: memberError } =
-      await context.supabase
-        .from("conversation_members")
-        .select("user_id")
-        .eq("conversation_id", data.conversationId);
+export const notifyNewMessage =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .inputValidator(
+      (data: unknown) =>
+        z
+          .object({
+            conversationId:
+              z.string().uuid(),
 
-    if (memberError) {
-      throw new Error(memberError.message);
-    }
+            preview:
+              z.string().max(160),
 
-    const recipients = (members ?? [])
-      .map((member) => member.user_id)
-      .filter(
-        (userId) => userId !== context.userId,
-      );
+            title:
+              z.string().max(80),
+          })
+          .parse(data),
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        const {
+          data: members,
+          error,
+        } =
+          await context.supabase
+            .from(
+              "conversation_members",
+            )
+            .select(
+              "user_id",
+            )
+            .eq(
+              "conversation_id",
+              data.conversationId,
+            );
 
-    if (!recipients.length) {
-      return { ok: true };
-    }
+        if (error) {
+          throw new Error(
+            error.message,
+          );
+        }
 
-    /*
-     * IMPORTANT:
-     * Get the sender's profile directly from Supabase.
-     *
-     * This prevents "Unknown" when the client doesn't
-     * have the profile loaded.
-     */
-    const { data: sender } = await context.supabase
-      .from("profiles")
-      .select("username, display_name, avatar_url")
-      .eq("id", context.userId)
-      .maybeSingle();
+        const recipients =
+          (
+            members ?? []
+          )
+            .map(
+              (member) =>
+                member.user_id,
+            )
+            .filter(
+              (id) =>
+                id !==
+                context.userId,
+            );
 
-    const senderName =
-      sender?.display_name?.trim() ||
-      sender?.username?.trim() ||
-      "Someone";
+        await fanout(
+          recipients,
+          {
+            kind: "message",
 
-    await fanout(recipients, {
-      kind: "message",
+            title:
+              data.title,
 
-      title: senderName,
+            body:
+              data.preview,
 
-      body: data.preview,
+            conversationId:
+              data.conversationId,
 
-      conversationId: data.conversationId,
+            tag:
+              `chat-${data.conversationId}`,
+          },
+        );
 
-      avatar: sender?.avatar_url ?? null,
+        return {
+          ok: true,
+        };
+      },
+    );
 
-      tag: `chat-${data.conversationId}`,
-    });
-
-    return { ok: true };
-  });
-
-/*
- * ---------------------------------------------------------
+/* ---------------------------------------------------------
  * INCOMING CALL NOTIFICATION
- * ---------------------------------------------------------
- */
+ * --------------------------------------------------------- */
 
-export const notifyIncomingCall = createServerFn({
-  method: "POST",
-})
-  .middleware([requireSupabaseAuth])
-  .validator((data: unknown) =>
-    z
-      .object({
-        calleeId: z.string().uuid(),
-        kind: z.enum(["voice", "video"]),
-        callId: z.string().uuid().optional(),
-      })
-      .parse(data),
-  )
-  .handler(async ({ data, context }) => {
-    if (data.calleeId === context.userId) {
-      return { ok: true };
-    }
+export const notifyIncomingCall =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([
+      requireSupabaseAuth,
+    ])
+    .inputValidator(
+      (data: unknown) =>
+        z
+          .object({
+            calleeId:
+              z.string().uuid(),
 
-    /*
-     * Get caller profile directly from Supabase.
-     */
-    const { data: caller } = await context.supabase
-      .from("profiles")
-      .select("username, display_name, avatar_url")
-      .eq("id", context.userId)
-      .maybeSingle();
+            kind:
+              z.enum([
+                "voice",
+                "video",
+              ]),
 
-    const callerName =
-      caller?.display_name?.trim() ||
-      caller?.username?.trim() ||
-      "Someone";
+            callerName:
+              z.string().max(80),
 
-    await fanout([data.calleeId], {
-      kind: "call",
+            callerAvatar:
+              z
+                .string()
+                .nullable()
+                .optional(),
 
-      title:
-        data.kind === "video"
-          ? `Incoming video call`
-          : `Incoming voice call`,
+            callId:
+              z
+                .string()
+                .uuid()
+                .nullable()
+                .optional(),
 
-      body: `Call from ${callerName}`,
+            missed:
+              z.boolean()
+                .optional(),
+          })
+          .parse(data),
+    )
+    .handler(
+      async ({
+        data,
+        context,
+      }) => {
+        /*
+         * Never notify yourself.
+         */
 
-      callerName,
+        if (
+          data.calleeId ===
+          context.userId
+        ) {
+          return {
+            ok: true,
+          };
+        }
 
-      callerId: context.userId,
+        await fanout(
+          [data.calleeId],
+          {
+            kind: "call",
 
-      callerAvatar:
-        caller?.avatar_url ?? null,
+            title:
+              data.callerName,
 
-      callId: data.callId ?? null,
+            body:
+              data.missed
+                ? `Missed ${data.kind} call`
+                : `Incoming ${data.kind} call`,
 
-      conversationId: null,
+            conversationId:
+              null,
 
-      tag: `call-${context.userId}`,
-    });
+            callId:
+              data.callId ?? null,
 
-    return { ok: true };
-  });
+            callerId:
+              context.userId,
+
+            callerName:
+              data.callerName,
+
+            callerAvatar:
+              data.callerAvatar ??
+              null,
+
+            callKind:
+              data.kind,
+
+            tag:
+              `call-${context.userId}`,
+          },
+        );
+
+        return {
+          ok: true,
+        };
+      },
+    );
