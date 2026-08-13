@@ -2,7 +2,7 @@
 // Registration is refused in dev, iframes and Lovable preview hosts.
 
 export const VAPID_PUBLIC_KEY =
-  "BDXMyhvJNwgSISVDfm0JAadmDMYp_yNKHKYI6na2bqAGLOjZG4Dvpw-L6DikvwfHPpmQntBzbPCTbuasbseW04w";
+  "BDTK7jY_Z3HW7PTwjXHRy74eyiwMByASwWzryPdARs42YctaxTIr5B03jno3pzTR_ZfrfUD_WVbvHMCdJGky1ug";
 
 function isPreviewHost() {
   const h = window.location.hostname;
