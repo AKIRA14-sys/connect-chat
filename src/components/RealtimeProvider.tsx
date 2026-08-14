@@ -56,6 +56,7 @@ type CallState =
 
 type Ctx = {
   onlineIds: Set<string>;
+
   startCall: (
     peer: {
       id: string;
@@ -64,25 +65,106 @@ type Ctx = {
     },
     kind: CallKind,
   ) => Promise<void>;
+
   state: CallState;
 };
 
 const RealtimeContext = createContext<Ctx>({
   onlineIds: new Set(),
   startCall: async () => {},
-  state: { phase: "idle" },
+  state: {
+    phase: "idle",
+  },
 });
+
+/*
+ * =========================================================
+ * WEBRTC ICE CONFIGURATION
+ * =========================================================
+ *
+ * STUN:
+ * Helps browsers discover a direct peer-to-peer route.
+ *
+ * TURN:
+ * Relays audio/video when a direct connection cannot be
+ * established, especially across different networks.
+ *
+ * IMPORTANT:
+ * TURN username and credential come from environment
+ * variables so they are not hard-coded into this file.
+ *
+ * Required environment variables:
+ *
+ * VITE_TURN_USERNAME
+ * VITE_TURN_CREDENTIAL
+ *
+ * The rstream credentials are temporary and expire based
+ * on the TTL supplied by rstream.
+ * =========================================================
+ */
+
+const TURN_USERNAME =
+  import.meta.env.VITE_TURN_USERNAME?.trim() || "";
+
+const TURN_CREDENTIAL =
+  import.meta.env.VITE_TURN_CREDENTIAL?.trim() || "";
 
 const ICE: RTCConfiguration = {
   iceServers: [
+    /*
+     * Google STUN
+     */
     {
       urls: [
         "stun:stun.l.google.com:19302",
         "stun:stun1.l.google.com:19302",
       ],
     },
+
+    /*
+     * rstream TURN
+     *
+     * UDP
+     */
+    ...(TURN_USERNAME && TURN_CREDENTIAL
+      ? [
+          {
+            urls: [
+              "turn:aws-global-1.c.rstream.io:3478?transport=udp",
+              "turn:aws-global-1.c.rstream.io:3478?transport=tcp",
+
+              /*
+               * TURN over TLS.
+               *
+               * TLS TURN uses TCP transport.
+               */
+              "turns:aws-global-1.c.rstream.io:5349?transport=tcp",
+            ],
+            username: TURN_USERNAME,
+            credential: TURN_CREDENTIAL,
+          },
+        ]
+      : []),
   ],
 };
+
+/*
+ * Log whether TURN credentials were loaded.
+ *
+ * We deliberately DO NOT log the username or credential.
+ */
+if (typeof window !== "undefined") {
+  console.log(
+    "[WHATSXUP WEBRTC] TURN configured:",
+    Boolean(TURN_USERNAME && TURN_CREDENTIAL),
+  );
+}
+
+/*
+ * =========================================================
+ * PROVIDER
+ * =========================================================
+ */
 
 export function RealtimeProvider({
   children,
@@ -90,6 +172,12 @@ export function RealtimeProvider({
   children: ReactNode;
 }) {
   const { user } = useAuth();
+
+  /*
+   * =======================================================
+   * STATE
+   * =======================================================
+   */
 
   const [onlineIds, setOnlineIds] = useState<Set<string>>(
     new Set(),
@@ -104,6 +192,12 @@ export function RealtimeProvider({
   const [seconds, setSeconds] = useState(0);
   const [sharingScreen, setSharingScreen] = useState(false);
 
+  /*
+   * =======================================================
+   * WEBRTC REFERENCES
+   * =======================================================
+   */
+
   const pcRef = useRef<RTCPeerConnection | null>(null);
 
   const localRef = useRef<MediaStream | null>(null);
@@ -117,52 +211,95 @@ export function RealtimeProvider({
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
 
   /*
-   * The user's permanent signaling channel.
-   *
-   * signal:<our-user-id>
-   *
-   * This channel stays alive while the user is logged in.
+   * =======================================================
+   * SIGNALING REFERENCES
+   * =======================================================
    */
+
   const signalChannel = useRef<RealtimeChannel | null>(null);
 
-  const signalReady = useRef(false);
+  const outgoingChannels = useRef(
+    new Map<string, RealtimeChannel>(),
+  );
+
+  const pendingOffer =
+    useRef<RTCSessionDescriptionInit | null>(null);
+
+  const pendingIceCandidates =
+    useRef<RTCIceCandidateInit[]>([]);
 
   /*
-   * Pending incoming offer.
+   * =======================================================
+   * GET / CREATE OUTGOING SIGNAL CHANNEL
+   * =======================================================
    */
-  const pendingOffer = useRef<RTCSessionDescriptionInit | null>(
-    null,
+
+  const getOutgoingChannel = useCallback(
+    async (peerId: string) => {
+      const existing =
+        outgoingChannels.current.get(peerId);
+
+      if (existing) {
+        return existing;
+      }
+
+      const channel = supabase.channel(
+        `signal:${peerId}`,
+      );
+
+      const status = await new Promise<string>(
+        (resolve) => {
+          let resolved = false;
+
+          channel.subscribe(
+            (subscriptionStatus) => {
+              if (
+                subscriptionStatus ===
+                  "SUBSCRIBED" ||
+                subscriptionStatus ===
+                  "CHANNEL_ERROR" ||
+                subscriptionStatus ===
+                  "TIMED_OUT"
+              ) {
+                if (!resolved) {
+                  resolved = true;
+                  resolve(
+                    subscriptionStatus,
+                  );
+                }
+              }
+            },
+          );
+        },
+      );
+
+      if (status !== "SUBSCRIBED") {
+        await supabase.removeChannel(
+          channel,
+        );
+
+        throw new Error(
+          `Could not connect to realtime signaling channel: ${status}`,
+        );
+      }
+
+      outgoingChannels.current.set(
+        peerId,
+        channel,
+      );
+
+      return channel;
+    },
+    [],
   );
 
   /*
-   * ICE received before remoteDescription.
-   */
-  const pendingIceCandidates = useRef<RTCIceCandidateInit[]>([]);
-
-  /*
-   * Prevent processing the same database ringing call repeatedly.
-   */
-  const handledIncomingCallId = useRef<string | null>(null);
-
-  /*
-   * Current outgoing call information.
-   */
-  const outgoingCallRef = useRef<{
-    callId: string;
-    peerId: string;
-    kind: CallKind;
-    callerName: string;
-    callerAvatar: string | null;
-    offer?: RTCSessionDescriptionInit;
-  } | null>(null);
-
-  /*
-   * -------------------------------------------------------
-   * SEND THROUGH THE USER'S PERMANENT SIGNAL CHANNEL
-   * -------------------------------------------------------
+   * =======================================================
+   * SEND SIGNAL
+   * =======================================================
    */
 
-  const sendSignal = useCallback(
+  const send = useCallback(
     async (
       to: string,
       type: string,
@@ -172,33 +309,23 @@ export function RealtimeProvider({
         return false;
       }
 
-      const channel = signalChannel.current;
-
-      if (!channel || !signalReady.current) {
-        console.warn(
-          "[WHATSXUP SIGNAL] Channel not ready.",
-          {
-            type,
-            to,
-          },
-        );
-
-        return false;
-      }
-
-      const message: SignalPayload = {
-        type,
-        from: user.id,
-        to,
-        ...payload,
-      };
-
       try {
-        const result = await channel.send({
-          type: "broadcast",
-          event: "signal",
-          payload: message,
-        });
+        const channel =
+          await getOutgoingChannel(to);
+
+        const message: SignalPayload = {
+          type,
+          from: user.id,
+          to,
+          ...(payload as Partial<SignalPayload>),
+        };
+
+        const result =
+          await channel.send({
+            type: "broadcast",
+            event: "signal",
+            payload: message,
+          });
 
         if (result !== "ok") {
           console.error(
@@ -209,77 +336,88 @@ export function RealtimeProvider({
           return false;
         }
 
-        console.log(
-          "[WHATSXUP SIGNAL] SENT:",
-          type,
-          "TO:",
-          to,
-        );
-
         return true;
       } catch (error) {
         console.error(
-          "[WHATSXUP SIGNAL] Send error:",
+          "[WHATSXUP SIGNAL] Error:",
           error,
         );
 
         return false;
       }
     },
-    [user?.id],
+    [user?.id, getOutgoingChannel],
   );
 
   /*
-   * -------------------------------------------------------
-   * CLEANUP WEBRTC
-   * -------------------------------------------------------
+   * =======================================================
+   * CLEANUP SIGNAL CHANNELS
+   * =======================================================
    */
 
-  const cleanupWebRTC = useCallback(() => {
+  const cleanupSignalChannels =
+    useCallback(async () => {
+      const channels = Array.from(
+        outgoingChannels.current.values(),
+      );
+
+      outgoingChannels.current.clear();
+
+      for (const channel of channels) {
+        try {
+          await supabase.removeChannel(
+            channel,
+          );
+        } catch {
+          // Ignore cleanup errors.
+        }
+      }
+    }, []);
+
+  /*
+   * =======================================================
+   * CLEANUP CALL
+   * =======================================================
+   */
+
+  const cleanup = useCallback(() => {
     if (pcRef.current) {
       pcRef.current.ontrack = null;
       pcRef.current.onicecandidate = null;
-      pcRef.current.onconnectionstatechange = null;
       pcRef.current.close();
       pcRef.current = null;
     }
 
     if (localRef.current) {
-      localRef.current.getTracks().forEach((track) => {
-        track.stop();
-      });
+      localRef.current
+        .getTracks()
+        .forEach((track) => {
+          track.stop();
+        });
     }
 
     localRef.current = null;
+
     remoteRef.current = null;
 
     pendingOffer.current = null;
-    pendingIceCandidates.current = [];
 
-    outgoingCallRef.current = null;
+    pendingIceCandidates.current = [];
 
     setMuted(false);
     setCamOff(false);
     setSeconds(0);
     setSharingScreen(false);
 
-    if (localVideo.current) {
-      localVideo.current.srcObject = null;
-    }
-
-    if (remoteVideo.current) {
-      remoteVideo.current.srcObject = null;
-    }
-
-    if (remoteAudio.current) {
-      remoteAudio.current.srcObject = null;
-    }
+    setState({
+      phase: "idle",
+    });
   }, []);
 
   /*
-   * -------------------------------------------------------
-   * GET MEDIA
-   * -------------------------------------------------------
+   * =======================================================
+   * GET CAMERA + MICROPHONE
+   * =======================================================
    */
 
   const getMedia = useCallback(
@@ -292,20 +430,25 @@ export function RealtimeProvider({
           "Camera and microphone are not supported by this browser.",
         );
 
-        throw new Error("getUserMedia unavailable");
+        throw new Error(
+          "getUserMedia unavailable",
+        );
       }
 
       try {
         const stream =
-          await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video:
-              kind === "video"
-                ? {
-                    facingMode: "user",
-                  }
-                : false,
-          });
+          await navigator.mediaDevices.getUserMedia(
+            {
+              audio: true,
+
+              video:
+                kind === "video"
+                  ? {
+                      facingMode: "user",
+                    }
+                  : false,
+            },
+          );
 
         localRef.current = stream;
 
@@ -313,7 +456,8 @@ export function RealtimeProvider({
           localVideo.current &&
           kind === "video"
         ) {
-          localVideo.current.srcObject = stream;
+          localVideo.current.srcObject =
+            stream;
 
           await localVideo.current
             .play()
@@ -322,9 +466,12 @@ export function RealtimeProvider({
 
         return stream;
       } catch (error) {
-        const name = (error as DOMException)?.name;
+        const name =
+          (error as DOMException)?.name;
 
-        if (name === "NotAllowedError") {
+        if (
+          name === "NotAllowedError"
+        ) {
           toast.error(
             "Camera or microphone permission denied.",
             {
@@ -332,11 +479,15 @@ export function RealtimeProvider({
                 "Allow camera and microphone access in your browser settings.",
             },
           );
-        } else if (name === "NotFoundError") {
+        } else if (
+          name === "NotFoundError"
+        ) {
           toast.error(
             "No camera or microphone was found.",
           );
-        } else if (name === "NotReadableError") {
+        } else if (
+          name === "NotReadableError"
+        ) {
           toast.error(
             "Camera or microphone is already being used.",
           );
@@ -353,40 +504,79 @@ export function RealtimeProvider({
   );
 
   /*
-   * -------------------------------------------------------
-   * APPLY QUEUED ICE
-   * -------------------------------------------------------
+   * =======================================================
+   * SHOW LOCAL CAMERA
+   * =======================================================
    */
 
-  const applyPendingIce = useCallback(async () => {
-    const pc = pcRef.current;
-
-    if (!pc || !pc.remoteDescription) {
+  useEffect(() => {
+    if (
+      state.phase === "idle" ||
+      state.kind !== "video"
+    ) {
       return;
     }
 
-    const candidates = [
-      ...pendingIceCandidates.current,
-    ];
-
-    pendingIceCandidates.current = [];
-
-    for (const candidate of candidates) {
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (error) {
-        console.warn(
-          "[WHATSXUP ICE] Could not apply candidate:",
-          error,
-        );
-      }
+    if (
+      !localVideo.current ||
+      !localRef.current
+    ) {
+      return;
     }
-  }, []);
+
+    localVideo.current.srcObject =
+      localRef.current;
+
+    void localVideo.current
+      .play()
+      .catch(() => undefined);
+  }, [
+    state.phase,
+    state.kind,
+    sharingScreen,
+  ]);
 
   /*
-   * -------------------------------------------------------
-   * BUILD PEER
-   * -------------------------------------------------------
+   * =======================================================
+   * APPLY PENDING ICE
+   * =======================================================
+   */
+
+  const applyPendingIce = useCallback(
+    async () => {
+      if (
+        !pcRef.current ||
+        !pcRef.current.remoteDescription
+      ) {
+        return;
+      }
+
+      const candidates = [
+        ...pendingIceCandidates.current,
+      ];
+
+      pendingIceCandidates.current = [];
+
+      for (const candidate of candidates) {
+        try {
+          await pcRef.current.addIceCandidate(
+            candidate,
+          );
+        } catch (error) {
+          console.warn(
+            "[WHATSXUP ICE] Failed pending candidate:",
+            error,
+          );
+        }
+      }
+    },
+    [],
+  );
+
+  /*
+   * =======================================================
+   * BUILD WEBRTC PEER
+   * =======================================================
    */
 
   const buildPeer = useCallback(
@@ -398,45 +588,66 @@ export function RealtimeProvider({
         pcRef.current.close();
       }
 
-      const pc = new RTCPeerConnection(ICE);
+      /*
+       * IMPORTANT:
+       *
+       * This RTCPeerConnection now uses:
+       *
+       * STUN + rstream TURN
+       */
+      const pc =
+        new RTCPeerConnection(ICE);
 
-      stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
-      });
+      stream
+        .getTracks()
+        .forEach((track) => {
+          pc.addTrack(track, stream);
+        });
 
-      const remote = new MediaStream();
+      const remote =
+        new MediaStream();
 
       remoteRef.current = remote;
 
       pc.ontrack = (event) => {
-        if (event.streams[0]) {
-          event.streams[0]
-            .getTracks()
-            .forEach((track) => {
+        const incomingTracks =
+          event.streams[0]?.getTracks();
+
+        if (incomingTracks) {
+          incomingTracks.forEach(
+            (track) => {
               if (
                 !remote
                   .getTracks()
                   .some(
                     (existing) =>
-                      existing.id === track.id,
+                      existing.id ===
+                      track.id,
                   )
               ) {
                 remote.addTrack(track);
               }
-            });
-        } else if (
-          !remote
-            .getTracks()
-            .some(
-              (existing) =>
-                existing.id === event.track.id,
-            )
-        ) {
-          remote.addTrack(event.track);
+            },
+          );
+        } else {
+          if (
+            !remote
+              .getTracks()
+              .some(
+                (existing) =>
+                  existing.id ===
+                  event.track.id,
+              )
+          ) {
+            remote.addTrack(
+              event.track,
+            );
+          }
         }
 
         if (remoteVideo.current) {
-          remoteVideo.current.srcObject = remote;
+          remoteVideo.current.srcObject =
+            remote;
 
           void remoteVideo.current
             .play()
@@ -444,7 +655,8 @@ export function RealtimeProvider({
         }
 
         if (remoteAudio.current) {
-          remoteAudio.current.srcObject = remote;
+          remoteAudio.current.srcObject =
+            remote;
 
           void remoteAudio.current
             .play()
@@ -452,90 +664,78 @@ export function RealtimeProvider({
         }
       };
 
+      /*
+       * Send ICE candidates through Supabase
+       * signaling.
+       */
       pc.onicecandidate = (event) => {
         if (!event.candidate) {
           return;
         }
 
-        void sendSignal(peerId, "ice", {
+        void send(peerId, "ice", {
           candidate:
             event.candidate.toJSON(),
         });
       };
 
-      pc.onconnectionstatechange = () => {
-        console.log(
-          "[WHATSXUP WEBRTC]",
-          pc.connectionState,
-        );
-
-        if (
-          pc.connectionState === "connected"
-        ) {
+      /*
+       * Useful debugging information.
+       */
+      pc.oniceconnectionstatechange =
+        () => {
           console.log(
-            "[WHATSXUP WEBRTC] CONNECTED",
+            "[WHATSXUP WEBRTC] ICE connection:",
+            pc.iceConnectionState,
           );
-        }
+        };
 
-        if (
-          pc.connectionState === "failed"
-        ) {
-          toast.error(
-            "The call connection failed.",
+      pc.onconnectionstatechange =
+        () => {
+          console.log(
+            "[WHATSXUP WEBRTC] Connection:",
+            pc.connectionState,
           );
-        }
-      };
+
+          if (
+            pc.connectionState ===
+              "failed" ||
+            pc.connectionState ===
+              "closed"
+          ) {
+            console.warn(
+              "[WHATSXUP WEBRTC] Connection lost.",
+            );
+          }
+        };
 
       pcRef.current = pc;
 
       return pc;
     },
-    [sendSignal],
+    [send],
   );
 
   /*
-   * -------------------------------------------------------
-   * CLEANUP WHOLE CALL
-   * -------------------------------------------------------
-   */
-
-  const cleanup = useCallback(() => {
-    cleanupWebRTC();
-
-    handledIncomingCallId.current = null;
-
-    setState({
-      phase: "idle",
-    });
-  }, [cleanupWebRTC]);
-
-  /*
-   * -------------------------------------------------------
-   * PERMANENT SIGNAL CHANNEL
-   *
-   * This channel is created immediately after login.
-   *
-   * The important difference is:
-   *
-   * Caller DOES NOT create a temporary channel.
-   *
-   * Both users permanently listen on their own channels.
-   * -------------------------------------------------------
+   * =======================================================
+   * PERSISTENT INCOMING SIGNALING CHANNEL
+   * =======================================================
    */
 
   useEffect(() => {
     if (!user?.id) {
-      signalReady.current = false;
       return;
     }
 
     let cancelled = false;
 
-    const channel = supabase.channel(
-      `signal:${user.id}`,
-    );
+    const channel =
+      supabase.channel(
+        `signal:${user.id}`,
+      );
 
-    signalChannel.current = channel;
+    signalChannel.current =
+      channel;
 
     channel.on(
       "broadcast",
@@ -547,7 +747,8 @@ export function RealtimeProvider({
           return;
         }
 
-        const p = payload as SignalPayload;
+        const p =
+          payload as SignalPayload;
 
         if (
           p.to &&
@@ -566,54 +767,12 @@ export function RealtimeProvider({
         console.log(
           "[WHATSXUP SIGNAL RECEIVED]",
           p.type,
-          p,
         );
 
         /*
-         * -------------------------------------------------
-         * READY
-         *
-         * Receiver tells caller:
-         * "I am listening now. Send me the offer."
-         * -------------------------------------------------
-         */
-
-        if (p.type === "ready") {
-          const outgoing =
-            outgoingCallRef.current;
-
-          if (
-            !outgoing ||
-            outgoing.peerId !== p.from
-          ) {
-            return;
-          }
-
-          if (outgoing.offer) {
-            await sendSignal(
-              outgoing.peerId,
-              "offer",
-              {
-                sdp: outgoing.offer,
-                callId:
-                  outgoing.callId,
-                kind:
-                  outgoing.kind,
-                name:
-                  outgoing.callerName,
-                avatar:
-                  outgoing.callerAvatar,
-              },
-            );
-          }
-
-          return;
-        }
-
-        /*
-         * -------------------------------------------------
-         * OFFER
-         * -------------------------------------------------
+         * =================================================
+         * INCOMING OFFER
+         * =================================================
          */
 
         if (p.type === "offer") {
@@ -623,28 +782,16 @@ export function RealtimeProvider({
             !p.callId
           ) {
             console.error(
-              "[WHATSXUP] Invalid offer.",
+              "[WHATSXUP] Invalid offer received.",
             );
 
             return;
           }
 
-          /*
-           * The database ringing detector should
-           * already have displayed the incoming call.
-           *
-           * But if the offer arrives first, we still
-           * create the incoming UI as a fallback.
-           */
-
           if (
-            state.phase !== "idle" &&
-            !(
-              state.phase === "incoming" &&
-              state.callId === p.callId
-            )
+            state.phase !== "idle"
           ) {
-            await sendSignal(
+            await send(
               p.from,
               "busy",
               {},
@@ -653,9 +800,11 @@ export function RealtimeProvider({
             return;
           }
 
-          pendingOffer.current = p.sdp;
+          pendingOffer.current =
+            p.sdp;
 
-          pendingIceCandidates.current = [];
+          pendingIceCandidates.current =
+            [];
 
           const incomingName =
             p.name?.trim() ||
@@ -671,32 +820,31 @@ export function RealtimeProvider({
               ? "video"
               : "voice";
 
-          setState((current) => {
-            if (
-              current.phase === "incoming" &&
-              current.callId === p.callId
-            ) {
-              return current;
-            }
-
-            return {
-              phase: "incoming",
-              callId: p.callId!,
-              peerId: p.from!,
-              peerName: incomingName,
-              peerAvatar:
-                incomingAvatar,
-              kind: incomingKind,
-            };
+          setState({
+            phase: "incoming",
+            callId: p.callId,
+            peerId: p.from,
+            peerName: incomingName,
+            peerAvatar:
+              incomingAvatar,
+            kind: incomingKind,
           });
+
+          toast.info(
+            `Incoming ${incomingKind} call`,
+            {
+              description:
+                incomingName,
+            },
+          );
 
           return;
         }
 
         /*
-         * -------------------------------------------------
+         * =================================================
          * ANSWER
-         * -------------------------------------------------
+         * =================================================
          */
 
         if (p.type === "answer") {
@@ -715,28 +863,14 @@ export function RealtimeProvider({
             await applyPendingIce();
 
             setState((current) =>
-              current.phase === "outgoing"
+              current.phase ===
+              "outgoing"
                 ? {
                     ...current,
                     phase: "active",
                   }
                 : current,
             );
-
-            if (
-              outgoingCallRef.current
-            ) {
-              await supabase
-                .from("calls")
-                .update({
-                  status: "accepted",
-                })
-                .eq(
-                  "id",
-                  outgoingCallRef.current
-                    .callId,
-                );
-            }
           } catch (error) {
             console.error(
               "[WHATSXUP ANSWER]",
@@ -748,9 +882,9 @@ export function RealtimeProvider({
         }
 
         /*
-         * -------------------------------------------------
+         * =================================================
          * ICE
-         * -------------------------------------------------
+         * =================================================
          */
 
         if (p.type === "ice") {
@@ -784,13 +918,15 @@ export function RealtimeProvider({
         }
 
         /*
-         * -------------------------------------------------
+         * =================================================
          * DECLINE
-         * -------------------------------------------------
+         * =================================================
          */
 
         if (p.type === "decline") {
-          toast.info("Call declined.");
+          toast.info(
+            "Call declined",
+          );
 
           cleanup();
 
@@ -798,9 +934,9 @@ export function RealtimeProvider({
         }
 
         /*
-         * -------------------------------------------------
+         * =================================================
          * END
-         * -------------------------------------------------
+         * =================================================
          */
 
         if (p.type === "end") {
@@ -810,9 +946,9 @@ export function RealtimeProvider({
         }
 
         /*
-         * -------------------------------------------------
+         * =================================================
          * BUSY
-         * -------------------------------------------------
+         * =================================================
          */
 
         if (p.type === "busy") {
@@ -834,52 +970,57 @@ export function RealtimeProvider({
         status,
       );
 
-      if (status === "SUBSCRIBED") {
-        signalReady.current = true;
-
+      if (
+        status === "SUBSCRIBED"
+      ) {
         console.log(
-          "[WHATSXUP] SIGNALING READY:",
-          user.id,
+          "[WHATSXUP] Incoming call signaling is READY.",
         );
-      } else {
-        signalReady.current = false;
+      }
+
+      if (
+        status === "CHANNEL_ERROR"
+      ) {
+        console.error(
+          "[WHATSXUP] Signal channel error.",
+        );
+      }
+
+      if (
+        status === "TIMED_OUT"
+      ) {
+        console.error(
+          "[WHATSXUP] Signal channel timed out.",
+        );
       }
     });
 
     return () => {
       cancelled = true;
-      signalReady.current = false;
 
       if (
-        signalChannel.current === channel
+        signalChannel.current ===
+        channel
       ) {
-        signalChannel.current = null;
+        signalChannel.current =
+          null;
       }
 
-      void supabase.removeChannel(channel);
+      void supabase.removeChannel(
+        channel,
+      );
     };
   }, [
     user?.id,
-    applyPendingIce,
     cleanup,
-    sendSignal,
+    send,
+    applyPendingIce,
   ]);
 
   /*
-   * -------------------------------------------------------
-   * RELIABLE DATABASE RINGING DETECTOR
-   *
-   * This is the key change.
-   *
-   * Instead of relying only on Broadcast, the receiver
-   * checks the calls table for calls where:
-   *
-   * callee_id = me
-   * status = ringing
-   *
-   * Therefore a missed Broadcast cannot prevent the
-   * incoming call UI from appearing.
-   * -------------------------------------------------------
+   * =======================================================
+   * ONLINE PRESENCE
+   * =======================================================
    */
 
   useEffect(() => {
@@ -887,734 +1028,118 @@ export function RealtimeProvider({
       return;
     }
 
-    let cancelled = false;
-
-    const checkIncomingCall = async () => {
-      if (cancelled) {
-        return;
-      }
-
-      /*
-       * Don't interrupt an active/outgoing call.
-       */
-      if (state.phase !== "idle") {
-        return;
-      }
-
-      try {
-        const { data: call, error } =
-          await supabase
-            .from("calls")
-            .select(
-              "id, caller_id, callee_id, kind, status, created_at",
-            )
-            .eq(
-              "callee_id",
-              user.id,
-            )
-            .eq(
-              "status",
-              "ringing",
-            )
-            .order(
-              "created_at",
-              {
-                ascending: false,
-              },
-            )
-            .limit(1)
-            .maybeSingle();
-
-        if (error) {
-          console.error(
-            "[WHATSXUP CALL POLL]",
-            error,
-          );
-
-          return;
-        }
-
-        if (
-          !call ||
-          cancelled
-        ) {
-          return;
-        }
-
-        if (
-          handledIncomingCallId.current ===
-          call.id
-        ) {
-          return;
-        }
-
-        handledIncomingCallId.current =
-          call.id;
-
-        /*
-         * Get caller profile.
-         */
-
-        const { data: caller } =
-          await supabase
-            .from("profiles")
-            .select(
-              "display_name, username, avatar_url",
-            )
-            .eq(
-              "id",
-              call.caller_id,
-            )
-            .maybeSingle();
-
-        if (cancelled) {
-          return;
-        }
-
-        const callerName =
-          caller?.display_name?.trim() ||
-          (caller?.username
-            ? `@${caller.username}`
-            : "Someone");
-
-        const callerAvatar =
-          caller?.avatar_url ??
-          null;
-
-        const kind =
-          call.kind === "video"
-            ? "video"
-            : "voice";
-
-        /*
-         * SHOW INCOMING UI.
-         */
-
-        setState({
-          phase: "incoming",
-          callId: call.id,
-          peerId: call.caller_id,
-          peerName: callerName,
-          peerAvatar: callerAvatar,
-          kind,
-        });
-
-        /*
-         * Tell caller:
-         *
-         * "I have detected your ringing call
-         * and my signaling channel is ready."
-         */
-
-        if (
-          signalReady.current
-        ) {
-          await sendSignal(
-            call.caller_id,
-            "ready",
-            {
-              callId: call.id,
+    const channel =
+      supabase.channel(
+        "presence:online",
+        {
+          config: {
+            presence: {
+              key: user.id,
             },
-          );
-        }
-
-        toast.info(
-          `Incoming ${kind} call`,
-          {
-            description:
-              callerName,
           },
-        );
-      } catch (error) {
-        console.error(
-          "[WHATSXUP INCOMING CALL]",
-          error,
-        );
-      }
-    };
+        },
+      );
 
-    /*
-     * Check immediately.
-     */
-    void checkIncomingCall();
+    channel.on(
+      "presence",
+      {
+        event: "sync",
+      },
+      () => {
+        setOnlineIds(
+          new Set(
+            Object.keys(
+              channel.presenceState(),
+            ),
+          ),
+        );
+      },
+    );
 
-    /*
-     * Poll every 1 second.
-     *
-     * This makes the ringing state reliable even if
-     * Supabase Realtime database replication isn't
-     * enabled for the calls table.
-     */
-    const interval =
-      window.setInterval(() => {
-        void checkIncomingCall();
-      }, 1000);
+    channel.subscribe(
+      async (status) => {
+        if (
+          status === "SUBSCRIBED"
+        ) {
+          await channel.track({
+            at: Date.now(),
+          });
+        }
+      },
+    );
+
+    void supabase
+      .from("profiles")
+      .update({
+        is_online: true,
+        last_seen:
+          new Date().toISOString(),
+      })
+      .eq("id", user.id);
+
+    const heartbeat =
+      setInterval(() => {
+        void supabase
+          .from("profiles")
+          .update({
+            last_seen:
+              new Date().toISOString(),
+          })
+          .eq("id", user.id);
+      }, 60000);
 
     return () => {
-      cancelled = true;
-      window.clearInterval(interval);
+      clearInterval(
+        heartbeat,
+      );
+
+      void supabase
+        .from("profiles")
+        .update({
+          is_online: false,
+        })
+        .eq("id", user.id);
+
+      void supabase.removeChannel(
+        channel,
+      );
     };
-  }, [
-    user?.id,
-    state.phase,
-    sendSignal,
-  ]);
+  }, [user?.id]);
 
   /*
-   * -------------------------------------------------------
+   * =======================================================
    * CALL TIMER
-   * -------------------------------------------------------
+   * =======================================================
    */
 
   useEffect(() => {
-    if (state.phase !== "active") {
+    if (
+      state.phase !== "active"
+    ) {
       return;
     }
 
-    const timer = window.setInterval(() => {
-      setSeconds(
-        (current) => current + 1,
-      );
-    }, 1000);
+    const timer =
+      setInterval(() => {
+        setSeconds(
+          (current) =>
+            current + 1,
+        );
+      }, 1000);
 
     return () => {
-      window.clearInterval(timer);
+      clearInterval(timer);
     };
   }, [state.phase]);
 
   /*
-   * -------------------------------------------------------
-   * LOCAL VIDEO
-   * -------------------------------------------------------
-   */
-
-  useEffect(() => {
-    if (
-      state.phase === "idle" ||
-      state.kind !== "video"
-    ) {
-      return;
-    }
-
-    if (
-      localVideo.current &&
-      localRef.current
-    ) {
-      localVideo.current.srcObject =
-        localRef.current;
-
-      void localVideo.current
-        .play()
-        .catch(() => undefined);
-    }
-  }, [
-    state.phase,
-    state.kind,
-    sharingScreen,
-  ]);
-
-  /*
-   * -------------------------------------------------------
-   * START CALL
-   * -------------------------------------------------------
-   */
-
-  const startCall = useCallback(
-    async (
-      peer: {
-        id: string;
-        name: string;
-        avatar: string | null;
-      },
-      kind: CallKind,
-    ) => {
-      if (!user?.id) {
-        return;
-      }
-
-      if (state.phase !== "idle") {
-        toast.info(
-          "You are already in a call.",
-        );
-
-        return;
-      }
-
-      /*
-       * VERY IMPORTANT:
-       *
-       * Make sure OUR signaling channel is ready
-       * before creating the call.
-       */
-
-      if (
-        !signalChannel.current ||
-        !signalReady.current
-      ) {
-        toast.error(
-          "Call connection is still starting. Please try again.",
-        );
-
-        return;
-      }
-
-      /*
-       * Create database ringing record FIRST.
-       *
-       * This is what the receiver detects.
-       */
-
-      const {
-        data,
-        error,
-      } = await supabase
-        .from("calls")
-        .insert({
-          caller_id: user.id,
-          callee_id: peer.id,
-          kind,
-          status: "ringing",
-        })
-        .select("id")
-        .single();
-
-      if (error || !data) {
-        toast.error(
-          error?.message ||
-            "Could not create call.",
-        );
-
-        return;
-      }
-
-      /*
-       * Start camera/microphone.
-       */
-
-      let stream: MediaStream;
-
-      try {
-        stream =
-          await getMedia(kind);
-      } catch {
-        await supabase
-          .from("calls")
-          .update({
-            status: "failed",
-            ended_at:
-              new Date().toISOString(),
-          })
-          .eq(
-            "id",
-            data.id,
-          );
-
-        return;
-      }
-
-      /*
-       * Caller profile.
-       */
-
-      const { data: me } =
-        await supabase
-          .from("profiles")
-          .select(
-            "display_name, username, avatar_url",
-          )
-          .eq(
-            "id",
-            user.id,
-          )
-          .maybeSingle();
-
-      const callerName =
-        me?.display_name?.trim() ||
-        (me?.username
-          ? `@${me.username}`
-          : null) ||
-        user.email?.split("@")[0] ||
-        "Someone";
-
-      const callerAvatar =
-        me?.avatar_url ?? null;
-
-      /*
-       * Build WebRTC connection.
-       */
-
-      const pc =
-        buildPeer(
-          peer.id,
-          stream,
-        );
-
-      /*
-       * Create offer.
-       */
-
-      const offer =
-        await pc.createOffer();
-
-      await pc.setLocalDescription(
-        offer,
-      );
-
-      /*
-       * Save everything locally.
-       *
-       * We DO NOT send the offer immediately.
-       *
-       * We wait for the receiver's "ready".
-       */
-
-      outgoingCallRef.current = {
-        callId: data.id,
-        peerId: peer.id,
-        kind,
-        callerName,
-        callerAvatar,
-        offer,
-      };
-
-      /*
-       * Show caller UI.
-       */
-
-      setState({
-        phase: "outgoing",
-        callId: data.id,
-        peerId: peer.id,
-        peerName: peer.name,
-        peerAvatar: peer.avatar,
-        kind,
-      });
-
-      /*
-       * Send push notification.
-       *
-       * This is only a notification.
-       * It is NOT used as WebRTC signaling.
-       */
-
-      try {
-        await notifyIncomingCall({
-          calleeId: peer.id,
-          kind,
-          callerName,
-          callerAvatar,
-          callId: data.id,
-        });
-      } catch (error) {
-        console.error(
-          "[WHATSXUP CALL PUSH]",
-          error,
-        );
-      }
-
-      /*
-       * Immediately attempt a ready message.
-       *
-       * If receiver isn't ready yet, the database
-       * polling on the receiver will eventually detect
-       * the call and send "ready".
-       */
-
-      await sendSignal(
-        peer.id,
-        "ready-check",
-        {
-          callId: data.id,
-        },
-      );
-    },
-    [
-      user,
-      state.phase,
-      getMedia,
-      buildPeer,
-      sendSignal,
-    ],
-  );
-
-  /*
-   * -------------------------------------------------------
-   * ACCEPT CALL
-   * -------------------------------------------------------
-   */
-
-  const accept = useCallback(
-    async () => {
-      if (
-        state.phase !== "incoming"
-      ) {
-        return;
-      }
-
-      /*
-       * The receiver might see the ringing UI before
-       * the offer arrives.
-       *
-       * Wait briefly for the offer instead of failing
-       * immediately.
-       */
-
-      let attempts = 0;
-
-      while (
-        !pendingOffer.current &&
-        attempts < 50
-      ) {
-        await new Promise(
-          (resolve) =>
-            setTimeout(
-              resolve,
-              100,
-            ),
-        );
-
-        attempts++;
-      }
-
-      if (
-        !pendingOffer.current
-      ) {
-        /*
-         * The caller's offer hasn't arrived.
-         *
-         * Ask caller to resend it.
-         */
-
-        await sendSignal(
-          state.peerId,
-          "ready",
-          {
-            callId:
-              state.callId,
-          },
-        );
-
-        toast.info(
-          "Connecting to caller…",
-        );
-
-        return;
-      }
-
-      let stream: MediaStream;
-
-      try {
-        stream =
-          await getMedia(
-            state.kind,
-          );
-      } catch {
-        await sendSignal(
-          state.peerId,
-          "decline",
-          {},
-        );
-
-        await supabase
-          .from("calls")
-          .update({
-            status: "declined",
-            ended_at:
-              new Date().toISOString(),
-          })
-          .eq(
-            "id",
-            state.callId,
-          );
-
-        cleanup();
-
-        return;
-      }
-
-      const pc =
-        buildPeer(
-          state.peerId,
-          stream,
-        );
-
-      try {
-        await pc.setRemoteDescription(
-          pendingOffer.current,
-        );
-
-        await applyPendingIce();
-
-        const answer =
-          await pc.createAnswer();
-
-        await pc.setLocalDescription(
-          answer,
-        );
-
-        const sent =
-          await sendSignal(
-            state.peerId,
-            "answer",
-            {
-              sdp: answer,
-              callId:
-                state.callId,
-            },
-          );
-
-        if (!sent) {
-          toast.error(
-            "Could not connect the call.",
-          );
-
-          cleanup();
-
-          return;
-        }
-
-        await supabase
-          .from("calls")
-          .update({
-            status: "accepted",
-          })
-          .eq(
-            "id",
-            state.callId,
-          );
-
-        pendingOffer.current = null;
-
-        setState((current) => ({
-          ...current,
-          phase: "active",
-        }));
-      } catch (error) {
-        console.error(
-          "[WHATSXUP ACCEPT]",
-          error,
-        );
-
-        toast.error(
-          "Could not accept the call.",
-        );
-
-        cleanup();
-      }
-    },
-    [
-      state,
-      getMedia,
-      buildPeer,
-      sendSignal,
-      cleanup,
-      applyPendingIce,
-    ],
-  );
-
-  /*
-   * -------------------------------------------------------
-   * DECLINE
-   * -------------------------------------------------------
-   */
-
-  const decline = useCallback(
-    async () => {
-      if (
-        state.phase === "idle"
-      ) {
-        return;
-      }
-
-      await sendSignal(
-        state.peerId,
-        "decline",
-        {
-          callId:
-            state.callId,
-        },
-      );
-
-      await supabase
-        .from("calls")
-        .update({
-          status:
-            state.phase ===
-            "incoming"
-              ? "declined"
-              : "missed",
-          ended_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          state.callId,
-        );
-
-      cleanup();
-    },
-    [
-      state,
-      sendSignal,
-      cleanup,
-    ],
-  );
-
-  /*
-   * -------------------------------------------------------
-   * HANG UP
-   * -------------------------------------------------------
-   */
-
-  const hangUp = useCallback(
-    async () => {
-      if (
-        state.phase === "idle"
-      ) {
-        return;
-      }
-
-      await sendSignal(
-        state.peerId,
-        "end",
-        {
-          callId:
-            state.callId,
-        },
-      );
-
-      await supabase
-        .from("calls")
-        .update({
-          status:
-            state.phase === "active"
-              ? "ended"
-              : "missed",
-          ended_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          state.callId,
-        );
-
-      cleanup();
-    },
-    [
-      state,
-      sendSignal,
-      cleanup,
-    ],
-  );
-
-  /*
-   * -------------------------------------------------------
+   * =======================================================
    * SWITCH CAMERA
-   * -------------------------------------------------------
+   * =======================================================
    */
 
-  const switchCamera = useCallback(
-    async () => {
+  const switchCamera =
+    useCallback(async () => {
       if (
         state.phase === "idle" ||
         state.kind !== "video" ||
@@ -1708,7 +1233,7 @@ export function RealtimeProvider({
         setCamOff(false);
       } catch (error) {
         console.error(
-          "[WHATSXUP CAMERA]",
+          "[WHATSXUP CAMERA SWITCH]",
           error,
         );
 
@@ -1716,14 +1241,12 @@ export function RealtimeProvider({
           "Could not switch camera.",
         );
       }
-    },
-    [state],
-  );
+    }, [state]);
 
   /*
-   * -------------------------------------------------------
-   * RESTORE CAMERA
-   * -------------------------------------------------------
+   * =======================================================
+   * RESTORE CAMERA AFTER SCREEN SHARE
+   * =======================================================
    */
 
   const restoreCameraAfterScreenShare =
@@ -1816,13 +1339,13 @@ export function RealtimeProvider({
     }, [state]);
 
   /*
-   * -------------------------------------------------------
-   * SCREEN SHARE
-   * -------------------------------------------------------
+   * =======================================================
+   * SCREEN SHARING
+   * =======================================================
    */
 
-  const shareScreen = useCallback(
-    async () => {
+  const shareScreen =
+    useCallback(async () => {
       if (
         state.phase === "idle" ||
         state.kind !== "video" ||
@@ -1832,7 +1355,8 @@ export function RealtimeProvider({
       }
 
       if (
-        !navigator.mediaDevices?.getDisplayMedia
+        !navigator.mediaDevices
+          ?.getDisplayMedia
       ) {
         toast.error(
           "Screen sharing is not supported by this browser.",
@@ -1868,6 +1392,7 @@ export function RealtimeProvider({
 
         if (!sender) {
           screenTrack.stop();
+
           return;
         }
 
@@ -1876,10 +1401,13 @@ export function RealtimeProvider({
         );
 
         if (localVideo.current) {
-          localVideo.current.srcObject =
+          const preview =
             new MediaStream([
               screenTrack,
             ]);
+
+          localVideo.current.srcObject =
+            preview;
 
           await localVideo.current
             .play()
@@ -1888,15 +1416,17 @@ export function RealtimeProvider({
 
         setSharingScreen(true);
 
-        screenTrack.onended = () => {
-          void restoreCameraAfterScreenShare();
-        };
+        screenTrack.onended =
+          () => {
+            void restoreCameraAfterScreenShare();
+          };
       } catch (error) {
         const name =
           (error as DOMException)?.name;
 
         if (
-          name !== "NotAllowedError"
+          name !==
+          "NotAllowedError"
         ) {
           console.error(
             "[WHATSXUP SCREEN SHARE]",
@@ -1908,139 +1438,427 @@ export function RealtimeProvider({
           );
         }
       }
-    },
-    [
+    }, [
       state,
       restoreCameraAfterScreenShare,
-    ],
-  );
+    ]);
 
   /*
-   * -------------------------------------------------------
-   * ONLINE PRESENCE
-   * -------------------------------------------------------
+   * =======================================================
+   * START CALL
+   * =======================================================
    */
 
-  useEffect(() => {
-    if (!user?.id) {
-      return;
-    }
-
-    const channel =
-      supabase.channel(
-        "presence:online",
-        {
-          config: {
-            presence: {
-              key: user.id,
-            },
-          },
+  const startCall =
+    useCallback(
+      async (
+        peer: {
+          id: string;
+          name: string;
+          avatar: string | null;
         },
-      );
+        kind: CallKind,
+      ) => {
+        if (!user?.id) {
+          return;
+        }
 
-    channel.on(
-      "presence",
-      {
-        event: "sync",
-      },
-      () => {
-        setOnlineIds(
-          new Set(
-            Object.keys(
-              channel.presenceState(),
-            ),
-          ),
-        );
-      },
-    );
-
-    channel.subscribe(
-      async (status) => {
         if (
-          status === "SUBSCRIBED"
+          state.phase !== "idle"
         ) {
-          await channel.track({
-            at: Date.now(),
+          toast.info(
+            "You are already in a call.",
+          );
+
+          return;
+        }
+
+        const {
+          data,
+          error,
+        } = await supabase
+          .from("calls")
+          .insert({
+            caller_id: user.id,
+            callee_id: peer.id,
+            kind,
+            status: "ringing",
+          })
+          .select("id")
+          .single();
+
+        if (error) {
+          toast.error(
+            error.message,
+          );
+
+          return;
+        }
+
+        let stream: MediaStream;
+
+        try {
+          stream =
+            await getMedia(kind);
+        } catch {
+          await supabase
+            .from("calls")
+            .update({
+              status: "failed",
+              ended_at:
+                new Date().toISOString(),
+            })
+            .eq(
+              "id",
+              data.id,
+            );
+
+          return;
+        }
+
+        setState({
+          phase: "outgoing",
+          callId: data.id,
+          peerId: peer.id,
+          peerName: peer.name,
+          peerAvatar:
+            peer.avatar,
+          kind,
+        });
+
+        const pc =
+          buildPeer(
+            peer.id,
+            stream,
+          );
+
+        const offer =
+          await pc.createOffer();
+
+        await pc.setLocalDescription(
+          offer,
+        );
+
+        const {
+          data: me,
+        } = await supabase
+          .from("profiles")
+          .select(
+            "display_name, username, avatar_url",
+          )
+          .eq(
+            "id",
+            user.id,
+          )
+          .single();
+
+        const callerName =
+          me?.display_name?.trim() ||
+          me?.username?.trim() ||
+          user.email?.split(
+            "@",
+          )[0] ||
+          "Someone";
+
+        const callerAvatar =
+          me?.avatar_url ??
+          null;
+
+        const sent =
+          await send(
+            peer.id,
+            "offer",
+            {
+              sdp: offer,
+              callId: data.id,
+              kind,
+              name: callerName,
+              avatar:
+                callerAvatar,
+            },
+          );
+
+        if (!sent) {
+          toast.error(
+            "Could not connect to the other user.",
+          );
+
+          await supabase
+            .from("calls")
+            .update({
+              status: "failed",
+              ended_at:
+                new Date().toISOString(),
+            })
+            .eq(
+              "id",
+              data.id,
+            );
+
+          cleanup();
+
+          return;
+        }
+
+        try {
+          await notifyIncomingCall({
+            calleeId: peer.id,
+            kind,
+            callerName,
+            callerAvatar,
           });
+        } catch (error) {
+          console.error(
+            "[WHATSXUP CALL PUSH]",
+            error,
+          );
         }
       },
+      [
+        user?.id,
+        user,
+        state.phase,
+        getMedia,
+        buildPeer,
+        send,
+        cleanup,
+      ],
     );
 
-    void supabase
-      .from("profiles")
-      .update({
-        is_online: true,
-        last_seen:
-          new Date().toISOString(),
-      })
-      .eq("id", user.id);
+  /*
+   * =======================================================
+   * ACCEPT CALL
+   * =======================================================
+   */
 
-    const heartbeat =
-      window.setInterval(() => {
-        void supabase
-          .from("profiles")
+  const accept =
+    useCallback(async () => {
+      if (
+        state.phase !==
+          "incoming" ||
+        !pendingOffer.current
+      ) {
+        return;
+      }
+
+      let stream: MediaStream;
+
+      try {
+        stream =
+          await getMedia(
+            state.kind,
+          );
+      } catch {
+        await send(
+          state.peerId,
+          "decline",
+          {},
+        );
+
+        cleanup();
+
+        return;
+      }
+
+      const pc =
+        buildPeer(
+          state.peerId,
+          stream,
+        );
+
+      try {
+        await pc.setRemoteDescription(
+          pendingOffer.current,
+        );
+
+        await applyPendingIce();
+
+        const answer =
+          await pc.createAnswer();
+
+        await pc.setLocalDescription(
+          answer,
+        );
+
+        const sent =
+          await send(
+            state.peerId,
+            "answer",
+            {
+              sdp: answer,
+            },
+          );
+
+        if (!sent) {
+          toast.error(
+            "Could not send call answer.",
+          );
+
+          cleanup();
+
+          return;
+        }
+
+        await supabase
+          .from("calls")
           .update({
-            last_seen:
-              new Date().toISOString(),
+            status: "accepted",
           })
-          .eq("id", user.id);
-      }, 60000);
+          .eq(
+            "id",
+            state.callId,
+          );
 
-    return () => {
-      window.clearInterval(
-        heartbeat,
-      );
+        setState({
+          ...state,
+          phase: "active",
+        });
 
-      void supabase
-        .from("profiles")
-        .update({
-          is_online: false,
-        })
-        .eq("id", user.id);
+        pendingOffer.current =
+          null;
+      } catch (error) {
+        console.error(
+          "[WHATSXUP ACCEPT]",
+          error,
+        );
 
-      void supabase.removeChannel(
-        channel,
-      );
-    };
-  }, [user?.id]);
+        toast.error(
+          "Could not accept the call.",
+        );
+
+        cleanup();
+      }
+    }, [
+      state,
+      getMedia,
+      buildPeer,
+      send,
+      cleanup,
+      applyPendingIce,
+    ]);
 
   /*
-   * -------------------------------------------------------
-   * CLEANUP WHEN USER LOGS OUT
-   * -------------------------------------------------------
+   * =======================================================
+   * DECLINE
+   * =======================================================
+   */
+
+  const decline =
+    useCallback(async () => {
+      if (
+        state.phase === "idle"
+      ) {
+        return;
+      }
+
+      await send(
+        state.peerId,
+        "decline",
+        {},
+      );
+
+      await supabase
+        .from("calls")
+        .update({
+          status:
+            state.phase ===
+            "incoming"
+              ? "declined"
+              : "missed",
+          ended_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "id",
+          state.callId,
+        );
+
+      cleanup();
+    }, [
+      state,
+      send,
+      cleanup,
+    ]);
+
+  /*
+   * =======================================================
+   * HANG UP
+   * =======================================================
+   */
+
+  const hangUp =
+    useCallback(async () => {
+      if (
+        state.phase === "idle"
+      ) {
+        return;
+      }
+
+      await send(
+        state.peerId,
+        "end",
+        {},
+      );
+
+      await supabase
+        .from("calls")
+        .update({
+          status:
+            state.phase ===
+            "active"
+              ? "ended"
+              : "missed",
+          ended_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "id",
+          state.callId,
+        );
+
+      cleanup();
+    }, [
+      state,
+      send,
+      cleanup,
+    ]);
+
+  /*
+   * =======================================================
+   * CLEANUP OUTGOING SIGNAL CHANNELS
+   * =======================================================
    */
 
   useEffect(() => {
-    if (user?.id) {
-      return;
-    }
-
-    cleanup();
-  }, [user?.id, cleanup]);
+    return () => {
+      void cleanupSignalChannels();
+    };
+  }, [cleanupSignalChannels]);
 
   /*
-   * -------------------------------------------------------
-   * CONTEXT
-   * -------------------------------------------------------
+   * =======================================================
+   * CONTEXT VALUE
+   * =======================================================
    */
 
-  const value = useMemo(
-    () => ({
-      onlineIds,
-      startCall,
-      state,
-    }),
-    [
-      onlineIds,
-      startCall,
-      state,
-    ],
-  );
+  const value =
+    useMemo(
+      () => ({
+        onlineIds,
+        startCall,
+        state,
+      }),
+      [
+        onlineIds,
+        startCall,
+        state,
+      ],
+    );
 
   /*
-   * -------------------------------------------------------
-   * UI
-   * -------------------------------------------------------
+   * =======================================================
+   * CALL UI
+   * =======================================================
    */
 
   return (
@@ -2049,26 +1867,33 @@ export function RealtimeProvider({
     >
       {children}
 
-      {state.phase !== "idle" && (
+      {state.phase !==
+        "idle" && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-background app-gradient px-6 py-12 safe-bottom">
-          {/* HEADER */}
-
           <div className="flex flex-col items-center gap-4 pt-10 text-center">
             <UserAvatar
-              path={state.peerAvatar}
-              name={state.peerName}
+              path={
+                state.peerAvatar
+              }
+              name={
+                state.peerName
+              }
               size="xl"
             />
 
             <div>
               <h2 className="text-2xl font-semibold">
-                {state.peerName}
+                {
+                  state.peerName
+                }
               </h2>
 
               <p className="text-sm text-muted-foreground">
-                {state.phase === "incoming"
+                {state.phase ===
+                "incoming"
                   ? `Incoming ${state.kind} call`
-                  : state.phase === "outgoing"
+                  : state.phase ===
+                    "outgoing"
                     ? "Ringing…"
                     : durationLabel(
                         seconds,
@@ -2077,7 +1902,215 @@ export function RealtimeProvider({
             </div>
           </div>
 
-          {/* VIDEO */}
+          {state.kind ===
+            "video" && (
+            <div className="relative my-6 w-full max-w-md flex-1 overflow-hidden rounded-3xl bg-black">
+              <video
+                ref={
+                  remoteVideo
+                }
+                autoPlay
+                playsInline
+                className="h-full w-full object-cover"
+              />
 
-          {state.kind === "video" && (
-            <div className="relative my-6 w-full max-w-md flex-1 overflow-hidden rounded-3xl
+              <div className="absolute right-3 top-3 h-36 w-28 overflow-hidden rounded-2xl border-2 border-white/30 bg-black shadow-xl">
+                <video
+                  ref={
+                    localVideo
+                  }
+                  autoPlay
+                  playsInline
+                  muted
+                  className="h-full w-full object-cover"
+                />
+
+                <div className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] text-white">
+                  You
+                </div>
+              </div>
+
+              {sharingScreen && (
+                <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
+                  Sharing screen
+                </div>
+              )}
+            </div>
+          )}
+
+          <audio
+            ref={
+              remoteAudio
+            }
+            autoPlay
+          />
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            {state.phase ===
+              "active" && (
+              <>
+                <Button
+                  size="icon"
+                  variant={
+                    muted
+                      ? "secondary"
+                      : "outline"
+                  }
+                  className="h-14 w-14 rounded-full"
+                  onClick={() => {
+                    const next =
+                      !muted;
+
+                    setMuted(
+                      next,
+                    );
+
+                    localRef.current
+                      ?.getAudioTracks()
+                      .forEach(
+                        (
+                          track,
+                        ) => {
+                          track.enabled =
+                            !next;
+                        },
+                      );
+                  }}
+                >
+                  {muted ? (
+                    <MicOff />
+                  ) : (
+                    <Mic />
+                  )}
+                </Button>
+
+                {state.kind ===
+                  "video" && (
+                  <Button
+                    size="icon"
+                    variant={
+                      camOff
+                        ? "secondary"
+                        : "outline"
+                    }
+                    disabled={
+                      sharingScreen
+                    }
+                    className="h-14 w-14 rounded-full"
+                    onClick={() => {
+                      const next =
+                        !camOff;
+
+                      setCamOff(
+                        next,
+                      );
+
+                      localRef.current
+                        ?.getVideoTracks()
+                        .forEach(
+                          (
+                            track,
+                          ) => {
+                            track.enabled =
+                              !next;
+                          },
+                        );
+                    }}
+                  >
+                    {camOff ? (
+                      <CameraOff />
+                    ) : (
+                      <Camera />
+                    )}
+                  </Button>
+                )}
+
+                {state.kind ===
+                  "video" && (
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    disabled={
+                      sharingScreen
+                    }
+                    className="h-14 w-14 rounded-full"
+                    onClick={() =>
+                      void switchCamera()
+                    }
+                  >
+                    <Video />
+                  </Button>
+                )}
+
+                {state.kind ===
+                  "video" && (
+                  <Button
+                    size="icon"
+                    variant={
+                      sharingScreen
+                        ? "secondary"
+                        : "outline"
+                    }
+                    className="h-14 w-14 rounded-full"
+                    onClick={() => {
+                      if (
+                        sharingScreen
+                      ) {
+                        void restoreCameraAfterScreenShare();
+                      } else {
+                        void shareScreen();
+                      }
+                    }}
+                  >
+                    <MonitorUp />
+                  </Button>
+                )}
+              </>
+            )}
+
+            {state.phase ===
+              "incoming" && (
+              <Button
+                size="icon"
+                className="h-16 w-16 rounded-full"
+                onClick={() =>
+                  void accept()
+                }
+              >
+                <Phone />
+              </Button>
+            )}
+
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-16 w-16 rounded-full"
+              onClick={() =>
+                void (
+                  state.phase ===
+                  "incoming"
+                    ? decline()
+                    : hangUp()
+                )
+              }
+            >
+              <PhoneOff />
+            </Button>
+          </div>
+        </div>
+      )}
+    </RealtimeContext.Provider>
+  );
+}
+
+/*
+ * =========================================================
+ * HOOK
+ * =========================================================
+ */
+
+export function useRealtime() {
+  return useContext(
+    RealtimeContext,
+  );
+}
