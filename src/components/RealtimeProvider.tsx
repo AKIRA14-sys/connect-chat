@@ -21,7 +21,6 @@ import {
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
-
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -29,6 +28,18 @@ import { Button } from "@/components/ui/button";
 import { durationLabel } from "@/lib/whatsxup";
 
 type CallKind = "voice" | "video";
+
+type SignalPayload = {
+  type: string;
+  from?: string;
+  to?: string;
+  callId?: string;
+  kind?: CallKind;
+  name?: string;
+  avatar?: string | null;
+  sdp?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+};
 
 type CallState =
   | {
@@ -45,6 +56,7 @@ type CallState =
 
 type Ctx = {
   onlineIds: Set<string>;
+
   startCall: (
     peer: {
       id: string;
@@ -53,22 +65,24 @@ type Ctx = {
     },
     kind: CallKind,
   ) => Promise<void>;
+
   state: CallState;
 };
 
 const RealtimeContext = createContext<Ctx>({
   onlineIds: new Set(),
   startCall: async () => {},
-  state: { phase: "idle" },
+  state: {
+    phase: "idle",
+  },
 });
 
 /*
- * WebRTC configuration.
- *
- * STUN helps devices discover their public network address.
- * TURN should be added later for reliable calls across
- * restrictive mobile networks.
+ * ---------------------------------------------------------
+ * WEBRTC STUN SERVERS
+ * ---------------------------------------------------------
  */
+
 const ICE: RTCConfiguration = {
   iceServers: [
     {
@@ -80,12 +94,24 @@ const ICE: RTCConfiguration = {
   ],
 };
 
+/*
+ * ---------------------------------------------------------
+ * PROVIDER
+ * ---------------------------------------------------------
+ */
+
 export function RealtimeProvider({
   children,
 }: {
   children: ReactNode;
 }) {
   const { user } = useAuth();
+
+  /*
+   * -------------------------------------------------------
+   * STATE
+   * -------------------------------------------------------
+   */
 
   const [onlineIds, setOnlineIds] = useState<Set<string>>(
     new Set(),
@@ -97,50 +123,129 @@ export function RealtimeProvider({
 
   const [muted, setMuted] = useState(false);
   const [camOff, setCamOff] = useState(false);
-  const [sharingScreen, setSharingScreen] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [sharingScreen, setSharingScreen] = useState(false);
+
+  /*
+   * -------------------------------------------------------
+   * WEBRTC REFERENCES
+   * -------------------------------------------------------
+   */
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
 
   const localRef = useRef<MediaStream | null>(null);
+
   const remoteRef = useRef<MediaStream | null>(null);
 
   const localVideo = useRef<HTMLVideoElement | null>(null);
+
   const remoteVideo = useRef<HTMLVideoElement | null>(null);
+
   const remoteAudio = useRef<HTMLAudioElement | null>(null);
+
+  /*
+   * -------------------------------------------------------
+   * SIGNALING REFERENCES
+   * -------------------------------------------------------
+   */
+
+  const signalChannel = useRef<RealtimeChannel | null>(null);
+
+  /*
+   * Outgoing signaling channels are kept alive and reused.
+   *
+   * This is different from the old architecture where a new
+   * channel was created and destroyed for every message.
+   */
+
+  const outgoingChannels = useRef(
+    new Map<string, RealtimeChannel>(),
+  );
+
+  /*
+   * Incoming offer waits here until the receiver presses
+   * Accept.
+   */
 
   const pendingOffer = useRef<RTCSessionDescriptionInit | null>(
     null,
   );
 
-  const pendingIceCandidates = useRef<RTCIceCandidateInit[]>(
+  /*
+   * ICE candidates can arrive before the remote description.
+   * Store them until the remote description exists.
+   */
+
+  const pendingIceCandidates = useRef<RTCIceCandidateInit[]>([]);
+
+  /*
+   * -------------------------------------------------------
+   * GET OR CREATE OUTGOING SIGNAL CHANNEL
+   * -------------------------------------------------------
+   */
+
+  const getOutgoingChannel = useCallback(
+    async (peerId: string) => {
+      const existing =
+        outgoingChannels.current.get(peerId);
+
+      if (existing) {
+        return existing;
+      }
+
+      const channel = supabase.channel(
+        `signal:${peerId}`,
+      );
+
+      /*
+       * IMPORTANT:
+       *
+       * Wait until Supabase confirms the channel is
+       * subscribed before sending anything.
+       */
+
+      const status = await new Promise<string>(
+        (resolve) => {
+          let resolved = false;
+
+          channel.subscribe((subscriptionStatus) => {
+            if (
+              subscriptionStatus === "SUBSCRIBED" ||
+              subscriptionStatus === "CHANNEL_ERROR" ||
+              subscriptionStatus === "TIMED_OUT"
+            ) {
+              if (!resolved) {
+                resolved = true;
+                resolve(subscriptionStatus);
+              }
+            }
+          });
+        },
+      );
+
+      if (status !== "SUBSCRIBED") {
+        await supabase.removeChannel(channel);
+
+        throw new Error(
+          `Could not connect to realtime signaling channel: ${status}`,
+        );
+      }
+
+      outgoingChannels.current.set(
+        peerId,
+        channel,
+      );
+
+      return channel;
+    },
     [],
   );
 
-  const signalChannel = useRef<RealtimeChannel | null>(null);
-
-  const remoteDescriptionSet = useRef(false);
-
-  const mountedRef = useRef(true);
-
   /*
-   * ---------------------------------------------------------
-   * COMPONENT MOUNT STATE
-   * ---------------------------------------------------------
-   */
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * SEND SIGNAL
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   const send = useCallback(
@@ -149,168 +254,140 @@ export function RealtimeProvider({
       type: string,
       payload: Record<string, unknown> = {},
     ) => {
-      if (!user?.id || !to) return;
-
-      const channel = supabase.channel(`signal:${to}`);
+      if (!user?.id || !to) {
+        return false;
+      }
 
       try {
-        const status = await channel.subscribe();
+        const channel =
+          await getOutgoingChannel(to);
 
-        if (status !== "SUBSCRIBED") {
-          console.error(
-            "[WHATSXUP SIGNAL] Subscription failed:",
-            status,
-          );
+        const message: SignalPayload = {
+          type,
+          from: user.id,
+          to,
+          ...(payload as Partial<SignalPayload>),
+        };
 
-          return;
-        }
-
-        await channel.send({
+        const result = await channel.send({
           type: "broadcast",
           event: "signal",
-          payload: {
-            type,
-            from: user.id,
-            ...payload,
-          },
+          payload: message,
         });
+
+        if (result !== "ok") {
+          console.error(
+            "[WHATSXUP SIGNAL] Send failed:",
+            result,
+          );
+
+          return false;
+        }
+
+        return true;
       } catch (error) {
         console.error(
-          "[WHATSXUP SIGNAL] Send failed:",
+          "[WHATSXUP SIGNAL] Error:",
           error,
         );
-      } finally {
-        setTimeout(() => {
-          void supabase.removeChannel(channel);
-        }, 1000);
+
+        return false;
       }
     },
-    [user?.id],
+    [user?.id, getOutgoingChannel],
   );
 
   /*
-   * ---------------------------------------------------------
-   * ATTACH LOCAL VIDEO
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * CLEANUP SIGNAL CHANNELS
+   * -------------------------------------------------------
    */
 
-  const attachLocalVideo = useCallback(() => {
-    if (
-      !localVideo.current ||
-      !localRef.current
-    ) {
-      return;
-    }
+  const cleanupSignalChannels = useCallback(
+    async () => {
+      const channels = Array.from(
+        outgoingChannels.current.values(),
+      );
 
-    localVideo.current.srcObject = localRef.current;
+      outgoingChannels.current.clear();
 
-    void localVideo.current
-      .play()
-      .catch(() => undefined);
-  }, []);
-
-  /*
-   * ---------------------------------------------------------
-   * ATTACH REMOTE MEDIA
-   * ---------------------------------------------------------
-   */
-
-  const attachRemoteMedia = useCallback(() => {
-    if (!remoteRef.current) {
-      return;
-    }
-
-    if (remoteVideo.current) {
-      remoteVideo.current.srcObject =
-        remoteRef.current;
-
-      void remoteVideo.current
-        .play()
-        .catch(() => undefined);
-    }
-
-    if (remoteAudio.current) {
-      remoteAudio.current.srcObject =
-        remoteRef.current;
-
-      void remoteAudio.current
-        .play()
-        .catch(() => undefined);
-    }
-  }, []);
+      for (const channel of channels) {
+        try {
+          await supabase.removeChannel(
+            channel,
+          );
+        } catch {
+          // Ignore cleanup errors.
+        }
+      }
+    },
+    [],
+  );
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * CLEANUP CALL
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   const cleanup = useCallback(() => {
-    console.log(
-      "[WHATSXUP CALL] Cleaning up call",
-    );
+    /*
+     * Stop WebRTC.
+     */
 
-    const pc = pcRef.current;
-
-    if (pc) {
-      pc.ontrack = null;
-      pc.onicecandidate = null;
-      pc.onconnectionstatechange = null;
-      pc.oniceconnectionstatechange = null;
-
-      try {
-        pc.close();
-      } catch {
-        // Ignore close errors.
-      }
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.close();
+      pcRef.current = null;
     }
 
-    pcRef.current = null;
+    /*
+     * Stop microphone/camera/screen tracks.
+     */
 
-    localRef.current
-      ?.getTracks()
-      .forEach((track) => {
-        track.stop();
-      });
+    if (localRef.current) {
+      localRef.current
+        .getTracks()
+        .forEach((track) => {
+          track.stop();
+        });
+    }
 
     localRef.current = null;
 
+    /*
+     * Clear remote stream.
+     */
+
     remoteRef.current = null;
+
+    /*
+     * Clear pending signaling data.
+     */
 
     pendingOffer.current = null;
 
     pendingIceCandidates.current = [];
 
-    remoteDescriptionSet.current = false;
-
-    if (localVideo.current) {
-      localVideo.current.srcObject = null;
-    }
-
-    if (remoteVideo.current) {
-      remoteVideo.current.srcObject = null;
-    }
-
-    if (remoteAudio.current) {
-      remoteAudio.current.srcObject = null;
-    }
+    /*
+     * Clear UI state.
+     */
 
     setMuted(false);
     setCamOff(false);
-    setSharingScreen(false);
     setSeconds(0);
+    setSharingScreen(false);
 
-    if (mountedRef.current) {
-      setState({
-        phase: "idle",
-      });
-    }
+    setState({
+      phase: "idle",
+    });
   }, []);
 
   /*
-   * ---------------------------------------------------------
-   * GET MICROPHONE / CAMERA
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * GET CAMERA + MICROPHONE
+   * -------------------------------------------------------
    */
 
   const getMedia = useCallback(
@@ -324,37 +401,57 @@ export function RealtimeProvider({
         );
 
         throw new Error(
-          "getUserMedia is not supported",
+          "getUserMedia unavailable",
         );
       }
 
       try {
         const stream =
-          await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video:
-              kind === "video"
-                ? {
-                    facingMode: "user",
-                  }
-                : false,
-          });
+          await navigator.mediaDevices.getUserMedia(
+            {
+              audio: true,
+
+              video:
+                kind === "video"
+                  ? {
+                      facingMode: "user",
+                    }
+                  : false,
+            },
+          );
 
         localRef.current = stream;
 
-        attachLocalVideo();
+        /*
+         * If the video element already exists,
+         * immediately show our own camera.
+         */
+
+        if (
+          localVideo.current &&
+          kind === "video"
+        ) {
+          localVideo.current.srcObject =
+            stream;
+
+          await localVideo.current
+            .play()
+            .catch(() => undefined);
+        }
 
         return stream;
       } catch (error) {
         const name =
           (error as DOMException)?.name;
 
-        if (name === "NotAllowedError") {
+        if (
+          name === "NotAllowedError"
+        ) {
           toast.error(
-            "Camera/microphone permission denied",
+            "Camera or microphone permission denied.",
             {
               description:
-                "Allow camera and microphone permissions in your browser settings.",
+                "Allow camera and microphone access in your browser settings.",
             },
           );
         } else if (
@@ -367,50 +464,82 @@ export function RealtimeProvider({
           name === "NotReadableError"
         ) {
           toast.error(
-            "Your camera or microphone is already being used.",
+            "Camera or microphone is already being used.",
           );
         } else {
           toast.error(
-            "Could not access your camera or microphone.",
+            "Could not start camera or microphone.",
           );
         }
 
         throw error;
       }
     },
-    [attachLocalVideo],
+    [],
   );
 
   /*
-   * ---------------------------------------------------------
-   * ADD QUEUED ICE CANDIDATES
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * ALWAYS SHOW LOCAL CAMERA
+   * -------------------------------------------------------
    */
 
-  const flushPendingIce = useCallback(
-    async () => {
-      const pc = pcRef.current;
+  useEffect(() => {
+    if (
+      state.phase === "idle" ||
+      state.kind !== "video"
+    ) {
+      return;
+    }
 
+    if (
+      !localVideo.current ||
+      !localRef.current
+    ) {
+      return;
+    }
+
+    localVideo.current.srcObject =
+      localRef.current;
+
+    void localVideo.current
+      .play()
+      .catch(() => undefined);
+  }, [
+    state.phase,
+    state.kind,
+    sharingScreen,
+  ]);
+
+  /*
+   * -------------------------------------------------------
+   * APPLY PENDING ICE
+   * -------------------------------------------------------
+   */
+
+  const applyPendingIce = useCallback(
+    async () => {
       if (
-        !pc ||
-        !remoteDescriptionSet.current
+        !pcRef.current ||
+        !pcRef.current.remoteDescription
       ) {
         return;
       }
 
-      const candidates =
-        pendingIceCandidates.current;
+      const candidates = [
+        ...pendingIceCandidates.current,
+      ];
 
       pendingIceCandidates.current = [];
 
       for (const candidate of candidates) {
         try {
-          await pc.addIceCandidate(
+          await pcRef.current.addIceCandidate(
             candidate,
           );
         } catch (error) {
           console.warn(
-            "[WHATSXUP ICE] Could not add queued candidate:",
+            "[WHATSXUP ICE] Failed pending candidate:",
             error,
           );
         }
@@ -420,9 +549,9 @@ export function RealtimeProvider({
   );
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * BUILD WEBRTC PEER
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   const buildPeer = useCallback(
@@ -431,26 +560,18 @@ export function RealtimeProvider({
       stream: MediaStream,
     ) => {
       /*
-       * Close any previous peer.
+       * Close any previous connection.
        */
 
       if (pcRef.current) {
-        try {
-          pcRef.current.close();
-        } catch {
-          // Ignore.
-        }
+        pcRef.current.close();
       }
-
-      remoteDescriptionSet.current = false;
-
-      pendingIceCandidates.current = [];
 
       const pc =
         new RTCPeerConnection(ICE);
 
       /*
-       * Add microphone and camera tracks.
+       * Add local camera + microphone.
        */
 
       stream
@@ -460,40 +581,81 @@ export function RealtimeProvider({
         });
 
       /*
-       * Prepare remote stream.
+       * Create remote stream.
        */
 
-      const remote = new MediaStream();
+      const remote =
+        new MediaStream();
 
       remoteRef.current = remote;
 
       /*
-       * Remote tracks.
+       * REMOTE VIDEO / AUDIO
        */
 
       pc.ontrack = (event) => {
-        console.log(
-          "[WHATSXUP WEBRTC] Remote track received:",
-          event.track.kind,
-        );
+        const incomingTracks =
+          event.streams[0]?.getTracks();
 
-        event.streams[0]
-          ?.getTracks()
-          .forEach((track) => {
-            if (
-              !remote
-                .getTracks()
-                .some(
-                  (existing) =>
-                    existing.id ===
-                    track.id,
-                )
-            ) {
-              remote.addTrack(track);
-            }
-          });
+        if (incomingTracks) {
+          incomingTracks.forEach(
+            (track) => {
+              if (
+                !remote
+                  .getTracks()
+                  .some(
+                    (existing) =>
+                      existing.id ===
+                      track.id,
+                  )
+              ) {
+                remote.addTrack(track);
+              }
+            },
+          );
+        } else {
+          if (
+            !remote
+              .getTracks()
+              .some(
+                (existing) =>
+                  existing.id ===
+                  event.track.id,
+              )
+          ) {
+            remote.addTrack(
+              event.track,
+            );
+          }
+        }
 
-        attachRemoteMedia();
+        /*
+         * Put the remote stream into
+         * the remote video element.
+         */
+
+        if (remoteVideo.current) {
+          remoteVideo.current.srcObject =
+            remote;
+
+          void remoteVideo.current
+            .play()
+            .catch(() => undefined);
+        }
+
+        /*
+         * Put the same stream into
+         * the audio element.
+         */
+
+        if (remoteAudio.current) {
+          remoteAudio.current.srcObject =
+            remote;
+
+          void remoteAudio.current
+            .play()
+            .catch(() => undefined);
+        }
       };
 
       /*
@@ -511,93 +673,65 @@ export function RealtimeProvider({
         });
       };
 
-      /*
-       * Connection state.
-       */
+      pc.onconnectionstatechange = () => {
+        console.log(
+          "[WHATSXUP WEBRTC] Connection:",
+          pc.connectionState,
+        );
 
-      pc.onconnectionstatechange =
-        () => {
-          console.log(
-            "[WHATSXUP WEBRTC] Connection state:",
-            pc.connectionState,
+        if (
+          pc.connectionState ===
+            "failed" ||
+          pc.connectionState ===
+            "closed"
+        ) {
+          /*
+           * Don't immediately destroy the entire
+           * call UI here because the user may still
+           * be transitioning between states.
+           */
+          console.warn(
+            "[WHATSXUP WEBRTC] Connection lost.",
           );
-
-          if (
-            pc.connectionState ===
-            "connected"
-          ) {
-            console.log(
-              "[WHATSXUP WEBRTC] Connected successfully",
-            );
-          }
-
-          if (
-            pc.connectionState ===
-              "failed" ||
-            pc.connectionState ===
-              "disconnected"
-          ) {
-            if (mountedRef.current) {
-              toast.error(
-                "The call connection was lost.",
-              );
-            }
-
-            cleanup();
-          }
-        };
-
-      /*
-       * ICE connection state.
-       */
-
-      pc.oniceconnectionstatechange =
-        () => {
-          console.log(
-            "[WHATSXUP WEBRTC] ICE state:",
-            pc.iceConnectionState,
-          );
-
-          if (
-            pc.iceConnectionState ===
-            "failed"
-          ) {
-            if (mountedRef.current) {
-              toast.error(
-                "Could not establish the video connection.",
-              );
-            }
-
-            cleanup();
-          }
-        };
+        }
+      };
 
       pcRef.current = pc;
 
       return pc;
     },
-    [
-      send,
-      cleanup,
-      attachRemoteMedia,
-    ],
+    [send],
   );
 
   /*
-   * ---------------------------------------------------------
-   * RECEIVE SIGNALS
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * PERSISTENT INCOMING SIGNALING CHANNEL
+   *
+   * THIS IS THE MAJOR CHANGE.
+   *
+   * While logged in, this user permanently listens on:
+   *
+   * signal:<their-user-id>
+   *
+   * Therefore the caller does not have to "catch"
+   * the receiver at exactly the right moment.
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       return;
     }
+
+    let cancelled = false;
 
     const channel =
       supabase.channel(
         `signal:${user.id}`,
       );
+
+    signalChannel.current =
+      channel;
 
     channel.on(
       "broadcast",
@@ -605,35 +739,87 @@ export function RealtimeProvider({
         event: "signal",
       },
       async ({ payload }) => {
-        const p =
-          payload as Record<
-            string,
-            unknown
-          >;
+        if (cancelled) {
+          return;
+        }
 
-        const type = String(
-          p.type ?? "",
-        );
+        const p =
+          payload as SignalPayload;
+
+        /*
+         * Ignore signals that aren't meant
+         * for this user.
+         */
+
+        if (
+          p.to &&
+          p.to !== user.id
+        ) {
+          return;
+        }
+
+        /*
+         * Ignore our own messages.
+         */
+
+        if (
+          p.from &&
+          p.from === user.id
+        ) {
+          return;
+        }
 
         console.log(
-          "[WHATSXUP SIGNAL] Received:",
-          type,
+          "[WHATSXUP SIGNAL RECEIVED]",
+          p.type,
+          p,
         );
 
         /*
-         * ---------------------------------------------------
-         * INCOMING OFFER
-         * ---------------------------------------------------
+         * -------------------------------------------------
+         * INCOMING CALL
+         * -------------------------------------------------
          */
 
-        if (type === "offer") {
+        if (p.type === "offer") {
+          if (
+            !p.sdp ||
+            !p.from ||
+            !p.callId
+          ) {
+            console.error(
+              "[WHATSXUP] Invalid offer received.",
+            );
+
+            return;
+          }
+
+          /*
+           * If we're already in another call,
+           * don't replace it.
+           */
+
+          if (
+            state.phase !== "idle"
+          ) {
+            await send(
+              p.from,
+              "busy",
+              {},
+            );
+
+            return;
+          }
+
           pendingOffer.current =
-            p.sdp as RTCSessionDescriptionInit;
+            p.sdp;
+
+          pendingIceCandidates.current =
+            [];
 
           const incomingName =
-            String(
-              p.name ?? "Unknown",
-            );
+            p.name?.trim() ||
+            "Unknown";
 
           const incomingAvatar =
             p.avatar
@@ -647,18 +833,12 @@ export function RealtimeProvider({
 
           setState({
             phase: "incoming",
-            callId: String(
-              p.callId,
-            ),
-            peerId: String(
-              p.from,
-            ),
-            peerName:
-              incomingName,
+            callId: p.callId,
+            peerId: p.from,
+            peerName: incomingName,
             peerAvatar:
               incomingAvatar,
-            kind:
-              incomingKind,
+            kind: incomingKind,
           });
 
           toast.info(
@@ -673,97 +853,79 @@ export function RealtimeProvider({
         }
 
         /*
-         * ---------------------------------------------------
+         * -------------------------------------------------
          * ANSWER
-         * ---------------------------------------------------
+         * -------------------------------------------------
          */
 
-        if (type === "answer") {
-          const pc =
-            pcRef.current;
-
-          if (!pc) {
-            console.warn(
-              "[WHATSXUP WEBRTC] No peer connection for answer",
-            );
-
+        if (p.type === "answer") {
+          if (
+            !p.sdp ||
+            !pcRef.current
+          ) {
             return;
           }
 
           try {
-            await pc.setRemoteDescription(
-              p.sdp as RTCSessionDescriptionInit,
+            await pcRef.current.setRemoteDescription(
+              p.sdp,
             );
 
-            remoteDescriptionSet.current =
-              true;
-
-            await flushPendingIce();
+            await applyPendingIce();
 
             setState((current) =>
               current.phase ===
               "outgoing"
                 ? {
                     ...current,
-                    phase:
-                      "active",
+                    phase: "active",
                   }
                 : current,
             );
           } catch (error) {
             console.error(
-              "[WHATSXUP WEBRTC] Failed to set answer:",
+              "[WHATSXUP ANSWER]",
               error,
             );
-
-            toast.error(
-              "Could not connect the call.",
-            );
-
-            cleanup();
           }
 
           return;
         }
 
         /*
-         * ---------------------------------------------------
+         * -------------------------------------------------
          * ICE CANDIDATE
-         * ---------------------------------------------------
+         * -------------------------------------------------
          */
 
-        if (type === "ice") {
-          const candidate =
-            p.candidate as RTCIceCandidateInit;
-
-          if (
-            !candidate ||
-            !candidate.candidate
-          ) {
+        if (p.type === "ice") {
+          if (!p.candidate) {
             return;
           }
 
-          const pc =
-            pcRef.current;
+          /*
+           * If remote description isn't ready,
+           * save the ICE candidate.
+           */
 
           if (
-            !pc ||
-            !remoteDescriptionSet.current
+            !pcRef.current ||
+            !pcRef.current.remoteDescription
           ) {
             pendingIceCandidates.current.push(
-              candidate,
+              p.candidate,
             );
 
             return;
           }
 
           try {
-            await pc.addIceCandidate(
-              candidate,
+            await pcRef.current.addIceCandidate(
+              p.candidate,
             );
           } catch (error) {
             console.warn(
-              "[WHATSXUP ICE] Failed to add candidate:",
+              "[WHATSXUP ICE]",
               error,
             );
           }
@@ -772,12 +934,12 @@ export function RealtimeProvider({
         }
 
         /*
-         * ---------------------------------------------------
-         * DECLINE
-         * ---------------------------------------------------
+         * -------------------------------------------------
+         * CALL DECLINED
+         * -------------------------------------------------
          */
 
-        if (type === "decline") {
+        if (p.type === "decline") {
           toast.info(
             "Call declined",
           );
@@ -788,12 +950,28 @@ export function RealtimeProvider({
         }
 
         /*
-         * ---------------------------------------------------
-         * END CALL
-         * ---------------------------------------------------
+         * -------------------------------------------------
+         * CALL ENDED
+         * -------------------------------------------------
          */
 
-        if (type === "end") {
+        if (p.type === "end") {
+          cleanup();
+
+          return;
+        }
+
+        /*
+         * -------------------------------------------------
+         * BUSY
+         * -------------------------------------------------
+         */
+
+        if (p.type === "busy") {
+          toast.info(
+            "User is already on another call.",
+          );
+
           cleanup();
 
           return;
@@ -801,15 +979,44 @@ export function RealtimeProvider({
       },
     );
 
-    void channel.subscribe();
+    /*
+     * Subscribe ONCE and keep this channel alive.
+     */
 
-    signalChannel.current =
-      channel;
+    channel.subscribe((status) => {
+      console.log(
+        "[WHATSXUP SIGNAL CHANNEL]",
+        user.id,
+        status,
+      );
+
+      if (
+        status === "SUBSCRIBED"
+      ) {
+        console.log(
+          "[WHATSXUP] Incoming call signaling is READY.",
+        );
+      }
+
+      if (
+        status === "CHANNEL_ERROR"
+      ) {
+        console.error(
+          "[WHATSXUP] Signal channel error.",
+        );
+      }
+
+      if (
+        status === "TIMED_OUT"
+      ) {
+        console.error(
+          "[WHATSXUP] Signal channel timed out.",
+        );
+      }
+    });
 
     return () => {
-      void supabase.removeChannel(
-        channel,
-      );
+      cancelled = true;
 
       if (
         signalChannel.current ===
@@ -818,52 +1025,26 @@ export function RealtimeProvider({
         signalChannel.current =
           null;
       }
-    };
-  }, [
-    user,
-    cleanup,
-    flushPendingIce,
-  ]);
 
-  /*
-   * ---------------------------------------------------------
-   * ATTACH VIDEOS AFTER UI RENDERS
-   * ---------------------------------------------------------
-   */
-
-  useEffect(() => {
-    if (
-      state.phase === "idle"
-    ) {
-      return;
-    }
-
-    const timer =
-      window.setTimeout(() => {
-        attachLocalVideo();
-        attachRemoteMedia();
-      }, 0);
-
-    return () => {
-      window.clearTimeout(
-        timer,
+      void supabase.removeChannel(
+        channel,
       );
     };
   }, [
-    state.phase,
-    state.kind,
-    attachLocalVideo,
-    attachRemoteMedia,
+    user?.id,
+    cleanup,
+    send,
+    applyPendingIce,
   ]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * ONLINE PRESENCE
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
-    if (!user) {
+    if (!user?.id) {
       return;
     }
 
@@ -895,11 +1076,10 @@ export function RealtimeProvider({
       },
     );
 
-    void channel.subscribe(
+    channel.subscribe(
       async (status) => {
         if (
-          status ===
-          "SUBSCRIBED"
+          status === "SUBSCRIBED"
         ) {
           await channel.track({
             at: Date.now(),
@@ -918,21 +1098,18 @@ export function RealtimeProvider({
       .eq("id", user.id);
 
     const heartbeat =
-      window.setInterval(() => {
+      setInterval(() => {
         void supabase
           .from("profiles")
           .update({
             last_seen:
               new Date().toISOString(),
           })
-          .eq(
-            "id",
-            user.id,
-          );
+          .eq("id", user.id);
       }, 60000);
 
     return () => {
-      window.clearInterval(
+      clearInterval(
         heartbeat,
       );
 
@@ -947,24 +1124,23 @@ export function RealtimeProvider({
         channel,
       );
     };
-  }, [user]);
+  }, [user?.id]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * CALL TIMER
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   useEffect(() => {
     if (
-      state.phase !==
-      "active"
+      state.phase !== "active"
     ) {
       return;
     }
 
     const timer =
-      window.setInterval(() => {
+      setInterval(() => {
         setSeconds(
           (current) =>
             current + 1,
@@ -972,142 +1148,447 @@ export function RealtimeProvider({
       }, 1000);
 
     return () => {
-      window.clearInterval(
-        timer,
-      );
+      clearInterval(timer);
     };
   }, [state.phase]);
 
   /*
-   * ---------------------------------------------------------
-   * START CALL
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * SWITCH FRONT / REAR CAMERA
+   * -------------------------------------------------------
    */
 
-  const startCall = useCallback(
-    async (
-      peer: {
-        id: string;
-        name: string;
-        avatar: string | null;
-      },
-      kind: CallKind,
-    ) => {
-      if (!user) {
+  const switchCamera =
+    useCallback(async () => {
+      if (
+        state.phase === "idle" ||
+        state.kind !== "video" ||
+        !pcRef.current ||
+        !localRef.current
+      ) {
+        return;
+      }
+
+      try {
+        const currentTrack =
+          localRef.current.getVideoTracks()[0];
+
+        if (!currentTrack) {
+          return;
+        }
+
+        const settings =
+          currentTrack.getSettings();
+
+        const currentFacing =
+          settings.facingMode ===
+          "environment"
+            ? "environment"
+            : "user";
+
+        const nextFacing =
+          currentFacing === "user"
+            ? "environment"
+            : "user";
+
+        const newStream =
+          await navigator.mediaDevices.getUserMedia(
+            {
+              audio: false,
+              video: {
+                facingMode: {
+                  ideal: nextFacing,
+                },
+              },
+            },
+          );
+
+        const newTrack =
+          newStream.getVideoTracks()[0];
+
+        if (!newTrack) {
+          newStream
+            .getTracks()
+            .forEach((track) =>
+              track.stop(),
+            );
+
+          return;
+        }
+
+        const sender =
+          pcRef.current
+            .getSenders()
+            .find(
+              (item) =>
+                item.track?.kind ===
+                "video",
+            );
+
+        if (sender) {
+          await sender.replaceTrack(
+            newTrack,
+          );
+        }
+
+        currentTrack.stop();
+
+        localRef.current.removeTrack(
+          currentTrack,
+        );
+
+        localRef.current.addTrack(
+          newTrack,
+        );
+
+        if (localVideo.current) {
+          localVideo.current.srcObject =
+            localRef.current;
+
+          await localVideo.current
+            .play()
+            .catch(() => undefined);
+        }
+
+        setCamOff(false);
+      } catch (error) {
+        console.error(
+          "[WHATSXUP CAMERA SWITCH]",
+          error,
+        );
+
+        toast.error(
+          "Could not switch camera.",
+        );
+      }
+    }, [state]);
+
+  /*
+   * -------------------------------------------------------
+   * RESTORE CAMERA
+   * -------------------------------------------------------
+   */
+
+  const restoreCameraAfterScreenShare =
+    useCallback(async () => {
+      if (
+        state.phase === "idle" ||
+        state.kind !== "video" ||
+        !pcRef.current
+      ) {
+        return;
+      }
+
+      try {
+        const cameraStream =
+          await navigator.mediaDevices.getUserMedia(
+            {
+              audio: false,
+              video: {
+                facingMode: "user",
+              },
+            },
+          );
+
+        const cameraTrack =
+          cameraStream.getVideoTracks()[0];
+
+        if (!cameraTrack) {
+          cameraStream
+            .getTracks()
+            .forEach((track) =>
+              track.stop(),
+            );
+
+          return;
+        }
+
+        const sender =
+          pcRef.current
+            .getSenders()
+            .find(
+              (item) =>
+                item.track?.kind ===
+                "video",
+            );
+
+        if (sender) {
+          await sender.replaceTrack(
+            cameraTrack,
+          );
+        }
+
+        if (localRef.current) {
+          const oldTrack =
+            localRef.current.getVideoTracks()[0];
+
+          if (oldTrack) {
+            oldTrack.stop();
+
+            localRef.current.removeTrack(
+              oldTrack,
+            );
+          }
+
+          localRef.current.addTrack(
+            cameraTrack,
+          );
+
+          if (localVideo.current) {
+            localVideo.current.srcObject =
+              localRef.current;
+
+            await localVideo.current
+              .play()
+              .catch(() => undefined);
+          }
+        }
+
+        setSharingScreen(false);
+        setCamOff(false);
+      } catch (error) {
+        console.error(
+          "[WHATSXUP RESTORE CAMERA]",
+          error,
+        );
+
+        toast.error(
+          "Could not return to camera.",
+        );
+      }
+    }, [state]);
+
+  /*
+   * -------------------------------------------------------
+   * SCREEN SHARING
+   * -------------------------------------------------------
+   */
+
+  const shareScreen =
+    useCallback(async () => {
+      if (
+        state.phase === "idle" ||
+        state.kind !== "video" ||
+        !pcRef.current
+      ) {
         return;
       }
 
       if (
-        state.phase !==
-        "idle"
+        !navigator.mediaDevices
+          ?.getDisplayMedia
       ) {
-        toast.info(
-          "You are already in a call.",
+        toast.error(
+          "Screen sharing is not supported by this browser.",
         );
 
         return;
       }
 
-      /*
-       * Create database call.
-       */
+      try {
+        const displayStream =
+          await navigator.mediaDevices.getDisplayMedia(
+            {
+              video: true,
+              audio: false,
+            },
+          );
 
-      const { data, error } =
-        await supabase
+        const screenTrack =
+          displayStream.getVideoTracks()[0];
+
+        if (!screenTrack) {
+          return;
+        }
+
+        const sender =
+          pcRef.current
+            .getSenders()
+            .find(
+              (item) =>
+                item.track?.kind ===
+                "video",
+            );
+
+        if (!sender) {
+          screenTrack.stop();
+          return;
+        }
+
+        await sender.replaceTrack(
+          screenTrack,
+        );
+
+        if (localVideo.current) {
+          const preview =
+            new MediaStream([
+              screenTrack,
+            ]);
+
+          localVideo.current.srcObject =
+            preview;
+
+          await localVideo.current
+            .play()
+            .catch(() => undefined);
+        }
+
+        setSharingScreen(true);
+
+        screenTrack.onended =
+          () => {
+            void restoreCameraAfterScreenShare();
+          };
+      } catch (error) {
+        const name =
+          (error as DOMException)?.name;
+
+        if (
+          name !==
+          "NotAllowedError"
+        ) {
+          console.error(
+            "[WHATSXUP SCREEN SHARE]",
+            error,
+          );
+
+          toast.error(
+            "Could not start screen sharing.",
+          );
+        }
+      }
+    }, [
+      state,
+      restoreCameraAfterScreenShare,
+    ]);
+
+  /*
+   * -------------------------------------------------------
+   * START CALL
+   * -------------------------------------------------------
+   */
+
+  const startCall =
+    useCallback(
+      async (
+        peer: {
+          id: string;
+          name: string;
+          avatar: string | null;
+        },
+        kind: CallKind,
+      ) => {
+        if (!user?.id) {
+          return;
+        }
+
+        /*
+         * Prevent accidentally starting two calls.
+         */
+
+        if (
+          state.phase !== "idle"
+        ) {
+          toast.info(
+            "You are already in a call.",
+          );
+
+          return;
+        }
+
+        /*
+         * Create database call.
+         */
+
+        const {
+          data,
+          error,
+        } = await supabase
           .from("calls")
           .insert({
-            caller_id:
-              user.id,
-            callee_id:
-              peer.id,
+            caller_id: user.id,
+            callee_id: peer.id,
             kind,
-            status:
-              "ringing",
+            status: "ringing",
           })
           .select("id")
           .single();
 
-      if (error) {
-        toast.error(
-          error.message,
-        );
-
-        return;
-      }
-
-      /*
-       * Get local camera/microphone.
-       */
-
-      let stream: MediaStream;
-
-      try {
-        stream =
-          await getMedia(
-            kind,
-          );
-      } catch {
-        await supabase
-          .from("calls")
-          .update({
-            status:
-              "failed",
-            ended_at:
-              new Date().toISOString(),
-          })
-          .eq(
-            "id",
-            data.id,
+        if (error) {
+          toast.error(
+            error.message,
           );
 
-        return;
-      }
+          return;
+        }
 
-      /*
-       * Show outgoing call.
-       */
+        /*
+         * Start camera/microphone.
+         */
 
-      setState({
-        phase:
-          "outgoing",
-        callId:
-          data.id,
-        peerId:
-          peer.id,
-        peerName:
-          peer.name,
-        peerAvatar:
-          peer.avatar,
-        kind,
-      });
+        let stream: MediaStream;
 
-      /*
-       * Build WebRTC connection.
-       */
+        try {
+          stream =
+            await getMedia(kind);
+        } catch {
+          await supabase
+            .from("calls")
+            .update({
+              status: "failed",
+              ended_at:
+                new Date().toISOString(),
+            })
+            .eq(
+              "id",
+              data.id,
+            );
 
-      const pc =
-        buildPeer(
-          peer.id,
-          stream,
+          return;
+        }
+
+        /*
+         * Show outgoing UI.
+         */
+
+        setState({
+          phase: "outgoing",
+          callId: data.id,
+          peerId: peer.id,
+          peerName: peer.name,
+          peerAvatar:
+            peer.avatar,
+          kind,
+        });
+
+        /*
+         * Build peer.
+         */
+
+        const pc =
+          buildPeer(
+            peer.id,
+            stream,
+          );
+
+        /*
+         * Create offer.
+         */
+
+        const offer =
+          await pc.createOffer();
+
+        await pc.setLocalDescription(
+          offer,
         );
 
-      /*
-       * Create offer.
-       */
+        /*
+         * Get caller profile.
+         */
 
-      const offer =
-        await pc.createOffer();
-
-      await pc.setLocalDescription(
-        offer,
-      );
-
-      /*
-       * Get caller profile.
-       */
-
-      const { data: me } =
-        await supabase
+        const {
+          data: me,
+        } = await supabase
           .from("profiles")
           .select(
             "display_name, username, avatar_url",
@@ -1118,77 +1599,101 @@ export function RealtimeProvider({
           )
           .single();
 
-      const callerName =
-        me?.display_name?.trim() ||
-        me?.username?.trim() ||
-        user.email?.split(
-          "@",
-        )[0] ||
-        "Someone";
+        const callerName =
+          me?.display_name?.trim() ||
+          me?.username?.trim() ||
+          user.email?.split(
+            "@",
+          )[0] ||
+          "Someone";
 
-      const callerAvatar =
-        me?.avatar_url ??
-        null;
+        const callerAvatar =
+          me?.avatar_url ??
+          null;
 
-      /*
-       * Send offer.
-       */
+        /*
+         * Send offer through persistent
+         * signaling architecture.
+         */
 
-      await send(
-        peer.id,
-        "offer",
-        {
-          sdp: offer,
-          callId:
-            data.id,
-          kind,
-          name:
-            callerName,
-          avatar:
-            callerAvatar,
-        },
-      );
+        const sent =
+          await send(
+            peer.id,
+            "offer",
+            {
+              sdp: offer,
+              callId: data.id,
+              kind,
+              name: callerName,
+              avatar:
+                callerAvatar,
+            },
+          );
 
-      /*
-       * Send push notification.
-       *
-       * Failure here does NOT break WebRTC.
-       */
+        if (!sent) {
+          toast.error(
+            "Could not connect to the other user.",
+          );
 
-      try {
-        await notifyIncomingCall(
-          {
-            calleeId:
-              peer.id,
+          await supabase
+            .from("calls")
+            .update({
+              status: "failed",
+              ended_at:
+                new Date().toISOString(),
+            })
+            .eq(
+              "id",
+              data.id,
+            );
+
+          cleanup();
+
+          return;
+        }
+
+        /*
+         * Send push notification.
+         */
+
+        try {
+          await notifyIncomingCall({
+            calleeId: peer.id,
             kind,
             callerName,
             callerAvatar,
-          },
-        );
-      } catch (error) {
-        console.error(
-          "[WHATSXUP CALL PUSH] Failed:",
-          error,
-        );
-      }
-    },
-    [
-      user,
-      state.phase,
-      getMedia,
-      buildPeer,
-      send,
-    ],
-  );
+          });
+        } catch (error) {
+          /*
+           * Push failure must NOT break
+           * the WebRTC call.
+           */
+
+          console.error(
+            "[WHATSXUP CALL PUSH]",
+            error,
+          );
+        }
+      },
+      [
+        user?.id,
+        user,
+        state.phase,
+        getMedia,
+        buildPeer,
+        send,
+        cleanup,
+      ],
+    );
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * ACCEPT CALL
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
-  const accept = useCallback(
-    async () => {
+  const accept =
+    useCallback(async () => {
       if (
         state.phase !==
           "incoming" ||
@@ -1208,6 +1713,7 @@ export function RealtimeProvider({
         await send(
           state.peerId,
           "decline",
+          {},
         );
 
         cleanup();
@@ -1223,22 +1729,19 @@ export function RealtimeProvider({
 
       try {
         /*
-         * Set caller's offer.
+         * Apply caller offer.
          */
 
         await pc.setRemoteDescription(
           pendingOffer.current,
         );
 
-        remoteDescriptionSet.current =
-          true;
-
         /*
-         * Add any ICE candidates
-         * that arrived early.
+         * Apply any ICE candidates that
+         * arrived before the offer was accepted.
          */
 
-        await flushPendingIce();
+        await applyPendingIce();
 
         /*
          * Create answer.
@@ -1255,13 +1758,24 @@ export function RealtimeProvider({
          * Send answer.
          */
 
-        await send(
-          state.peerId,
-          "answer",
-          {
-            sdp: answer,
-          },
-        );
+        const sent =
+          await send(
+            state.peerId,
+            "answer",
+            {
+              sdp: answer,
+            },
+          );
+
+        if (!sent) {
+          toast.error(
+            "Could not send call answer.",
+          );
+
+          cleanup();
+
+          return;
+        }
 
         /*
          * Update database.
@@ -1270,53 +1784,55 @@ export function RealtimeProvider({
         await supabase
           .from("calls")
           .update({
-            status:
-              "accepted",
+            status: "accepted",
           })
           .eq(
             "id",
             state.callId,
           );
 
+        /*
+         * Active call.
+         */
+
         setState({
           ...state,
-          phase:
-            "active",
+          phase: "active",
         });
+
+        pendingOffer.current =
+          null;
       } catch (error) {
         console.error(
-          "[WHATSXUP ACCEPT] Failed:",
+          "[WHATSXUP ACCEPT]",
           error,
         );
 
         toast.error(
-          "Could not connect the call.",
+          "Could not accept the call.",
         );
 
         cleanup();
       }
-    },
-    [
+    }, [
       state,
       getMedia,
       buildPeer,
-      flushPendingIce,
       send,
       cleanup,
-    ],
-  );
+      applyPendingIce,
+    ]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * DECLINE
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
-  const decline = useCallback(
-    async () => {
+  const decline =
+    useCallback(async () => {
       if (
-        state.phase ===
-        "idle"
+        state.phase === "idle"
       ) {
         return;
       }
@@ -1324,6 +1840,7 @@ export function RealtimeProvider({
       await send(
         state.peerId,
         "decline",
+        {},
       );
 
       await supabase
@@ -1343,25 +1860,22 @@ export function RealtimeProvider({
         );
 
       cleanup();
-    },
-    [
+    }, [
       state,
       send,
       cleanup,
-    ],
-  );
+    ]);
 
   /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * HANG UP
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
-  const hangUp = useCallback(
-    async () => {
+  const hangUp =
+    useCallback(async () => {
       if (
-        state.phase ===
-        "idle"
+        state.phase === "idle"
       ) {
         return;
       }
@@ -1369,6 +1883,7 @@ export function RealtimeProvider({
       await send(
         state.peerId,
         "end",
+        {},
       );
 
       await supabase
@@ -1388,358 +1903,29 @@ export function RealtimeProvider({
         );
 
       cleanup();
-    },
-    [
+    }, [
       state,
       send,
       cleanup,
-    ],
-  );
+    ]);
 
   /*
-   * ---------------------------------------------------------
-   * SWITCH FRONT / REAR CAMERA
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * CLEANUP OUTGOING SIGNAL CHANNELS
+   * WHEN COMPONENT UNMOUNTS
+   * -------------------------------------------------------
    */
 
-  const switchCamera =
-    useCallback(
-      async () => {
-        if (
-          state.phase ===
-            "idle" ||
-          state.kind !==
-            "video" ||
-          !pcRef.current ||
-          !localRef.current
-        ) {
-          return;
-        }
-
-        try {
-          const currentTrack =
-            localRef.current.getVideoTracks()[0];
-
-          if (!currentTrack) {
-            return;
-          }
-
-          const settings =
-            currentTrack.getSettings();
-
-          const currentFacing =
-            settings.facingMode ===
-            "environment"
-              ? "environment"
-              : "user";
-
-          const nextFacing =
-            currentFacing ===
-            "user"
-              ? "environment"
-              : "user";
-
-          const newStream =
-            await navigator.mediaDevices.getUserMedia(
-              {
-                audio: false,
-                video: {
-                  facingMode: {
-                    ideal:
-                      nextFacing,
-                  },
-                },
-              },
-            );
-
-          const newTrack =
-            newStream.getVideoTracks()[0];
-
-          if (!newTrack) {
-            newStream
-              .getTracks()
-              .forEach(
-                (track) =>
-                  track.stop(),
-              );
-
-            return;
-          }
-
-          const sender =
-            pcRef.current
-              .getSenders()
-              .find(
-                (item) =>
-                  item.track
-                    ?.kind ===
-                  "video",
-              );
-
-          if (sender) {
-            await sender.replaceTrack(
-              newTrack,
-            );
-          }
-
-          currentTrack.stop();
-
-          localRef.current.removeTrack(
-            currentTrack,
-          );
-
-          localRef.current.addTrack(
-            newTrack,
-          );
-
-          attachLocalVideo();
-
-          setCamOff(false);
-        } catch (error) {
-          console.error(
-            "[WHATSXUP CAMERA SWITCH]",
-            error,
-          );
-
-          toast.error(
-            "Could not switch camera.",
-          );
-        }
-      },
-      [
-        state,
-        attachLocalVideo,
-      ],
-    );
+  useEffect(() => {
+    return () => {
+      void cleanupSignalChannels();
+    };
+  }, [cleanupSignalChannels]);
 
   /*
-   * ---------------------------------------------------------
-   * RESTORE CAMERA
-   * ---------------------------------------------------------
-   */
-
-  const restoreCamera =
-    useCallback(
-      async () => {
-        if (
-          state.phase ===
-            "idle" ||
-          state.kind !==
-            "video" ||
-          !pcRef.current
-        ) {
-          return;
-        }
-
-        try {
-          const cameraStream =
-            await navigator.mediaDevices.getUserMedia(
-              {
-                audio: false,
-                video: {
-                  facingMode:
-                    "user",
-                },
-              },
-            );
-
-          const cameraTrack =
-            cameraStream.getVideoTracks()[0];
-
-          if (!cameraTrack) {
-            cameraStream
-              .getTracks()
-              .forEach(
-                (track) =>
-                  track.stop(),
-              );
-
-            return;
-          }
-
-          const sender =
-            pcRef.current
-              .getSenders()
-              .find(
-                (item) =>
-                  item.track
-                    ?.kind ===
-                  "video",
-              );
-
-          if (sender) {
-            await sender.replaceTrack(
-              cameraTrack,
-            );
-          }
-
-          const oldVideoTrack =
-            localRef.current?.getVideoTracks()[0];
-
-          if (oldVideoTrack) {
-            oldVideoTrack.stop();
-
-            localRef.current?.removeTrack(
-              oldVideoTrack,
-            );
-          }
-
-          if (
-            localRef.current
-          ) {
-            localRef.current.addTrack(
-              cameraTrack,
-            );
-          }
-
-          attachLocalVideo();
-
-          setSharingScreen(
-            false,
-          );
-
-          setCamOff(false);
-        } catch (error) {
-          console.error(
-            "[WHATSXUP RESTORE CAMERA]",
-            error,
-          );
-
-          toast.error(
-            "Could not return to camera.",
-          );
-        }
-      },
-      [
-        state,
-        attachLocalVideo,
-      ],
-    );
-
-  /*
-   * ---------------------------------------------------------
-   * SCREEN SHARING
-   * ---------------------------------------------------------
-   */
-
-  const shareScreen =
-    useCallback(
-      async () => {
-        if (
-          state.phase ===
-            "idle" ||
-          state.kind !==
-            "video" ||
-          !pcRef.current
-        ) {
-          return;
-        }
-
-        if (
-          !navigator.mediaDevices
-            ?.getDisplayMedia
-        ) {
-          toast.error(
-            "Screen sharing is not supported by this browser.",
-          );
-
-          return;
-        }
-
-        try {
-          const displayStream =
-            await navigator.mediaDevices.getDisplayMedia(
-              {
-                video: true,
-                audio: false,
-              },
-            );
-
-          const screenTrack =
-            displayStream.getVideoTracks()[0];
-
-          if (!screenTrack) {
-            return;
-          }
-
-          const sender =
-            pcRef.current
-              .getSenders()
-              .find(
-                (item) =>
-                  item.track
-                    ?.kind ===
-                  "video",
-              );
-
-          if (!sender) {
-            screenTrack.stop();
-
-            return;
-          }
-
-          await sender.replaceTrack(
-            screenTrack,
-          );
-
-          if (
-            localVideo.current
-          ) {
-            const preview =
-              new MediaStream([
-                screenTrack,
-              ]);
-
-            localVideo.current.srcObject =
-              preview;
-
-            await localVideo.current
-              .play()
-              .catch(
-                () =>
-                  undefined,
-              );
-          }
-
-          setSharingScreen(
-            true,
-          );
-
-          screenTrack.onended =
-            () => {
-              void restoreCamera();
-            };
-        } catch (error) {
-          const name =
-            (
-              error as DOMException
-            )?.name;
-
-          if (
-            name !==
-            "NotAllowedError"
-          ) {
-            console.error(
-              "[WHATSXUP SCREEN SHARE]",
-              error,
-            );
-
-            toast.error(
-              "Could not start screen sharing.",
-            );
-          }
-        }
-      },
-      [
-        state,
-        restoreCamera,
-      ],
-    );
-
-  /*
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    * CONTEXT VALUE
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
    */
 
   const value =
@@ -1757,9 +1943,9 @@ export function RealtimeProvider({
     );
 
   /*
-   * ---------------------------------------------------------
-   * UI
-   * ---------------------------------------------------------
+   * -------------------------------------------------------
+   * CALL UI
+   * -------------------------------------------------------
    */
 
   return (
@@ -1810,7 +1996,7 @@ export function RealtimeProvider({
           {state.kind ===
             "video" && (
             <div className="relative my-6 w-full max-w-md flex-1 overflow-hidden rounded-3xl bg-black">
-              {/* REMOTE VIDEO */}
+              {/* REMOTE PERSON */}
 
               <video
                 ref={
@@ -1821,7 +2007,7 @@ export function RealtimeProvider({
                 className="h-full w-full object-cover"
               />
 
-              {/* LOCAL VIDEO */}
+              {/* YOUR CAMERA */}
 
               <div className="absolute right-3 top-3 h-36 w-28 overflow-hidden rounded-2xl border-2 border-white/30 bg-black shadow-xl">
                 <video
@@ -1838,6 +2024,8 @@ export function RealtimeProvider({
                   You
                 </div>
               </div>
+
+              {/* SCREEN SHARING */}
 
               {sharingScreen && (
                 <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
@@ -1859,10 +2047,12 @@ export function RealtimeProvider({
           {/* CONTROLS */}
 
           <div className="flex flex-wrap items-center justify-center gap-3">
+            {/* ACTIVE */}
+
             {state.phase ===
               "active" && (
               <>
-                {/* MIC */}
+                {/* MICROPHONE */}
 
                 <Button
                   size="icon"
@@ -1910,10 +2100,10 @@ export function RealtimeProvider({
                         ? "secondary"
                         : "outline"
                     }
-                    className="h-14 w-14 rounded-full"
                     disabled={
                       sharingScreen
                     }
+                    className="h-14 w-14 rounded-full"
                     onClick={() => {
                       const next =
                         !camOff;
@@ -1949,14 +2139,13 @@ export function RealtimeProvider({
                   <Button
                     size="icon"
                     variant="outline"
-                    className="h-14 w-14 rounded-full"
                     disabled={
                       sharingScreen
                     }
+                    className="h-14 w-14 rounded-full"
                     onClick={() =>
                       void switchCamera()
                     }
-                    title="Switch camera"
                   >
                     <Video />
                   </Button>
@@ -1978,12 +2167,11 @@ export function RealtimeProvider({
                       if (
                         sharingScreen
                       ) {
-                        void restoreCamera();
+                        void restoreCameraAfterScreenShare();
                       } else {
                         void shareScreen();
                       }
                     }}
-                    title="Share screen"
                   >
                     <MonitorUp />
                   </Button>
@@ -2001,13 +2189,12 @@ export function RealtimeProvider({
                 onClick={() =>
                   void accept()
                 }
-                title="Accept call"
               >
                 <Phone />
               </Button>
             )}
 
-            {/* DECLINE / END */}
+            {/* HANG UP / DECLINE */}
 
             <Button
               size="icon"
@@ -2021,12 +2208,6 @@ export function RealtimeProvider({
                     : hangUp()
                 )
               }
-              title={
-                state.phase ===
-                "incoming"
-                  ? "Decline call"
-                  : "End call"
-              }
             >
               <PhoneOff />
             </Button>
@@ -2036,6 +2217,12 @@ export function RealtimeProvider({
     </RealtimeContext.Provider>
   );
 }
+
+/*
+ * ---------------------------------------------------------
+ * HOOK
+ * ---------------------------------------------------------
+ */
 
 export function useRealtime() {
   return useContext(
