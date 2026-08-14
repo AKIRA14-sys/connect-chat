@@ -2,20 +2,28 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-/* ---------------------------------------------------------
- * PUSH SUBSCRIPTION SCHEMA
- * --------------------------------------------------------- */
+/* =========================================================
+ * SUBSCRIPTION SCHEMA
+ * ========================================================= */
 
-const subscriptionSchema = z.object({
-  endpoint: z.string().url(),
-  p256dh: z.string().min(10),
-  auth: z.string().min(5),
-  userAgent: z.string().max(300).optional(),
-});
+const subscriptionSchema =
+  z.object({
+    endpoint:
+      z.string().url(),
 
-/* ---------------------------------------------------------
+    p256dh:
+      z.string().min(10),
+
+    auth:
+      z.string().min(5),
+
+    userAgent:
+      z.string().max(300).optional(),
+  });
+
+/* =========================================================
  * SAVE PUSH SUBSCRIPTION
- * --------------------------------------------------------- */
+ * ========================================================= */
 
 export const savePushSubscription =
   createServerFn({
@@ -26,14 +34,18 @@ export const savePushSubscription =
     ])
     .inputValidator(
       (data: unknown) =>
-        subscriptionSchema.parse(data),
+        subscriptionSchema.parse(
+          data,
+        ),
     )
     .handler(
       async ({
         data,
         context,
       }) => {
-        const { error } =
+        const {
+          error,
+        } =
           await context.supabase
             .from(
               "push_subscriptions",
@@ -42,12 +54,16 @@ export const savePushSubscription =
               {
                 user_id:
                   context.userId,
+
                 endpoint:
                   data.endpoint,
+
                 p256dh:
                   data.p256dh,
+
                 auth:
                   data.auth,
+
                 user_agent:
                   data.userAgent ??
                   null,
@@ -60,7 +76,7 @@ export const savePushSubscription =
 
         if (error) {
           throw new Error(
-            error.message,
+            `Could not save push subscription: ${error.message}`,
           );
         }
 
@@ -70,9 +86,9 @@ export const savePushSubscription =
       },
     );
 
-/* ---------------------------------------------------------
+/* =========================================================
  * REMOVE PUSH SUBSCRIPTION
- * --------------------------------------------------------- */
+ * ========================================================= */
 
 export const removePushSubscription =
   createServerFn({
@@ -95,19 +111,28 @@ export const removePushSubscription =
         data,
         context,
       }) => {
-        await context.supabase
-          .from(
-            "push_subscriptions",
-          )
-          .delete()
-          .eq(
-            "endpoint",
-            data.endpoint,
-          )
-          .eq(
-            "user_id",
-            context.userId,
+        const {
+          error,
+        } =
+          await context.supabase
+            .from(
+              "push_subscriptions",
+            )
+            .delete()
+            .eq(
+              "endpoint",
+              data.endpoint,
+            )
+            .eq(
+              "user_id",
+              context.userId,
+            );
+
+        if (error) {
+          throw new Error(
+            error.message,
           );
+        }
 
         return {
           ok: true,
@@ -115,9 +140,9 @@ export const removePushSubscription =
       },
     );
 
-/* ---------------------------------------------------------
- * FANOUT PUSH NOTIFICATION
- * --------------------------------------------------------- */
+/* =========================================================
+ * SEND TO SUBSCRIPTIONS
+ * ========================================================= */
 
 async function fanout(
   userIds: string[],
@@ -127,23 +152,34 @@ async function fanout(
   >,
 ) {
   if (!userIds.length) {
-    return;
+    return {
+      sent: 0,
+      expired: 0,
+      failed: 0,
+    };
   }
 
   const [
-    { supabaseAdmin },
-    { sendWebPush },
-  ] = await Promise.all([
-    import(
-      "@/integrations/supabase/client.server"
-    ),
-    import(
-      "./webpush.server"
-    ),
-  ]);
+    {
+      supabaseAdmin,
+    },
+    {
+      sendWebPush,
+    },
+  ] =
+    await Promise.all([
+      import(
+        "@/integrations/supabase/client.server"
+      ),
+
+      import(
+        "./webpush.server"
+      ),
+    ]);
 
   const {
     data: subscriptions,
+    error,
   } =
     await supabaseAdmin
       .from(
@@ -157,38 +193,65 @@ async function fanout(
         userIds,
       );
 
+  if (error) {
+    throw new Error(
+      `Could not load push subscriptions: ${error.message}`,
+    );
+  }
+
+  if (
+    !subscriptions?.length
+  ) {
+    console.warn(
+      "[WHATSXUP PUSH] Recipient has no push subscription.",
+    );
+
+    return {
+      sent: 0,
+      expired: 0,
+      failed: 0,
+    };
+  }
+
   const expired: string[] =
     [];
 
-  await Promise.all(
-    (
-      subscriptions ?? []
-    ).map(async (subscription) => {
-      try {
-        const {
-          expired: isExpired,
-        } =
-          await sendWebPush(
-            subscription,
-            payload,
-          );
+  let sent = 0;
+  let failed = 0;
 
-        if (isExpired) {
-          expired.push(
-            subscription.endpoint,
+  await Promise.all(
+    subscriptions.map(
+      async (subscription) => {
+        try {
+          const result =
+            await sendWebPush(
+              subscription,
+              payload,
+            );
+
+          if (
+            result.expired
+          ) {
+            expired.push(
+              subscription.endpoint,
+            );
+          } else {
+            sent++;
+          }
+        } catch (error) {
+          failed++;
+
+          console.error(
+            "[WHATSXUP PUSH] Delivery failed:",
+            error,
           );
         }
-      } catch (error) {
-        console.error(
-          "[WHATSXUP PUSH] Failed to send notification:",
-          error,
-        );
-      }
-    }),
+      },
+    ),
   );
 
   /*
-   * Remove expired subscriptions.
+   * Delete dead subscriptions.
    */
 
   if (expired.length) {
@@ -202,11 +265,32 @@ async function fanout(
         expired,
       );
   }
+
+  /*
+   * Do not silently pretend everything
+   * succeeded if every push failed.
+   */
+
+  if (
+    sent === 0 &&
+    failed > 0
+  ) {
+    throw new Error(
+      "Web Push delivery failed for all recipient devices.",
+    );
+  }
+
+  return {
+    sent,
+    expired:
+      expired.length,
+    failed,
+  };
 }
 
-/* ---------------------------------------------------------
- * NEW MESSAGE NOTIFICATION
- * --------------------------------------------------------- */
+/* =========================================================
+ * MESSAGE NOTIFICATION
+ * ========================================================= */
 
 export const notifyNewMessage =
   createServerFn({
@@ -258,9 +342,7 @@ export const notifyNewMessage =
         }
 
         const recipients =
-          (
-            members ?? []
-          )
+          (members ?? [])
             .map(
               (member) =>
                 member.user_id,
@@ -271,34 +353,46 @@ export const notifyNewMessage =
                 context.userId,
             );
 
-        await fanout(
-          recipients,
-          {
-            kind: "message",
+        if (
+          !recipients.length
+        ) {
+          return {
+            ok: true,
+            sent: 0,
+          };
+        }
 
-            title:
-              data.title,
+        const result =
+          await fanout(
+            recipients,
+            {
+              kind:
+                "message",
 
-            body:
-              data.preview,
+              title:
+                data.title,
 
-            conversationId:
-              data.conversationId,
+              body:
+                data.preview,
 
-            tag:
-              `chat-${data.conversationId}`,
-          },
-        );
+              conversationId:
+                data.conversationId,
+
+              tag:
+                `chat-${data.conversationId}`,
+            },
+          );
 
         return {
           ok: true,
+          ...result,
         };
       },
     );
 
-/* ---------------------------------------------------------
+/* =========================================================
  * INCOMING CALL NOTIFICATION
- * --------------------------------------------------------- */
+ * ========================================================= */
 
 export const notifyIncomingCall =
   createServerFn({
@@ -347,58 +441,59 @@ export const notifyIncomingCall =
         data,
         context,
       }) => {
-        /*
-         * Never notify yourself.
-         */
-
         if (
           data.calleeId ===
           context.userId
         ) {
           return {
             ok: true,
+            sent: 0,
           };
         }
 
-        await fanout(
-          [data.calleeId],
-          {
-            kind: "call",
+        const result =
+          await fanout(
+            [data.calleeId],
+            {
+              kind:
+                "call",
 
-            title:
-              data.callerName,
+              title:
+                data.callerName,
 
-            body:
-              data.missed
-                ? `Missed ${data.kind} call`
-                : `Incoming ${data.kind} call`,
+              body:
+                data.missed
+                  ? `Missed ${data.kind} call`
+                  : `Incoming ${data.kind} call`,
 
-            conversationId:
-              null,
+              conversationId:
+                null,
 
-            callId:
-              data.callId ?? null,
+              callId:
+                data.callId ??
+                null,
 
-            callerId:
-              context.userId,
+              callerId:
+                context.userId,
 
-            callerName:
-              data.callerName,
+              callerName:
+                data.callerName,
 
-            callerAvatar:
-              data.callerAvatar ??
-              null,
+              callerAvatar:
+                data.callerAvatar ??
+                null,
 
-            callKind:
-              data.kind,
+              callKind:
+                data.kind,
 
-            tag:
-              `call-${context.userId}`,
-          },
-        );
+              tag:
+                `call-${context.userId}`,
+            },
+          );
 
         return {
           ok: true,
+          ...result,
         };
       },
     );
