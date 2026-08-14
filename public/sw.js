@@ -1,516 +1,522 @@
-/* ============================================================
+/*
  * WHATSXUP SERVICE WORKER
  *
  * Handles:
- * - PWA caching
  * - Web Push
+ * - Background notifications
  * - Message notifications
- * - Incoming call notifications
- * - Notification actions
- * ============================================================
+ * - Voice call notifications
+ * - Video call notifications
+ * - Notification clicks
+ * - PWA caching
  */
 
 const VERSION = "whatsxup-v2";
 
-const SHELL_CACHE = `${VERSION}-shell`;
-const ASSET_CACHE = `${VERSION}-assets`;
+const SHELL_CACHE =
+  `${VERSION}-shell`;
 
-const ICON = "/icons/icon-192.png";
-const BADGE = "/icons/icon-192.png";
+const ASSET_CACHE =
+  `${VERSION}-assets`;
 
-/*
- * ============================================================
+const ICON =
+  "/icons/icon-192.png";
+
+const BADGE =
+  "/icons/icon-192.png";
+
+/* ---------------------------------------------------------
  * INSTALL
- * ============================================================
- */
+ * --------------------------------------------------------- */
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(SHELL_CACHE)
-      .then((cache) =>
-        cache
-          .addAll([
+self.addEventListener(
+  "install",
+  (event) => {
+    event.waitUntil(
+      caches
+        .open(SHELL_CACHE)
+        .then((cache) =>
+          cache.addAll([
             "/",
             "/manifest.webmanifest",
             ICON,
-          ])
-          .catch(() => undefined),
-      ),
-  );
+          ]),
+        )
+        .catch(() => undefined),
+    );
 
-  self.skipWaiting();
-});
-
-/*
- * ============================================================
- * ACTIVATE
- * ============================================================
- */
-
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    (async () => {
-      const names = await caches.keys();
-
-      await Promise.all(
-        names
-          .filter((name) => !name.startsWith(VERSION))
-          .map((name) => caches.delete(name)),
-      );
-
-      await self.clients.claim();
-    })(),
-  );
-});
-
-/*
- * ============================================================
- * MESSAGE FROM APP
- * ============================================================
- */
-
-self.addEventListener("message", (event) => {
-  if (event.data === "skip-waiting") {
     self.skipWaiting();
-  }
-});
+  },
+);
 
-/*
- * ============================================================
+/* ---------------------------------------------------------
+ * ACTIVATE
+ * --------------------------------------------------------- */
+
+self.addEventListener(
+  "activate",
+  (event) => {
+    event.waitUntil(
+      (async () => {
+        const cacheNames =
+          await caches.keys();
+
+        await Promise.all(
+          cacheNames
+            .filter(
+              (name) =>
+                !name.startsWith(
+                  VERSION,
+                ),
+            )
+            .map((name) =>
+              caches.delete(name),
+            ),
+        );
+
+        await self.clients.claim();
+      })(),
+    );
+  },
+);
+
+/* ---------------------------------------------------------
+ * MESSAGE FROM APP
+ * --------------------------------------------------------- */
+
+self.addEventListener(
+  "message",
+  (event) => {
+    if (
+      event.data ===
+      "skip-waiting"
+    ) {
+      self.skipWaiting();
+    }
+  },
+);
+
+/* ---------------------------------------------------------
  * HASHED ASSETS
- * ============================================================
- */
+ * --------------------------------------------------------- */
 
 function isHashedAsset(url) {
   return (
-    url.origin === self.location.origin &&
-    /\/(assets|_build)\//.test(url.pathname)
+    url.origin ===
+      self.location.origin &&
+    /\/(assets|_build)\//.test(
+      url.pathname,
+    )
   );
 }
 
-/*
- * ============================================================
+/* ---------------------------------------------------------
  * FETCH
- * ============================================================
- */
-
-self.addEventListener("fetch", (event) => {
-  const request = event.request;
-
-  if (request.method !== "GET") {
-    return;
-  }
-
-  const url = new URL(request.url);
-
-  if (url.origin !== self.location.origin) {
-    return;
-  }
-
-  /*
-   * Never cache server functions/auth.
-   */
-  if (
-    url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/_serverFn/")
-  ) {
-    return;
-  }
-
-  /*
-   * Build assets = cache first.
-   */
-  if (isHashedAsset(url)) {
-    event.respondWith(
-      caches.open(ASSET_CACHE).then(async (cache) => {
-        const cached = await cache.match(request);
-
-        if (cached) {
-          return cached;
-        }
-
-        const response = await fetch(request);
-
-        if (response.ok) {
-          cache.put(request, response.clone());
-        }
-
-        return response;
-      }),
-    );
-
-    return;
-  }
-
-  /*
-   * Everything else = network first.
-   */
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(SHELL_CACHE);
-
-      try {
-        const response = await fetch(request);
-
-        if (
-          response.ok &&
-          (request.mode === "navigate" ||
-            url.pathname === "/")
-        ) {
-          cache.put("/", response.clone());
-        }
-
-        return response;
-      } catch {
-        const cached =
-          (await cache.match(request)) ||
-          (request.mode === "navigate"
-            ? await cache.match("/")
-            : undefined);
-
-        if (cached) {
-          return cached;
-        }
-
-        throw new Error("Network unavailable");
-      }
-    })(),
-  );
-});
-
-/*
- * ============================================================
- * PUSH EVENT
- * ============================================================
- */
-
-self.addEventListener("push", (event) => {
-  let data = {};
-
-  try {
-    data = event.data
-      ? event.data.json()
-      : {};
-  } catch {
-    data = {
-      kind: "message",
-      title: "WHATSXUP",
-      body: event.data
-        ? event.data.text()
-        : "",
-    };
-  }
-
-  const kind =
-    data.kind || "message";
-
-  const title =
-    data.title || "WHATSXUP";
-
-  const body =
-    data.body || "";
-
-  /*
-   * Profile picture.
-   *
-   * If the profile avatar is a publicly accessible URL,
-   * it can be used as the notification icon.
-   */
-  const notificationIcon =
-    data.avatar || ICON;
-
-  /*
-   * ==========================================================
-   * MESSAGE NOTIFICATION
-   * ==========================================================
-   */
-
-  if (kind === "message") {
-    event.waitUntil(
-      self.registration.showNotification(
-        title,
-        {
-          body,
-
-          icon: notificationIcon,
-
-          badge: BADGE,
-
-          tag:
-            data.tag ||
-            "whatsxup-message",
-
-          renotify: true,
-
-          data: {
-            kind: "message",
-
-            conversationId:
-              data.conversationId ||
-              null,
-
-            avatar:
-              data.avatar ||
-              null,
-          },
-
-          vibrate: [
-            80,
-            40,
-            80,
-          ],
-        },
-      ),
-    );
-
-    return;
-  }
-
-  /*
-   * ==========================================================
-   * INCOMING CALL NOTIFICATION
-   * ==========================================================
-   */
-
-  if (kind === "call") {
-    const missed =
-      data.missed === true;
-
-    const callerName =
-      data.callerName ||
-      data.title ||
-      "Someone";
-
-    const callKind =
-      data.callKind ||
-      "voice";
-
-    const callTitle =
-      missed
-        ? "Missed call"
-        : callKind === "video"
-          ? "Incoming video call"
-          : "Incoming voice call";
-
-    /*
-     * Actions are supported by persistent notifications
-     * in service workers on browsers that implement them.
-     */
-    const actions = missed
-      ? [
-          {
-            action: "open-chat",
-            title: "Open chat",
-          },
-        ]
-      : [
-          {
-            action: "answer",
-            title: "Answer",
-          },
-          {
-            action: "decline",
-            title: "Decline",
-          },
-        ];
-
-    event.waitUntil(
-      self.registration.showNotification(
-        callTitle,
-        {
-          body: missed
-            ? `Missed ${callKind} call from ${callerName}`
-            : `${callerName} is calling you`,
-
-          icon:
-            data.avatar ||
-            notificationIcon,
-
-          badge: BADGE,
-
-          tag:
-            data.tag ||
-            `call-${data.callId || "incoming"}`,
-
-          renotify: true,
-
-          requireInteraction: true,
-
-          actions,
-
-          data: {
-            kind: "call",
-
-            callId:
-              data.callId ||
-              null,
-
-            callerId:
-              data.callerId ||
-              null,
-
-            callerName,
-
-            callKind,
-
-            conversationId:
-              data.conversationId ||
-              null,
-
-            missed,
-          },
-
-          vibrate: [
-            200,
-            100,
-            200,
-            100,
-            200,
-          ],
-        },
-      ),
-    );
-  }
-});
-
-/*
- * ============================================================
- * NOTIFICATION CLICK
- * ============================================================
- */
+ * --------------------------------------------------------- */
 
 self.addEventListener(
-  "notificationclick",
+  "fetch",
   (event) => {
-    event.notification.close();
+    const request =
+      event.request;
 
-    const notification =
-      event.notification;
+    if (
+      request.method !==
+      "GET"
+    ) {
+      return;
+    }
 
-    const data =
-      notification.data || {};
+    const url =
+      new URL(request.url);
 
-    const kind =
-      data.kind || "message";
+    if (
+      url.origin !==
+      self.location.origin
+    ) {
+      return;
+    }
 
     /*
-     * --------------------------------------------------------
-     * MESSAGE
-     * --------------------------------------------------------
+     * Never cache APIs/server functions.
      */
 
-    if (kind === "message") {
-      const conversationId =
-        data.conversationId;
+    if (
+      url.pathname.startsWith(
+        "/api/",
+      ) ||
+      url.pathname.startsWith(
+        "/_serverFn/",
+      )
+    ) {
+      return;
+    }
 
-      const target =
-        conversationId
-          ? `/chats/${conversationId}`
-          : "/chats";
+    /*
+     * Immutable build assets.
+     */
 
-      event.waitUntil(
-        openApp(target),
+    if (
+      isHashedAsset(url)
+    ) {
+      event.respondWith(
+        caches
+          .open(ASSET_CACHE)
+          .then(async (cache) => {
+            const cached =
+              await cache.match(
+                request,
+              );
+
+            if (cached) {
+              return cached;
+            }
+
+            const response =
+              await fetch(
+                request,
+              );
+
+            if (response.ok) {
+              await cache.put(
+                request,
+                response.clone(),
+              );
+            }
+
+            return response;
+          }),
       );
 
       return;
     }
 
     /*
-     * --------------------------------------------------------
-     * CALL
-     * --------------------------------------------------------
+     * Network first.
      */
 
-    if (kind === "call") {
-      const action =
-        event.action || "";
+    event.respondWith(
+      (async () => {
+        const cache =
+          await caches.open(
+            SHELL_CACHE,
+          );
 
-      /*
-       * Decline:
-       *
-       * We don't try to perform WebRTC directly inside
-       * the service worker.
-       *
-       * Instead we open the app, where the realtime
-       * calling system can handle the call.
-       */
-      if (action === "decline") {
-        event.waitUntil(
-          openApp("/chats"),
-        );
+        try {
+          const response =
+            await fetch(
+              request,
+            );
 
-        return;
-      }
+          if (
+            response.ok &&
+            request.mode ===
+              "navigate"
+          ) {
+            await cache.put(
+              "/",
+              response.clone(),
+            );
+          }
 
-      /*
-       * Answer or tapping the notification itself:
-       */
-      if (
-        action === "answer" ||
-        action === "open-chat" ||
-        action === ""
-      ) {
-        const conversationId =
-          data.conversationId;
+          return response;
+        } catch {
+          const cached =
+            (await cache.match(
+              request,
+            )) ||
+            (request.mode ===
+            "navigate"
+              ? await cache.match(
+                  "/",
+                )
+              : undefined);
 
-        const target =
-          conversationId
-            ? `/chats/${conversationId}`
-            : "/chats";
+          if (cached) {
+            return cached;
+          }
 
-        event.waitUntil(
-          openApp(target),
-        );
-
-        return;
-      }
-    }
+          throw new Error(
+            "Network unavailable",
+          );
+        }
+      })(),
+    );
   },
 );
 
-/*
- * ============================================================
- * OPEN/FIND THE APP
- * ============================================================
- */
+/* =========================================================
+ * WEB PUSH
+ * ========================================================= */
 
-async function openApp(target) {
-  const windows =
-    await self.clients.matchAll({
-      type: "window",
-      includeUncontrolled: true,
-    });
+self.addEventListener(
+  "push",
+  (event) => {
+    let data = {};
 
-  /*
-   * Prefer an already-open WHATSXUP window.
-   */
-  for (const client of windows) {
     try {
-      const url = new URL(client.url);
-
-      if (
-        url.origin ===
-        self.location.origin
-      ) {
-        await client.focus();
-
-        client.postMessage({
-          type: "whatsxup-navigate",
-          to: target,
-        });
-
-        return;
-      }
+      data =
+        event.data
+          ? event.data.json()
+          : {};
     } catch {
-      // Ignore invalid client URLs.
+      data = {
+        kind: "message",
+        title: "WHATSXUP",
+        body: event.data
+          ? event.data.text()
+          : "",
+      };
     }
-  }
 
-  /*
-   * Otherwise open a new window.
-   */
-  if (self.clients.openWindow) {
-    await self.clients.openWindow(target);
-  }
-}
+    const kind =
+      data.kind ||
+      "message";
+
+    let title =
+      data.title ||
+      "WHATSXUP";
+
+    let body =
+      data.body ||
+      "";
+
+    /*
+     * MESSAGE
+     */
+
+    if (
+      kind ===
+      "message"
+    ) {
+      title =
+        data.title ||
+        "New message";
+
+      body =
+        data.body ||
+        "You received a new message.";
+    }
+
+    /*
+     * VOICE CALL
+     */
+
+    if (
+      kind ===
+      "call" &&
+      data.callKind ===
+        "voice"
+    ) {
+      title =
+        data.title ||
+        "Incoming voice call";
+
+      body =
+        data.body ||
+        "Incoming voice call";
+    }
+
+    /*
+     * VIDEO CALL
+     */
+
+    if (
+      kind ===
+      "call" &&
+      data.callKind ===
+        "video"
+    ) {
+      title =
+        data.title ||
+        "Incoming video call";
+
+      body =
+        data.body ||
+        "Incoming video call";
+    }
+
+    const notificationData = {
+      kind,
+      conversationId:
+        data.conversationId ||
+        null,
+      callId:
+        data.callId ||
+        null,
+      callerId:
+        data.callerId ||
+        null,
+      callerName:
+        data.callerName ||
+        null,
+      callerAvatar:
+        data.callerAvatar ||
+        null,
+      callKind:
+        data.callKind ||
+        null,
+    };
+
+    /*
+     * IMPORTANT:
+     *
+     * showNotification() is the system-level
+     * notification. It is NOT an in-app popup.
+     */
+
+    event.waitUntil(
+      self.registration.showNotification(
+        title,
+        {
+          body,
+
+          icon: ICON,
+
+          badge: BADGE,
+
+          tag:
+            data.tag ||
+            `whatsxup-${kind}`,
+
+          renotify: true,
+
+          requireInteraction:
+            kind === "call",
+
+          vibrate:
+            kind === "call"
+              ? [
+                  200,
+                  100,
+                  200,
+                  100,
+                  300,
+                ]
+              : [
+                  100,
+                  50,
+                  100,
+                ],
+
+          data:
+            notificationData,
+        },
+      ),
+    );
+  },
+);
+
+/* =========================================================
+ * NOTIFICATION CLICK
+ * ========================================================= */
+
+self.addEventListener(
+  "notificationclick",
+  (event) => {
+    event.notification.close();
+
+    const data =
+      event.notification
+        .data || {};
+
+    let target =
+      "/chats";
+
+    /*
+     * Message notification
+     */
+
+    if (
+      data.kind ===
+        "message" &&
+      data.conversationId
+    ) {
+      target =
+        `/chats/${data.conversationId}`;
+    }
+
+    /*
+     * Call notification
+     */
+
+    if (
+      data.kind ===
+        "call"
+    ) {
+      target =
+        "/chats";
+    }
+
+    event.waitUntil(
+      (async () => {
+        const windows =
+          await self.clients.matchAll(
+            {
+              type: "window",
+              includeUncontrolled:
+                true,
+            },
+          );
+
+        for (
+          const client of windows
+        ) {
+          try {
+            const url =
+              new URL(
+                client.url,
+              );
+
+            if (
+              url.origin ===
+              self.location.origin
+            ) {
+              await client.focus();
+
+              client.postMessage({
+                type:
+                  "whatsxup-navigate",
+                to: target,
+              });
+
+              return;
+            }
+          } catch {
+            // Continue.
+          }
+        }
+
+        await self.clients.openWindow(
+          target,
+        );
+      })(),
+    );
+  },
+);
+
+/* =========================================================
+ * NOTIFICATION CLOSE
+ * ========================================================= */
+
+self.addEventListener(
+  "notificationclose",
+  () => {
+    // Intentionally empty.
+  },
+);
+
+/* =========================================================
+ * PUSH SUBSCRIPTION CHANGE
+ * ========================================================= */
+
+self.addEventListener(
+  "pushsubscriptionchange",
+  () => {
+    /*
+     * The application will refresh the
+     * subscription whenever the user opens
+     * WHATSXUP again.
+     */
+  },
+);
