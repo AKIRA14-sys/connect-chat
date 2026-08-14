@@ -749,7 +749,7 @@ function ChatRoom() {
         ? profileMap.get(user.id)
         : null;
 
-      await notifyNewMessage({
+      await notifyNewMessage({ data: {
         conversationId: id,
         title:
           conv?.type === "group"
@@ -762,7 +762,7 @@ function ChatRoom() {
                 160,
               )
             : preview.slice(0, 160),
-      });
+      } });
     } catch {
       // Notifications are best-effort.
     }

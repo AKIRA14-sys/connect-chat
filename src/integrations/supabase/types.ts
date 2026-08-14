@@ -322,6 +322,11 @@ export type Database = {
           id: string
           is_online: boolean
           last_seen: string
+          notify_groups: boolean
+          notify_messages: boolean
+          notify_video_calls: boolean
+          notify_voice_calls: boolean
+          notify_xups: boolean
           show_online_status: boolean
           show_read_receipts: boolean
           status: Database["public"]["Enums"]["account_status"]
@@ -337,6 +342,11 @@ export type Database = {
           id: string
           is_online?: boolean
           last_seen?: string
+          notify_groups?: boolean
+          notify_messages?: boolean
+          notify_video_calls?: boolean
+          notify_voice_calls?: boolean
+          notify_xups?: boolean
           show_online_status?: boolean
           show_read_receipts?: boolean
           status?: Database["public"]["Enums"]["account_status"]
@@ -352,6 +362,11 @@ export type Database = {
           id?: string
           is_online?: boolean
           last_seen?: string
+          notify_groups?: boolean
+          notify_messages?: boolean
+          notify_video_calls?: boolean
+          notify_voice_calls?: boolean
+          notify_xups?: boolean
           show_online_status?: boolean
           show_read_receipts?: boolean
           status?: Database["public"]["Enums"]["account_status"]
@@ -447,12 +462,87 @@ export type Database = {
         }
         Relationships: []
       }
+      xup_views: {
+        Row: {
+          id: string
+          viewed_at: string
+          viewer_id: string
+          xup_id: string
+        }
+        Insert: {
+          id?: string
+          viewed_at?: string
+          viewer_id: string
+          xup_id: string
+        }
+        Update: {
+          id?: string
+          viewed_at?: string
+          viewer_id?: string
+          xup_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xup_views_xup_id_fkey"
+            columns: ["xup_id"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      xups: {
+        Row: {
+          audience: Database["public"]["Enums"]["xup_audience"]
+          audience_ids: string[]
+          background: string | null
+          caption: string | null
+          content: string | null
+          created_at: string
+          expires_at: string
+          id: string
+          kind: Database["public"]["Enums"]["xup_kind"]
+          media_url: string | null
+          user_id: string
+        }
+        Insert: {
+          audience?: Database["public"]["Enums"]["xup_audience"]
+          audience_ids?: string[]
+          background?: string | null
+          caption?: string | null
+          content?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["xup_kind"]
+          media_url?: string | null
+          user_id: string
+        }
+        Update: {
+          audience?: Database["public"]["Enums"]["xup_audience"]
+          audience_ids?: string[]
+          background?: string | null
+          caption?: string | null
+          content?: string | null
+          created_at?: string
+          expires_at?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["xup_kind"]
+          media_url?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       are_friends: { Args: { _a: string; _b: string }; Returns: boolean }
+      can_view_xup: {
+        Args: { _viewer: string; _xup_id: string }
+        Returns: boolean
+      }
       get_or_create_direct: { Args: { _other: string }; Returns: string }
       has_role: {
         Args: {
@@ -486,6 +576,8 @@ export type Database = {
       msg_type: "text" | "image" | "video" | "audio" | "system"
       report_status: "open" | "resolved" | "rejected"
       report_target: "user" | "message" | "group" | "media"
+      xup_audience: "contacts" | "contacts_except" | "only"
+      xup_kind: "text" | "image" | "video"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -630,6 +722,8 @@ export const Constants = {
       msg_type: ["text", "image", "video", "audio", "system"],
       report_status: ["open", "resolved", "rejected"],
       report_target: ["user", "message", "group", "media"],
+      xup_audience: ["contacts", "contacts_except", "only"],
+      xup_kind: ["text", "image", "video"],
     },
   },
 } as const
