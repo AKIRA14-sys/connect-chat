@@ -933,7 +933,7 @@ export function RealtimeProvider({
 
               callId:
                 data.id,
-            },
+            } },
           );
         } catch (error) {
           /*

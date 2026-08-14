@@ -762,7 +762,7 @@ function ChatRoom() {
                 160,
               )
             : preview.slice(0, 160),
-      });
+      } });
     } catch {
       // Notifications are best-effort.
     }
