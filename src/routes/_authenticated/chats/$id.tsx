@@ -749,7 +749,7 @@ function ChatRoom() {
         ? profileMap.get(user.id)
         : null;
 
-      await notifyNewMessage({
+      await notifyNewMessage({ data: {
         conversationId: id,
         title:
           conv?.type === "group"

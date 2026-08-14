@@ -455,27 +455,27 @@ export function RealtimeProvider({
          * --------------------------------------------------- */
 
         if (
-          p.type ===
+          p['type'] ===
           "offer"
         ) {
           pendingOffer.current =
-            p.sdp as unknown as RTCSessionDescriptionInit;
+            p['sdp'] as unknown as RTCSessionDescriptionInit;
 
           const incomingName =
             String(
-              p.name ??
+              p['name'] ??
                 "Unknown",
             );
 
           const incomingAvatar =
-            p.avatar
+            p['avatar']
               ? String(
-                  p.avatar,
+                  p['avatar'],
                 )
               : null;
 
           const incomingKind =
-            (p.kind as CallKind) ??
+            (p['kind'] as CallKind) ??
             "voice";
 
           setState({
@@ -483,12 +483,12 @@ export function RealtimeProvider({
 
             callId:
               String(
-                p.callId,
+                p['callId'],
               ),
 
             peerId:
               String(
-                p.from,
+                p['from'],
               ),
 
             peerName:
@@ -521,11 +521,11 @@ export function RealtimeProvider({
          * --------------------------------------------------- */
 
         if (
-          p.type ===
+          p['type'] ===
           "answer"
         ) {
           await pcRef.current?.setRemoteDescription(
-            p.sdp as unknown as RTCSessionDescriptionInit,
+            p['sdp'] as unknown as RTCSessionDescriptionInit,
           );
 
           setState(
@@ -548,12 +548,12 @@ export function RealtimeProvider({
          * --------------------------------------------------- */
 
         if (
-          p.type ===
+          p['type'] ===
           "ice"
         ) {
           try {
             await pcRef.current?.addIceCandidate(
-              p.candidate as unknown as RTCIceCandidateInit,
+              p['candidate'] as unknown as RTCIceCandidateInit,
             );
           } catch {
             /*
@@ -569,7 +569,7 @@ export function RealtimeProvider({
          * --------------------------------------------------- */
 
         if (
-          p.type ===
+          p['type'] ===
           "decline"
         ) {
           toast.info(
@@ -586,7 +586,7 @@ export function RealtimeProvider({
          * --------------------------------------------------- */
 
         if (
-          p.type ===
+          p['type'] ===
           "end"
         ) {
           cleanup();
@@ -921,7 +921,7 @@ export function RealtimeProvider({
 
         try {
           await notifyIncomingCall(
-            {
+            { data: {
               calleeId:
                 peer.id,
 
