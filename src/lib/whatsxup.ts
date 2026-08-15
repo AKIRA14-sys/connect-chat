@@ -1,7 +1,13 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export type AccountStatus = "active" | "suspended" | "banned";
-export type MsgType = "text" | "image" | "video" | "audio" | "system";
+export type MsgType =
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "sticker"
+  | "system";
 export type MemberRole = "owner" | "admin" | "member";
 
 export type Profile = {
