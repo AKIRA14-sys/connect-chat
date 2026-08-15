@@ -82,6 +82,12 @@ type MessageReaction = {
   created_at?: string;
 };
 
+type MessageDeletion = {
+  message_id: string;
+  user_id: string;
+  deleted_at: string;
+};
+
 export const Route = createFileRoute(
   "/_authenticated/chats/$id",
 )({
@@ -189,11 +195,29 @@ function ChatRoom() {
   const [reactionPicker, setReactionPicker] =
     useState<string | null>(null);
 
+  const [highlightedMessage, setHighlightedMessage] =
+    useState<string | null>(null);
+
+  const [swipeReplyId, setSwipeReplyId] =
+    useState<string | null>(null);
+
+  const [deletingMessageId, setDeletingMessageId] =
+    useState<string | null>(null);
+
+  const [deletingForEveryoneId, setDeletingForEveryoneId] =
+    useState<string | null>(null);
+
   const recorder =
     useRef<MediaRecorder | null>(null);
 
+  const recordingStream =
+    useRef<MediaStream | null>(null);
+
   const chunks =
     useRef<Blob[]>([]);
+
+  const cancelRecordingRef =
+    useRef(false);
 
   const bottom =
     useRef<HTMLDivElement | null>(null);
@@ -213,6 +237,12 @@ function ChatRoom() {
     useRef<Map<string, ReturnType<typeof setTimeout>>>(
       new Map(),
     );
+
+  const swipeStartX =
+    useRef<number | null>(null);
+
+  const swipeCurrentX =
+    useRef<number | null>(null);
 
   const messagesKey = useMemo(
     () =>
@@ -313,14 +343,7 @@ function ChatRoom() {
           )
           .maybeSingle();
 
-      if (error) {
-        console.error(
-          "Could not load chat profile:",
-          error,
-        );
-
-        throw error;
-      }
+      if (error) throw error;
 
       return (data ?? null) as Profile | null;
     },
@@ -513,7 +536,7 @@ function ChatRoom() {
 
   /*
    * ---------------------------------------------------------
-   * CONTACT CHECK
+   * CONTACT
    * ---------------------------------------------------------
    */
 
@@ -544,11 +567,6 @@ function ChatRoom() {
             .maybeSingle();
 
         if (error) {
-          console.error(
-            "Contact check failed:",
-            error,
-          );
-
           return false;
         }
 
@@ -559,9 +577,6 @@ function ChatRoom() {
   /*
    * ---------------------------------------------------------
    * MESSAGE REACTIONS
-   *
-   * Cast the table to any so this file still works even when
-   * Supabase generated types have not yet been regenerated.
    * ---------------------------------------------------------
    */
 
@@ -605,9 +620,7 @@ function ChatRoom() {
             messageIds,
           );
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       return (data ??
         []) as MessageReaction[];
@@ -642,18 +655,15 @@ function ChatRoom() {
   function reactionCounts(
     messageId: string,
   ) {
-    const messageReactions =
+    const list =
       reactionMap.get(
         messageId,
       ) ?? [];
 
     const counts =
-      new Map<
-        string,
-        number
-      >();
+      new Map<string, number>();
 
-    for (const reaction of messageReactions) {
+    for (const reaction of list) {
       counts.set(
         reaction.reaction,
         (counts.get(
@@ -683,12 +693,6 @@ function ChatRoom() {
         ) ?? false
     );
   }
-
-  /*
-   * ---------------------------------------------------------
-   * REACTION ACTION
-   * ---------------------------------------------------------
-   */
 
   async function toggleReaction(
     message: Message,
@@ -723,9 +727,7 @@ function ChatRoom() {
               user.id,
             );
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
       } else {
         const { error } =
           await reactionsTable
@@ -737,9 +739,7 @@ function ChatRoom() {
               reaction: emoji,
             });
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
       }
 
       await qc.invalidateQueries({
@@ -759,7 +759,58 @@ function ChatRoom() {
 
   /*
    * ---------------------------------------------------------
-   * UPDATE MESSAGE CACHE
+   * DELETE-FOR-ME RECORDS
+   * ---------------------------------------------------------
+   */
+
+  const {
+    data: myDeletions = [],
+  } = useQuery({
+    queryKey: [
+      "message-deletions",
+      id,
+      user?.id,
+    ],
+
+    enabled:
+      !!user?.id,
+
+    queryFn: async (): Promise<
+      MessageDeletion[]
+    > => {
+      const { data, error } =
+        await (supabase as any)
+          .from(
+            "message_deletions",
+          )
+          .select("*")
+          .eq(
+            "user_id",
+            user!.id,
+          );
+
+      if (error) throw error;
+
+      return (data ??
+        []) as MessageDeletion[];
+    },
+  });
+
+  const deletedForMe =
+    useMemo(
+      () =>
+        new Set(
+          myDeletions.map(
+            (item) =>
+              item.message_id,
+          ),
+        ),
+      [myDeletions],
+    );
+
+  /*
+   * ---------------------------------------------------------
+   * MESSAGE CACHE
    * ---------------------------------------------------------
    */
 
@@ -825,7 +876,8 @@ function ChatRoom() {
         event: "*",
         schema: "public",
         table: "messages",
-        filter: `conversation_id=eq.${id}`,
+        filter:
+          `conversation_id=eq.${id}`,
       },
       (payload) => {
         const row =
@@ -872,7 +924,8 @@ function ChatRoom() {
         schema: "public",
         table:
           "conversation_members",
-        filter: `conversation_id=eq.${id}`,
+        filter:
+          `conversation_id=eq.${id}`,
       },
       () => {
         void qc.invalidateQueries({
@@ -894,55 +947,12 @@ function ChatRoom() {
     ch.on(
       "postgres_changes",
       {
-        event: "UPDATE",
-        schema: "public",
-        table:
-          "conversations",
-        filter: `id=eq.${id}`,
-      },
-      () => {
-        void qc.invalidateQueries({
-          queryKey: [
-            "conversation",
-            id,
-          ],
-        });
-      },
-    );
-
-    /*
-     * MESSAGE REACTIONS REALTIME
-     */
-    ch.on(
-      "postgres_changes",
-      {
         event: "*",
         schema: "public",
         table:
           "message_reactions",
       },
-      (payload) => {
-        const row =
-          (payload.new ??
-            payload.old) as
-            | MessageReaction
-            | undefined;
-
-        if (!row) return;
-
-        const belongsToChat =
-          messages.some(
-            (message) =>
-              message.id ===
-              row.message_id,
-          );
-
-        if (
-          !belongsToChat
-        ) {
-          return;
-        }
-
+      () => {
         void qc.invalidateQueries({
           queryKey: [
             "message-reactions",
@@ -952,9 +962,25 @@ function ChatRoom() {
       },
     );
 
-    /*
-     * TYPING
-     */
+    ch.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table:
+          "message_deletions",
+      },
+      () => {
+        void qc.invalidateQueries({
+          queryKey: [
+            "message-deletions",
+            id,
+            user.id,
+          ],
+        });
+      },
+    );
+
     ch.on(
       "broadcast",
       {
@@ -1032,20 +1058,6 @@ function ChatRoom() {
               id,
             ],
           });
-
-          void qc.invalidateQueries({
-            queryKey: [
-              "reads",
-              id,
-            ],
-          });
-
-          void qc.invalidateQueries({
-            queryKey: [
-              "message-reactions",
-              id,
-            ],
-          });
         }
       },
     );
@@ -1073,7 +1085,6 @@ function ChatRoom() {
     qc,
     applyMessage,
     messagesKey,
-    messages,
   ]);
 
   /*
@@ -1124,16 +1135,14 @@ function ChatRoom() {
 
   /*
    * ---------------------------------------------------------
-   * AUTO SCROLL
+   * SCROLL
    * ---------------------------------------------------------
    */
 
   useEffect(() => {
-    bottom.current?.scrollIntoView(
-      {
-        behavior: "smooth",
-      },
-    );
+    bottom.current?.scrollIntoView({
+      behavior: "smooth",
+    });
   }, [
     messages.length,
     typingUsers.length,
@@ -1147,9 +1156,7 @@ function ChatRoom() {
    */
 
   useEffect(() => {
-    if (!recording) {
-      return;
-    }
+    if (!recording) return;
 
     const timer =
       setInterval(() => {
@@ -1358,7 +1365,6 @@ function ChatRoom() {
         data: {
           conversationId:
             id,
-
           title:
             conv?.type ===
             "group"
@@ -1366,7 +1372,6 @@ function ChatRoom() {
                 "WHATSXUP group"
               : meProfile?.display_name ??
                 "WHATSXUP",
-
           preview:
             conv?.type ===
             "group"
@@ -1395,9 +1400,7 @@ function ChatRoom() {
     payload: Partial<Message>,
     preview: string,
   ) {
-    if (!user) {
-      return false;
-    }
+    if (!user) return false;
 
     const optimisticId =
       crypto.randomUUID();
@@ -1409,6 +1412,9 @@ function ChatRoom() {
       ],
     );
 
+    const replyId =
+      replyTo?.id ?? null;
+
     const {
       data,
       error,
@@ -1418,29 +1424,22 @@ function ChatRoom() {
         .insert({
           conversation_id:
             id,
-
           sender_id:
             user.id,
-
           type:
             payload.type ??
             "text",
-
           content:
             payload.content ??
             null,
-
           media_url:
             payload.media_url ??
             null,
-
           media_duration:
             payload.media_duration ??
             null,
-
           reply_to:
-            replyTo?.id ??
-            null,
+            replyId,
         })
         .select("*")
         .single();
@@ -1569,26 +1568,20 @@ function ChatRoom() {
       enqueue({
         id:
           crypto.randomUUID(),
-
         conversationId:
           id,
-
         senderId:
           user.id,
-
         content:
           body,
-
         replyTo:
           replyTo?.id ??
           null,
-
         createdAt:
           new Date().toISOString(),
       });
 
       setReplyTo(null);
-
       refreshOutbox();
 
       return;
@@ -1608,20 +1601,15 @@ function ChatRoom() {
       enqueue({
         id:
           crypto.randomUUID(),
-
         conversationId:
           id,
-
         senderId:
           user.id,
-
         content:
           body,
-
         replyTo:
           replyTo?.id ??
           null,
-
         createdAt:
           new Date().toISOString(),
       });
@@ -1700,7 +1688,6 @@ function ChatRoom() {
           media_url:
             path,
         },
-
         kind ===
           "video"
           ? "🎬 Video"
@@ -1716,21 +1703,14 @@ function ChatRoom() {
 
   /*
    * ---------------------------------------------------------
-   * VOICE NOTE
+   * VOICE RECORDING
+   *
+   * IMPORTANT:
+   * cancelRecordingRef prevents onstop from uploading.
    * ---------------------------------------------------------
    */
 
-  async function toggleRecording() {
-    if (recording) {
-      recorder.current?.stop();
-
-      setRecording(
-        false,
-      );
-
-      return;
-    }
-
+  async function startRecording() {
     try {
       const stream =
         await navigator.mediaDevices.getUserMedia(
@@ -1738,6 +1718,9 @@ function ChatRoom() {
             audio: true,
           },
         );
+
+      recordingStream.current =
+        stream;
 
       const mediaRecorder =
         new MediaRecorder(
@@ -1747,11 +1730,19 @@ function ChatRoom() {
       chunks.current =
         [];
 
+      cancelRecordingRef.current =
+        false;
+
       mediaRecorder.ondataavailable =
         (event) => {
-          chunks.current.push(
-            event.data,
-          );
+          if (
+            event.data.size >
+            0
+          ) {
+            chunks.current.push(
+              event.data,
+            );
+          }
         };
 
       mediaRecorder.onstop =
@@ -1763,6 +1754,38 @@ function ChatRoom() {
                 track.stop(),
             );
 
+          recordingStream.current =
+            null;
+
+          recorder.current =
+            null;
+
+          const wasCancelled =
+            cancelRecordingRef.current;
+
+          cancelRecordingRef.current =
+            false;
+
+          const seconds =
+            recSecs;
+
+          setRecording(
+            false,
+          );
+
+          setRecSecs(
+            0,
+          );
+
+          if (
+            wasCancelled
+          ) {
+            chunks.current =
+              [];
+
+            return;
+          }
+
           const blob =
             new Blob(
               chunks.current,
@@ -1772,12 +1795,8 @@ function ChatRoom() {
               },
             );
 
-          const seconds =
-            recSecs;
-
-          setRecSecs(
-            0,
-          );
+          chunks.current =
+            [];
 
           try {
             const path =
@@ -1833,87 +1852,379 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
-   * DELETE MESSAGE
-   * ---------------------------------------------------------
-   */
-
-  async function deleteMessage(
-    message: Message,
-  ) {
+  function stopRecordingAndSend() {
     if (
-      message.sender_id !==
-      user?.id
+      !recorder.current
     ) {
       return;
     }
 
+    cancelRecordingRef.current =
+      false;
+
+    if (
+      recorder.current.state !==
+      "inactive"
+    ) {
+      recorder.current.stop();
+    }
+
+    setRecording(
+      false,
+    );
+  }
+
+  function cancelRecording() {
+    if (
+      !recorder.current
+    ) {
+      return;
+    }
+
+    cancelRecordingRef.current =
+      true;
+
+    chunks.current =
+      [];
+
+    if (
+      recorder.current.state !==
+      "inactive"
+    ) {
+      recorder.current.stop();
+    }
+
+    recordingStream.current
+      ?.getTracks()
+      .forEach(
+        (track) =>
+          track.stop(),
+      );
+
+    recordingStream.current =
+      null;
+
+    recorder.current =
+      null;
+
+    setRecording(
+      false,
+    );
+
+    setRecSecs(
+      0,
+    );
+
+    toast.info(
+      "Voice recording cancelled",
+    );
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * DELETE FOR ME
+   * ---------------------------------------------------------
+   */
+
+  async function deleteForMe(
+    message: Message,
+  ) {
+    if (
+      !user ||
+      deletedForMe.has(
+        message.id,
+      )
+    ) {
+      return;
+    }
+
+    setDeletingMessageId(
+      message.id,
+    );
+
+    try {
+      const { error } =
+        await (supabase as any)
+          .from(
+            "message_deletions",
+          )
+          .insert({
+            message_id:
+              message.id,
+            user_id:
+              user.id,
+          });
+
+      if (
+        error &&
+        error.code !==
+          "23505"
+      ) {
+        throw error;
+      }
+
+      qc.setQueryData<
+        MessageDeletion[]
+      >(
+        [
+          "message-deletions",
+          id,
+          user.id,
+        ],
+        (prev = []) => [
+          ...prev,
+          {
+            message_id:
+              message.id,
+            user_id:
+              user.id,
+            deleted_at:
+              new Date().toISOString(),
+          },
+        ],
+      );
+
+      toast.success(
+        "Message deleted for you",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not delete message.",
+      );
+    } finally {
+      setDeletingMessageId(
+        null,
+      );
+    }
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * DELETE FOR EVERYONE
+   * ---------------------------------------------------------
+   */
+
+  async function deleteForEveryone(
+    message: Message,
+  ) {
+    if (
+      !user ||
+      message.sender_id !==
+        user.id
+    ) {
+      return;
+    }
+
+    setDeletingForEveryoneId(
+      message.id,
+    );
+
     const deletedAt =
       new Date().toISOString();
 
-    qc.setQueryData<
-      Message[]
-    >(
-      messagesKey,
-      (prev = []) =>
-        prev.map(
-          (item) =>
-            item.id ===
-            message.id
-              ? {
-                  ...item,
-                  deleted_at:
-                    deletedAt,
-                  content:
-                    null,
-                  media_url:
-                    null,
-                }
-              : item,
-        ),
-    );
+    try {
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from("messages")
+          .update({
+            deleted_at:
+              deletedAt,
+            content:
+              null,
+            media_url:
+              null,
+          })
+          .eq(
+            "id",
+            message.id,
+          )
+          .eq(
+            "sender_id",
+            user.id,
+          )
+          .select("*")
+          .single();
 
-    const {
-      error,
-    } =
-      await supabase
-        .from("messages")
-        .update({
-          deleted_at:
-            deletedAt,
-          content:
-            null,
-          media_url:
-            null,
-        })
-        .eq(
-          "id",
-          message.id,
-        )
-        .eq(
-          "sender_id",
-          user.id,
+      if (error) {
+        throw error;
+      }
+
+      if (data) {
+        applyMessage(
+          data as Message,
+        );
+      }
+
+      toast.success(
+        "Message deleted for everyone",
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not delete message.",
+      );
+    } finally {
+      setDeletingForEveryoneId(
+        null,
+      );
+    }
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * DELETE MENU
+   * ---------------------------------------------------------
+   */
+
+  function confirmDelete(
+    message: Message,
+  ) {
+    if (
+      message.sender_id ===
+      user?.id
+    ) {
+      const choice =
+        window.confirm(
+          "Delete this message for everyone?\n\nPress Cancel to delete it only for you.",
         );
 
-    if (error) {
-      toast.error(
-        error.message,
-      );
-
-      void qc.invalidateQueries({
-        queryKey: [
-          "messages",
-          id,
-        ],
-      });
+      if (choice) {
+        void deleteForEveryone(
+          message,
+        );
+      } else {
+        void deleteForMe(
+          message,
+        );
+      }
 
       return;
     }
 
-    toast.success(
-      "Message deleted",
+    void deleteForMe(
+      message,
     );
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * JUMP TO ORIGINAL MESSAGE
+   * ---------------------------------------------------------
+   */
+
+  function jumpToMessage(
+    messageId: string,
+  ) {
+    const element =
+      document.getElementById(
+        `message-${messageId}`,
+      );
+
+    if (!element) {
+      toast.info(
+        "That message isn't loaded. Try loading older messages.",
+      );
+
+      return;
+    }
+
+    element.scrollIntoView({
+      behavior:
+        "smooth",
+      block: "center",
+    });
+
+    setHighlightedMessage(
+      messageId,
+    );
+
+    window.setTimeout(() => {
+      setHighlightedMessage(
+        null,
+      );
+    }, 1800);
+  }
+
+  /*
+   * ---------------------------------------------------------
+   * SWIPE RIGHT TO REPLY
+   * ---------------------------------------------------------
+   */
+
+  function handleSwipeStart(
+    event: React.TouchEvent,
+  ) {
+    swipeStartX.current =
+      event.touches[0]?.clientX ??
+      null;
+
+    swipeCurrentX.current =
+      swipeStartX.current;
+  }
+
+  function handleSwipeMove(
+    event: React.TouchEvent,
+  ) {
+    if (
+      swipeStartX.current ===
+      null
+    ) {
+      return;
+    }
+
+    swipeCurrentX.current =
+      event.touches[0]?.clientX ??
+      null;
+  }
+
+  function handleSwipeEnd(
+    message: Message,
+  ) {
+    if (
+      swipeStartX.current ===
+        null ||
+      swipeCurrentX.current ===
+        null
+    ) {
+      return;
+    }
+
+    const distance =
+      swipeCurrentX.current -
+      swipeStartX.current;
+
+    swipeStartX.current =
+      null;
+
+    swipeCurrentX.current =
+      null;
+
+    if (
+      distance >= 70 &&
+      !message.deleted_at
+    ) {
+      setSwipeReplyId(
+        message.id,
+      );
+
+      setReplyTo(
+        message,
+      );
+
+      window.setTimeout(
+        () =>
+          setSwipeReplyId(
+            null,
+          ),
+        450,
+      );
+    }
   }
 
   /*
@@ -1973,12 +2284,6 @@ function ChatRoom() {
         otherUserId,
       ],
     });
-
-    void qc.invalidateQueries({
-      queryKey: [
-        "contacts",
-      ],
-    });
   }
 
   /*
@@ -2034,6 +2339,34 @@ function ChatRoom() {
   const hasMore =
     messages.length >=
     limit;
+
+  /*
+   * ---------------------------------------------------------
+   * CLEANUP RECORDING ON UNMOUNT
+   * ---------------------------------------------------------
+   */
+
+  useEffect(() => {
+    return () => {
+      cancelRecordingRef.current =
+        true;
+
+      recordingStream.current
+        ?.getTracks()
+        .forEach(
+          (track) =>
+            track.stop(),
+        );
+
+      if (
+        recorder.current &&
+        recorder.current.state !==
+          "inactive"
+      ) {
+        recorder.current.stop();
+      }
+    };
+  }, []);
 
   /*
    * ---------------------------------------------------------
@@ -2188,6 +2521,14 @@ function ChatRoom() {
 
         {messages.map(
           (message) => {
+            if (
+              deletedForMe.has(
+                message.id,
+              )
+            ) {
+              return null;
+            }
+
             const mine =
               message.sender_id ===
               user?.id;
@@ -2221,22 +2562,69 @@ function ChatRoom() {
               reactionPicker ===
               message.id;
 
+            const highlighted =
+              highlightedMessage ===
+              message.id;
+
+            const swiping =
+              swipeReplyId ===
+              message.id;
+
             return (
               <div
                 key={
                   message.id
                 }
+                id={`message-${message.id}`}
                 className={`group flex ${
                   mine
                     ? "justify-end"
                     : "justify-start"
+                } ${
+                  highlighted
+                    ? "animate-pulse"
+                    : ""
                 }`}
+                onTouchStart={
+                  handleSwipeStart
+                }
+                onTouchMove={
+                  handleSwipeMove
+                }
+                onTouchEnd={() =>
+                  handleSwipeEnd(
+                    message,
+                  )
+                }
               >
-                <div className="relative max-w-[82%]">
+                <div
+                  className={`relative max-w-[82%] transition-transform ${
+                    swiping
+                      ? "translate-x-3"
+                      : ""
+                  }`}
+                >
 
-                  {/* MESSAGE BUBBLE */}
+                  {/* SWIPE REPLY INDICATOR */}
+                  {swiping && (
+                    <div
+                      className={`absolute top-1/2 ${
+                        mine
+                          ? "-left-10"
+                          : "-right-10"
+                      } -translate-y-1/2`}
+                    >
+                      <Reply className="h-5 w-5 text-primary" />
+                    </div>
+                  )}
+
+                  {/* BUBBLE */}
                   <div
                     className={`rounded-2xl px-3 py-2 text-sm shadow-panel ${
+                      highlighted
+                        ? "ring-2 ring-primary ring-offset-2"
+                        : ""
+                    } ${
                       mine
                         ? "bg-primary text-primary-foreground"
                         : "bg-surface"
@@ -2256,20 +2644,12 @@ function ChatRoom() {
                     {parent && (
                       <button
                         type="button"
-                        onClick={() => {
-                          const element =
-                            document.getElementById(
-                              `message-${parent.id}`,
-                            );
-
-                          element?.scrollIntoView({
-                            behavior:
-                              "smooth",
-                            block:
-                              "center",
-                          });
-                        }}
-                        className="mb-2 w-full rounded-lg border-l-2 border-current/40 bg-black/10 px-2 py-1 text-left text-[11px] opacity-80"
+                        onClick={() =>
+                          jumpToMessage(
+                            parent.id,
+                          )
+                        }
+                        className="mb-2 w-full rounded-lg border-l-2 border-current/40 bg-black/10 px-2 py-1 text-left text-[11px] opacity-80 transition hover:bg-black/20 active:scale-[0.98]"
                       >
                         <span className="block font-semibold">
                           Reply
@@ -2284,7 +2664,7 @@ function ChatRoom() {
                       </button>
                     )}
 
-                    {/* DELETED */}
+                    {/* MESSAGE CONTENT */}
                     {message.deleted_at ? (
                       <p className="italic opacity-70">
                         This message was deleted
@@ -2349,7 +2729,7 @@ function ChatRoom() {
                     </div>
                   </div>
 
-                  {/* REACTION COUNTS */}
+                  {/* REACTIONS */}
                   {counts.length >
                     0 &&
                     !message.deleted_at && (
@@ -2393,11 +2773,11 @@ function ChatRoom() {
                       </div>
                     )}
 
-                  {/* MESSAGE ACTION BAR */}
+                  {/* ACTION BAR */}
                   {!message.deleted_at && (
-                    <div className="mt-1 flex items-center gap-1">
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
 
-                      {/* REACTION BUTTON */}
+                      {/* REACTION */}
                       <div className="relative">
                         <button
                           type="button"
@@ -2497,20 +2877,28 @@ function ChatRoom() {
                         )}
 
                       {/* DELETE */}
-                      {mine && (
-                        <button
-                          type="button"
-                          className="rounded-full bg-background/80 px-2 py-1 text-[11px] text-destructive shadow-sm hover:bg-background"
-                          onClick={() =>
-                            void deleteMessage(
-                              message,
-                            )
-                          }
-                        >
-                          <Trash2 className="mr-1 inline h-3 w-3" />
-                          Delete
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        disabled={
+                          deletingMessageId ===
+                            message.id ||
+                          deletingForEveryoneId ===
+                            message.id
+                        }
+                        className="rounded-full bg-background/80 px-2 py-1 text-[11px] text-destructive shadow-sm hover:bg-background disabled:opacity-50"
+                        onClick={() =>
+                          void confirmDelete(
+                            message,
+                          )
+                        }
+                      >
+                        <Trash2 className="mr-1 inline h-3 w-3" />
+
+                        {deletingMessageId ===
+                        message.id
+                          ? "Deleting…"
+                          : "Delete"}
+                      </button>
                     </div>
                   )}
                 </div>
@@ -2538,7 +2926,7 @@ function ChatRoom() {
           ),
         )}
 
-        {/* OFFLINE OUTBOX */}
+        {/* OFFLINE */}
         {pending.map(
           (item) => (
             <div
@@ -2556,7 +2944,6 @@ function ChatRoom() {
                   "failed" ? (
                     <>
                       <AlertCircle className="h-3 w-3" />
-
                       Failed
 
                       <button
@@ -2586,7 +2973,6 @@ function ChatRoom() {
                   ) : (
                     <>
                       <Clock className="h-3 w-3" />
-
                       Waiting for connection
                     </>
                   )}
@@ -2602,6 +2988,7 @@ function ChatRoom() {
           <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
             <span className="flex gap-1">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+
               <span
                 className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
                 style={{
@@ -2609,6 +2996,7 @@ function ChatRoom() {
                     "120ms",
                 }}
               />
+
               <span
                 className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
                 style={{
@@ -2638,7 +3026,7 @@ function ChatRoom() {
         className="sticky bottom-0 z-20 space-y-2 border-t border-border/60 bg-background/90 px-3 py-2.5 backdrop-blur safe-bottom"
       >
 
-        {/* REPLY / EDIT PREVIEW */}
+        {/* REPLY / EDIT */}
         {(replyTo ||
           editing) && (
           <div className="flex items-center justify-between rounded-xl bg-surface px-3 py-2 text-xs">
@@ -2678,6 +3066,51 @@ function ChatRoom() {
             >
               <X className="h-4 w-4" />
             </button>
+          </div>
+        )}
+
+        {/* VOICE RECORDING CONTROLS */}
+        {recording && (
+          <div className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2">
+
+            <div className="flex items-center gap-2 text-sm">
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
+
+              <span>
+                Recording{" "}
+                {durationLabel(
+                  recSecs,
+                )}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+
+              {/* CANCEL */}
+              <button
+                type="button"
+                className="rounded-full px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                onClick={
+                  cancelRecording
+                }
+              >
+                <X className="mr-1 inline h-4 w-4" />
+                Cancel
+              </button>
+
+              {/* SEND */}
+              <button
+                type="button"
+                className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={
+                  stopRecordingAndSend
+                }
+              >
+                <Send className="mr-1 inline h-4 w-4" />
+                Send
+              </button>
+
+            </div>
           </div>
         )}
 
@@ -2744,6 +3177,20 @@ function ChatRoom() {
             <Button
               type="submit"
               size="icon"
+              disabled={
+                recording
+              }
+            >
+              <Send className="h-5 w-5" />
+            </Button>
+          ) : recording ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="destructive"
+              onClick={
+                stopRecordingAndSend
+              }
             >
               <Send className="h-5 w-5" />
             </Button>
@@ -2751,26 +3198,18 @@ function ChatRoom() {
             <Button
               type="button"
               size="icon"
-              variant={
-                recording
-                  ? "destructive"
-                  : "default"
-              }
+              variant="default"
               disabled={
-                !online &&
-                !recording
+                !online
               }
               onClick={() =>
-                void toggleRecording()
+                void startRecording()
               }
             >
-              {recording ? (
-                <Square className="h-5 w-5" />
-              ) : (
-                <Mic className="h-5 w-5" />
-              )}
+              <Mic className="h-5 w-5" />
             </Button>
           )}
+
         </div>
       </form>
     </div>
