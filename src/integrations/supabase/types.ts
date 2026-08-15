@@ -462,6 +462,38 @@ export type Database = {
         }
         Relationships: []
       }
+      xup_reactions: {
+        Row: {
+          created_at: string
+          id: string
+          reaction: string
+          user_id: string
+          xup_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reaction: string
+          user_id: string
+          xup_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reaction?: string
+          user_id?: string
+          xup_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xup_reactions_xup_id_fkey"
+            columns: ["xup_id"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xup_views: {
         Row: {
           id: string
@@ -499,6 +531,7 @@ export type Database = {
           caption: string | null
           content: string | null
           created_at: string
+          deleted_at: string | null
           expires_at: string
           id: string
           kind: Database["public"]["Enums"]["xup_kind"]
@@ -512,6 +545,7 @@ export type Database = {
           caption?: string | null
           content?: string | null
           created_at?: string
+          deleted_at?: string | null
           expires_at?: string
           id?: string
           kind?: Database["public"]["Enums"]["xup_kind"]
@@ -525,6 +559,7 @@ export type Database = {
           caption?: string | null
           content?: string | null
           created_at?: string
+          deleted_at?: string | null
           expires_at?: string
           id?: string
           kind?: Database["public"]["Enums"]["xup_kind"]
