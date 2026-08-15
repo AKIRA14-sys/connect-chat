@@ -26,6 +26,7 @@ import {
   Phone,
   Reply,
   Send,
+  SmilePlus,
   Square,
   Trash2,
   UserPlus,
@@ -65,6 +66,10 @@ import {
 
 const PAGE_SIZE = 40;
 
+/* ============================================================
+ * MESSAGE REACTIONS
+ * ============================================================ */
+
 const REACTIONS = [
   "❤️",
   "😂",
@@ -88,11 +93,159 @@ type DeliveryReceipt = {
   delivered_at: string;
 };
 
+/* ============================================================
+ * STICKERS
+ *
+ * Stored in messages.content as the sticker ID.
+ * This keeps stickers inside the existing messages system.
+ * ============================================================ */
+
+type Sticker = {
+  id: string;
+  emoji: string;
+  label: string;
+  pack: string;
+};
+
+const STICKERS: Sticker[] = [
+  {
+    id: "love",
+    emoji: "🥰",
+    label: "Love",
+    pack: "Cute",
+  },
+  {
+    id: "kiss",
+    emoji: "😘",
+    label: "Kiss",
+    pack: "Cute",
+  },
+  {
+    id: "heart",
+    emoji: "❤️",
+    label: "Heart",
+    pack: "Cute",
+  },
+  {
+    id: "hug",
+    emoji: "🤗",
+    label: "Hug",
+    pack: "Cute",
+  },
+
+  {
+    id: "laugh",
+    emoji: "😂",
+    label: "Laugh",
+    pack: "Funny",
+  },
+  {
+    id: "lol",
+    emoji: "🤣",
+    label: "LOL",
+    pack: "Funny",
+  },
+  {
+    id: "dead",
+    emoji: "💀",
+    label: "Dead",
+    pack: "Funny",
+  },
+  {
+    id: "sus",
+    emoji: "🤨",
+    label: "Sus",
+    pack: "Funny",
+  },
+
+  {
+    id: "fire",
+    emoji: "🔥",
+    label: "Fire",
+    pack: "Reactions",
+  },
+  {
+    id: "goat",
+    emoji: "🐐",
+    label: "GOAT",
+    pack: "Reactions",
+  },
+  {
+    id: "clap",
+    emoji: "👏",
+    label: "Clap",
+    pack: "Reactions",
+  },
+  {
+    id: "party",
+    emoji: "🎉",
+    label: "Party",
+    pack: "Reactions",
+  },
+
+  {
+    id: "power",
+    emoji: "⚡",
+    label: "Power",
+    pack: "Anime",
+  },
+  {
+    id: "angry",
+    emoji: "😤",
+    label: "Angry",
+    pack: "Anime",
+  },
+  {
+    id: "shock",
+    emoji: "😱",
+    label: "Shock",
+    pack: "Anime",
+  },
+  {
+    id: "cool",
+    emoji: "😎",
+    label: "Cool",
+    pack: "Anime",
+  },
+];
+
+const STICKER_PACKS = [
+  "All",
+  "Cute",
+  "Funny",
+  "Reactions",
+  "Anime",
+] as const;
+
+type StickerPack =
+  (typeof STICKER_PACKS)[number];
+
+function getSticker(
+  id: string | null | undefined,
+) {
+  if (!id) return null;
+
+  return (
+    STICKERS.find(
+      (sticker) =>
+        sticker.id === id,
+    ) ?? null
+  );
+}
+
+/* ============================================================
+ * DELETE MENU
+ * ============================================================ */
+
 type DeleteMenuState = {
   message: Message;
   x: number;
   y: number;
 } | null;
+
+/* ============================================================
+ * ROUTE
+ * ============================================================ */
 
 export const Route = createFileRoute(
   "/_authenticated/chats/$id",
@@ -105,25 +258,42 @@ export const Route = createFileRoute(
       {
         name: "description",
         content:
-          "A private real-time WHATSXUP conversation with text, media, voice notes and calls.",
+          "A private real-time WHATSXUP conversation with text, media, stickers, voice notes and calls.",
       },
     ],
   }),
   component: ChatRoom,
 });
 
+/* ============================================================
+ * MEDIA BUBBLE
+ * ============================================================ */
+
 function MediaBubble({
   path,
   type,
 }: {
   path: string;
-  type: "image" | "video" | "audio";
+  type:
+    | "image"
+    | "video"
+    | "audio";
 }) {
-  const { data: url } = useQuery({
-    queryKey: ["signed", "chat-media", path],
-    queryFn: () => signedUrl("chat-media", path),
-    staleTime: 50 * 60 * 1000,
-  });
+  const { data: url } =
+    useQuery({
+      queryKey: [
+        "signed",
+        "chat-media",
+        path,
+      ],
+      queryFn: () =>
+        signedUrl(
+          "chat-media",
+          path,
+        ),
+      staleTime:
+        50 * 60 * 1000,
+    });
 
   if (!url) {
     return (
@@ -165,26 +335,51 @@ function MediaBubble({
   );
 }
 
+/* ============================================================
+ * CHAT ROOM
+ * ============================================================ */
+
 function ChatRoom() {
-  const { id } = Route.useParams();
-  const { user } = useAuth();
-  const { onlineIds, startCall } = useRealtime();
+  const { id } =
+    Route.useParams();
 
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const online = useOnlineStatus();
+  const { user } =
+    useAuth();
 
-  const [text, setText] = useState("");
-  const [limit, setLimit] = useState(PAGE_SIZE);
+  const {
+    onlineIds,
+    startCall,
+  } = useRealtime();
+
+  const qc =
+    useQueryClient();
+
+  const navigate =
+    useNavigate();
+
+  const online =
+    useOnlineStatus();
+
+  const [text, setText] =
+    useState("");
+
+  const [limit, setLimit] =
+    useState(PAGE_SIZE);
 
   const [replyTo, setReplyTo] =
-    useState<Message | null>(null);
+    useState<Message | null>(
+      null,
+    );
 
   const [editing, setEditing] =
-    useState<Message | null>(null);
+    useState<Message | null>(
+      null,
+    );
 
-  const [typingUsers, setTypingUsers] =
-    useState<string[]>([]);
+  const [
+    typingUsers,
+    setTypingUsers,
+  ] = useState<string[]>([]);
 
   const [recording, setRecording] =
     useState(false);
@@ -198,23 +393,51 @@ function ChatRoom() {
   const [sendingIds, setSendingIds] =
     useState<string[]>([]);
 
-  const [reactionPicker, setReactionPicker] =
-    useState<string | null>(null);
+  const [
+    reactionPicker,
+    setReactionPicker,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    stickerPickerOpen,
+    setStickerPickerOpen,
+  ] = useState(false);
+
+  const [
+    stickerPack,
+    setStickerPack,
+  ] = useState<StickerPack>(
+    "All",
+  );
 
   const [deleteMenu, setDeleteMenu] =
-    useState<DeleteMenuState>(null);
+    useState<DeleteMenuState>(
+      null,
+    );
 
   const [deletingId, setDeletingId] =
-    useState<string | null>(null);
+    useState<string | null>(
+      null,
+    );
 
-  const [swipingMessageId, setSwipingMessageId] =
-    useState<string | null>(null);
+  const [
+    swipingMessageId,
+    setSwipingMessageId,
+  ] = useState<string | null>(
+    null,
+  );
 
   const recorder =
-    useRef<MediaRecorder | null>(null);
+    useRef<MediaRecorder | null>(
+      null,
+    );
 
   const recordingStream =
-    useRef<MediaStream | null>(null);
+    useRef<MediaStream | null>(
+      null,
+    );
 
   const chunks =
     useRef<Blob[]>([]);
@@ -223,102 +446,147 @@ function ChatRoom() {
     useRef(false);
 
   const bottom =
-    useRef<HTMLDivElement | null>(null);
+    useRef<HTMLDivElement | null>(
+      null,
+    );
 
   const fileInput =
-    useRef<HTMLInputElement | null>(null);
+    useRef<HTMLInputElement | null>(
+      null,
+    );
 
   const roomChannel =
     useRef<
-      ReturnType<typeof supabase.channel> | null
+      ReturnType<
+        typeof supabase.channel
+      > | null
     >(null);
 
   const lastTypingSent =
     useRef(0);
 
   const typingTimeouts =
-    useRef<Map<string, ReturnType<typeof setTimeout>>>(
-      new Map(),
-    );
+    useRef<
+      Map<
+        string,
+        ReturnType<
+          typeof setTimeout
+        >
+      >
+    >(new Map());
 
   const touchStartX =
-    useRef<Map<string, number>>(new Map());
+    useRef<
+      Map<string, number>
+    >(new Map());
 
-  const messagesKey = useMemo(
-    () =>
-      ["messages", id, limit] as const,
-    [id, limit],
-  );
+  const messagesKey =
+    useMemo(
+      () =>
+        [
+          "messages",
+          id,
+          limit,
+        ] as const,
+      [id, limit],
+    );
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * CONVERSATION
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
-  const { data: conv } = useQuery({
-    queryKey: ["conversation", id],
+  const { data: conv } =
+    useQuery({
+      queryKey: [
+        "conversation",
+        id,
+      ],
 
-    queryFn: async () => {
-      const { data, error } =
-        await supabase
-          .from("conversations")
+      queryFn: async () => {
+        const {
+          data,
+          error,
+        } = await supabase
+          .from(
+            "conversations",
+          )
           .select("*")
           .eq("id", id)
           .single();
 
-      if (error) throw error;
+        if (error) {
+          throw error;
+        }
 
-      return data as Conversation;
-    },
-  });
-
-  /*
-   * ---------------------------------------------------------
-   * MEMBERS
-   * ---------------------------------------------------------
-   */
-
-  const { data: members = [] } =
-    useQuery({
-      queryKey: ["conv-members", id],
-
-      queryFn: async () => {
-        const { data, error } =
-          await supabase
-            .from("conversation_members")
-            .select("user_id, role")
-            .eq("conversation_id", id);
-
-        if (error) throw error;
-
-        return (data ?? []) as {
-          user_id: string;
-          role: string;
-        }[];
+        return data as Conversation;
       },
     });
 
-  const otherMember = useMemo(() => {
-    if (!user?.id) return null;
+  /* ==========================================================
+   * MEMBERS
+   * ========================================================== */
 
-    return (
-      members.find(
-        (member) =>
-          member.user_id !== user.id,
-      ) ?? null
-    );
-  }, [members, user?.id]);
+  const {
+    data: members = [],
+  } = useQuery({
+    queryKey: [
+      "conv-members",
+      id,
+    ],
 
-  /*
-   * ---------------------------------------------------------
+    queryFn: async () => {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from(
+          "conversation_members",
+        )
+        .select(
+          "user_id, role",
+        )
+        .eq(
+          "conversation_id",
+          id,
+        );
+
+      if (error) {
+        throw error;
+      }
+
+      return (data ?? []) as {
+        user_id: string;
+        role: string;
+      }[];
+    },
+  });
+
+  const otherMember =
+    useMemo(() => {
+      if (!user?.id) {
+        return null;
+      }
+
+      return (
+        members.find(
+          (member) =>
+            member.user_id !==
+            user.id,
+        ) ?? null
+      );
+    }, [
+      members,
+      user?.id,
+    ]);
+
+  /* ==========================================================
    * OTHER PROFILE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const {
     data: otherProfile,
-    isLoading: loadingProfile,
+    isLoading:
+      loadingProfile,
   } = useQuery({
     queryKey: [
       "chat-profile",
@@ -329,42 +597,54 @@ function ChatRoom() {
       !!otherMember?.user_id,
 
     queryFn: async () => {
-      if (!otherMember?.user_id) {
+      if (
+        !otherMember?.user_id
+      ) {
         return null;
       }
 
-      const { data, error } =
-        await supabase
-          .from("profiles")
-          .select("*")
-          .eq(
-            "id",
-            otherMember.user_id,
-          )
-          .maybeSingle();
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq(
+          "id",
+          otherMember.user_id,
+        )
+        .maybeSingle();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return (data ?? null) as Profile | null;
+      return (data ??
+        null) as Profile | null;
     },
   });
 
   const otherUserId =
-    otherMember?.user_id ?? null;
+    otherMember?.user_id ??
+    null;
 
   const otherName =
     otherProfile?.display_name?.trim() ||
     "Unknown";
 
   const otherAvatar =
-    otherProfile?.avatar_url ?? null;
+    otherProfile?.avatar_url ??
+    null;
 
   const canShowOnline =
-    otherProfile?.show_online_status !== false;
+    otherProfile?.show_online_status !==
+    false;
 
   const isOtherOnline =
     !!otherUserId &&
-    onlineIds.has(otherUserId) &&
+    onlineIds.has(
+      otherUserId,
+    ) &&
     canShowOnline;
 
   const directSubtitle =
@@ -385,107 +665,130 @@ function ChatRoom() {
         "Group"
       : otherName;
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * MESSAGES
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const {
     data: messages = [],
-    isFetching: fetchingMessages,
+    isFetching:
+      fetchingMessages,
   } = useQuery({
     queryKey: messagesKey,
 
     queryFn: async () => {
-      const { data, error } =
-        await supabase
-          .from("messages")
-          .select("*")
-          .eq(
-            "conversation_id",
-            id,
-          )
-          .order("created_at", {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("messages")
+        .select("*")
+        .eq(
+          "conversation_id",
+          id,
+        )
+        .order(
+          "created_at",
+          {
             ascending: false,
-          })
-          .limit(limit);
+          },
+        )
+        .limit(limit);
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return ((data ?? []) as Message[])
+      return (
+        (data ?? []) as Message[]
+      )
         .slice()
         .reverse();
     },
   });
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * PROFILES
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
-  const memberIds = useMemo(
-    () =>
-      members.map(
-        (member) =>
-          member.user_id,
-      ),
-    [members],
-  );
+  const memberIds =
+    useMemo(
+      () =>
+        members.map(
+          (member) =>
+            member.user_id,
+        ),
+      [members],
+    );
 
-  const { data: profiles = [] } =
-    useQuery({
-      queryKey: [
-        "conversation-profiles",
-        id,
-        memberIds.join(","),
-      ],
+  const {
+    data: profiles = [],
+  } = useQuery({
+    queryKey: [
+      "conversation-profiles",
+      id,
+      memberIds.join(","),
+    ],
 
-      enabled:
-        memberIds.length > 0,
+    enabled:
+      memberIds.length >
+      0,
 
-      queryFn: async () => {
-        if (!memberIds.length) {
-          return [];
-        }
+    queryFn: async () => {
+      if (
+        !memberIds.length
+      ) {
+        return [];
+      }
 
-        const { data, error } =
-          await supabase
-            .from("profiles")
-            .select("*")
-            .in("id", memberIds);
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("profiles")
+        .select("*")
+        .in(
+          "id",
+          memberIds,
+        );
 
-        if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-        return (data ??
-          []) as Profile[];
-      },
-    });
+      return (data ??
+        []) as Profile[];
+    },
+  });
 
-  const profileMap = useMemo(() => {
-    const map =
-      new Map<string, Profile>();
+  const profileMap =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          Profile
+        >();
 
-    for (const profile of profiles) {
-      map.set(
-        profile.id,
-        profile,
-      );
-    }
+      for (const profile of profiles) {
+        map.set(
+          profile.id,
+          profile,
+        );
+      }
 
-    return map;
-  }, [profiles]);
+      return map;
+    }, [profiles]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * READ RECEIPTS
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const readsQuery =
     useQuery({
-      queryKey: ["reads", id],
+      queryKey: [
+        "reads",
+        id,
+      ],
 
       queryFn: async () => {
         const { data } =
@@ -509,7 +812,8 @@ function ChatRoom() {
     useMemo(() => {
       const rows =
         (
-          readsQuery.data ?? []
+          readsQuery.data ??
+          []
         ).filter(
           (row) =>
             row.user_id !==
@@ -527,67 +831,70 @@ function ChatRoom() {
               row.last_read_at,
           )
           .sort()
-          .at(-1) ?? null
+          .at(-1) ??
+        null
       );
     }, [
       readsQuery.data,
       user?.id,
     ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * DELIVERY RECEIPTS
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
-  const { data: deliveries = [] } =
-    useQuery({
-      queryKey: [
-        "message-deliveries",
-        id,
-      ],
+  const {
+    data: deliveries = [],
+  } = useQuery({
+    queryKey: [
+      "message-deliveries",
+      id,
+    ],
 
-      queryFn: async () => {
-        const messageIds =
-          messages.map(
-            (message) =>
-              message.id,
+    queryFn: async () => {
+      const messageIds =
+        messages.map(
+          (message) =>
+            message.id,
+        );
+
+      if (
+        !messageIds.length
+      ) {
+        return [];
+      }
+
+      const {
+        data,
+        error,
+      } =
+        await (supabase as any)
+          .from(
+            "message_deliveries",
+          )
+          .select("*")
+          .in(
+            "message_id",
+            messageIds,
           );
 
-        if (!messageIds.length) {
-          return [];
-        }
-
-        const {
-          data,
+      if (error) {
+        console.error(
+          "Delivery receipt query:",
           error,
-        } =
-          await (supabase as any)
-            .from(
-              "message_deliveries",
-            )
-            .select("*")
-            .in(
-              "message_id",
-              messageIds,
-            );
+        );
 
-        if (error) {
-          console.error(
-            "Delivery receipt query:",
-            error,
-          );
+        return [];
+      }
 
-          return [];
-        }
+      return (data ??
+        []) as DeliveryReceipt[];
+    },
 
-        return (data ??
-          []) as DeliveryReceipt[];
-      },
-
-      enabled:
-        messages.length > 0,
-    });
+    enabled:
+      messages.length >
+      0,
+  });
 
   const deliveryMap =
     useMemo(() => {
@@ -616,14 +923,15 @@ function ChatRoom() {
       return map;
     }, [deliveries]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * MARK INCOMING MESSAGES DELIVERED
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
-    if (!user?.id || !messages.length) {
+    if (
+      !user?.id ||
+      !messages.length
+    ) {
       return;
     }
 
@@ -675,12 +983,14 @@ function ChatRoom() {
         return;
       }
 
-      void qc.invalidateQueries({
-        queryKey: [
-          "message-deliveries",
-          id,
-        ],
-      });
+      void qc.invalidateQueries(
+        {
+          queryKey: [
+            "message-deliveries",
+            id,
+          ],
+        },
+      );
     })();
   }, [
     messages,
@@ -689,11 +999,9 @@ function ChatRoom() {
     qc,
   ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * CONTACT CHECK
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const isContact =
     useQuery({
@@ -707,19 +1015,21 @@ function ChatRoom() {
         !!user?.id,
 
       queryFn: async () => {
-        const { data, error } =
-          await supabase
-            .from("contacts")
-            .select("id")
-            .eq(
-              "owner_id",
-              user!.id,
-            )
-            .eq(
-              "contact_id",
-              otherUserId!,
-            )
-            .maybeSingle();
+        const {
+          data,
+          error,
+        } = await supabase
+          .from("contacts")
+          .select("id")
+          .eq(
+            "owner_id",
+            user!.id,
+          )
+          .eq(
+            "contact_id",
+            otherUserId!,
+          )
+          .maybeSingle();
 
         if (error) {
           return false;
@@ -729,11 +1039,9 @@ function ChatRoom() {
       },
     });
 
-  /*
-   * ---------------------------------------------------------
-   * MESSAGE REACTIONS
-   * ---------------------------------------------------------
-   */
+  /* ==========================================================
+   * REACTIONS
+   * ========================================================== */
 
   const reactionsTable =
     (supabase as any).from(
@@ -749,37 +1057,43 @@ function ChatRoom() {
     ],
 
     enabled:
-      messages.length > 0,
+      messages.length >
+      0,
 
-    queryFn: async (): Promise<
-      MessageReaction[]
-    > => {
-      const messageIds =
-        messages.map(
-          (message) =>
-            message.id,
-        );
-
-      if (!messageIds.length) {
-        return [];
-      }
-
-      const {
-        data,
-        error,
-      } =
-        await reactionsTable
-          .select("*")
-          .in(
-            "message_id",
-            messageIds,
+    queryFn:
+      async (): Promise<
+        MessageReaction[]
+      > => {
+        const messageIds =
+          messages.map(
+            (message) =>
+              message.id,
           );
 
-      if (error) throw error;
+        if (
+          !messageIds.length
+        ) {
+          return [];
+        }
 
-      return (data ??
-        []) as MessageReaction[];
-    },
+        const {
+          data,
+          error,
+        } =
+          await reactionsTable
+            .select("*")
+            .in(
+              "message_id",
+              messageIds,
+            );
+
+        if (error) {
+          throw error;
+        }
+
+        return (data ??
+          []) as MessageReaction[];
+      },
   });
 
   const reactionMap =
@@ -818,7 +1132,10 @@ function ChatRoom() {
       ) ?? [];
 
     const counts =
-      new Map<string, number>();
+      new Map<
+        string,
+        number
+      >();
 
     for (const reaction of messageReactions) {
       counts.set(
@@ -857,7 +1174,9 @@ function ChatRoom() {
   ) {
     if (!user) return;
 
-    setReactionPicker(null);
+    setReactionPicker(
+      null,
+    );
 
     const existing =
       reactionMap
@@ -872,7 +1191,9 @@ function ChatRoom() {
 
     try {
       if (existing) {
-        const { error } =
+        const {
+          error,
+        } =
           await reactionsTable
             .delete()
             .eq(
@@ -884,27 +1205,36 @@ function ChatRoom() {
               user.id,
             );
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
       } else {
-        const { error } =
+        const {
+          error,
+        } =
           await reactionsTable
             .insert({
               message_id:
                 message.id,
               user_id:
                 user.id,
-              reaction: emoji,
+              reaction:
+                emoji,
             });
 
-        if (error) throw error;
+        if (error) {
+          throw error;
+        }
       }
 
-      await qc.invalidateQueries({
-        queryKey: [
-          "message-reactions",
-          id,
-        ],
-      });
+      await qc.invalidateQueries(
+        {
+          queryKey: [
+            "message-reactions",
+            id,
+          ],
+        },
+      );
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -914,11 +1244,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * MESSAGE CACHE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const applyMessage =
     useCallback(
@@ -938,28 +1266,29 @@ function ChatRoom() {
             return [
               ...without,
               row,
-            ].sort((a, b) =>
-              a.created_at.localeCompare(
-                b.created_at,
-              ),
+            ].sort(
+              (a, b) =>
+                a.created_at.localeCompare(
+                  b.created_at,
+                ),
             );
           },
         );
 
-        void qc.invalidateQueries({
-          queryKey: [
-            "chat-list",
-          ],
-        });
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "chat-list",
+            ],
+          },
+        );
       },
       [qc, messagesKey],
     );
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * REALTIME
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
     if (!user) return;
@@ -1028,19 +1357,23 @@ function ChatRoom() {
           `conversation_id=eq.${id}`,
       },
       () => {
-        void qc.invalidateQueries({
-          queryKey: [
-            "reads",
-            id,
-          ],
-        });
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "reads",
+              id,
+            ],
+          },
+        );
 
-        void qc.invalidateQueries({
-          queryKey: [
-            "conv-members",
-            id,
-          ],
-        });
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "conv-members",
+              id,
+            ],
+          },
+        );
       },
     );
 
@@ -1053,12 +1386,14 @@ function ChatRoom() {
           "message_deliveries",
       },
       () => {
-        void qc.invalidateQueries({
-          queryKey: [
-            "message-deliveries",
-            id,
-          ],
-        });
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "message-deliveries",
+              id,
+            ],
+          },
+        );
       },
     );
 
@@ -1071,12 +1406,14 @@ function ChatRoom() {
           "message_reactions",
       },
       () => {
-        void qc.invalidateQueries({
-          queryKey: [
-            "message-reactions",
-            id,
-          ],
-        });
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "message-reactions",
+              id,
+            ],
+          },
+        );
       },
     );
 
@@ -1151,12 +1488,14 @@ function ChatRoom() {
           status ===
           "SUBSCRIBED"
         ) {
-          void qc.invalidateQueries({
-            queryKey: [
-              "messages",
-              id,
-            ],
-          });
+          void qc.invalidateQueries(
+            {
+              queryKey: [
+                "messages",
+                id,
+              ],
+            },
+          );
         }
       },
     );
@@ -1166,7 +1505,9 @@ function ChatRoom() {
 
     return () => {
       for (const timer of typingTimeouts.current.values()) {
-        clearTimeout(timer);
+        clearTimeout(
+          timer,
+        );
       }
 
       typingTimeouts.current.clear();
@@ -1186,11 +1527,9 @@ function ChatRoom() {
     messagesKey,
   ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * MARK READ
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
     if (
@@ -1218,11 +1557,13 @@ function ChatRoom() {
         user.id,
       )
       .then(() =>
-        qc.invalidateQueries({
-          queryKey: [
-            "chat-list",
-          ],
-        }),
+        qc.invalidateQueries(
+          {
+            queryKey: [
+              "chat-list",
+            ],
+          },
+        ),
       );
   }, [
     messages.length,
@@ -1232,30 +1573,30 @@ function ChatRoom() {
     online,
   ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * AUTO SCROLL
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    bottom.current?.scrollIntoView(
+      {
+        behavior: "smooth",
+      },
+    );
   }, [
     messages.length,
     typingUsers.length,
     pending.length,
   ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * RECORDING TIMER
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
-    if (!recording) return;
+    if (!recording) {
+      return;
+    }
 
     const timer =
       setInterval(() => {
@@ -1266,14 +1607,14 @@ function ChatRoom() {
       }, 1000);
 
     return () =>
-      clearInterval(timer);
+      clearInterval(
+        timer,
+      );
   }, [recording]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * OUTBOX
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   const refreshOutbox =
     useCallback(
@@ -1397,11 +1738,9 @@ function ChatRoom() {
     flushOutbox,
   ]);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * TYPING
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function broadcastTyping() {
     if (!user) return;
@@ -1443,11 +1782,9 @@ function ChatRoom() {
     );
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * PUSH
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function pushNotify(
     preview: string,
@@ -1491,17 +1828,17 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * SEND MESSAGE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function sendMessage(
     payload: Partial<Message>,
     preview: string,
   ) {
-    if (!user) return false;
+    if (!user) {
+      return false;
+    }
 
     const optimisticId =
       crypto.randomUUID();
@@ -1526,9 +1863,14 @@ function ChatRoom() {
           sender_id:
             user.id,
 
+          /*
+           * Cast to any so this file remains
+           * compatible until generated Supabase
+           * types include the sticker enum.
+           */
           type:
-            payload.type ??
-            "text",
+            (payload.type ??
+              "text") as any,
 
           content:
             payload.content ??
@@ -1583,11 +1925,50 @@ function ChatRoom() {
     return true;
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
+   * SEND STICKER
+   * ========================================================== */
+
+  async function sendSticker(
+    stickerId: string,
+  ) {
+    if (!user || !online) {
+      return;
+    }
+
+    const sticker =
+      getSticker(
+        stickerId,
+      );
+
+    if (!sticker) {
+      return;
+    }
+
+    setStickerPickerOpen(
+      false,
+    );
+
+    await sendMessage(
+      {
+        /*
+         * Sticker is intentionally cast
+         * so the current generated Supabase
+         * types don't block compilation.
+         */
+        type:
+          "sticker" as any,
+
+        content:
+          sticker.id,
+      },
+      `${sticker.emoji} Sticker`,
+    );
+  }
+
+  /* ==========================================================
    * TEXT MESSAGE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function submit(
     event: React.FormEvent,
@@ -1727,11 +2108,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * MEDIA
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function onFile(
     event: React.ChangeEvent<HTMLInputElement>,
@@ -1810,11 +2189,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * VOICE RECORDING
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function startRecording() {
     try {
@@ -2009,11 +2386,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * DELETE FOR ME
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function deleteForMe(
     message: Message,
@@ -2025,7 +2400,9 @@ function ChatRoom() {
     );
 
     try {
-      const { error } =
+      const {
+        error,
+      } =
         await (supabase as any)
           .from(
             "message_deletions",
@@ -2079,11 +2456,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * DELETE FOR EVERYONE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function deleteForEveryone(
     message: Message,
@@ -2157,12 +2532,14 @@ function ChatRoom() {
           : "Could not delete message for everyone.",
       );
 
-      void qc.invalidateQueries({
-        queryKey: [
-          "messages",
-          id,
-        ],
-      });
+      void qc.invalidateQueries(
+        {
+          queryKey: [
+            "messages",
+            id,
+          ],
+        },
+      );
     } finally {
       setDeletingId(
         null,
@@ -2170,11 +2547,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * DELETE MENU
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function openDeleteMenu(
     event: React.MouseEvent,
@@ -2202,11 +2577,9 @@ function ChatRoom() {
     });
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * REPLY
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function startReply(
     message: Message,
@@ -2223,6 +2596,10 @@ function ChatRoom() {
       null,
     );
 
+    setStickerPickerOpen(
+      false,
+    );
+
     setTimeout(() => {
       document
         .querySelector(
@@ -2237,11 +2614,9 @@ function ChatRoom() {
     }, 50);
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * JUMP TO REPLIED MESSAGE
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function jumpToMessage(
     messageId: string,
@@ -2283,11 +2658,9 @@ function ChatRoom() {
     }, 1500);
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * SWIPE RIGHT TO REPLY
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function handleTouchStart(
     event: React.TouchEvent,
@@ -2295,7 +2668,8 @@ function ChatRoom() {
   ) {
     touchStartX.current.set(
       messageId,
-      event.touches[0].clientX,
+      event.touches[0]
+        .clientX,
     );
   }
 
@@ -2326,13 +2700,7 @@ function ChatRoom() {
       end - start;
 
     if (
-      distance >
-        70 &&
-      Math.abs(
-        event.changedTouches[0]
-          .clientY -
-          0,
-      ) >= 0
+      distance > 70
     ) {
       setSwipingMessageId(
         message.id,
@@ -2350,11 +2718,9 @@ function ChatRoom() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * ADD CONTACT
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   async function addContact() {
     if (
@@ -2401,19 +2767,19 @@ function ChatRoom() {
       `${otherName} added to your contacts`,
     );
 
-    void qc.invalidateQueries({
-      queryKey: [
-        "is-contact",
-        otherUserId,
-      ],
-    });
+    void qc.invalidateQueries(
+      {
+        queryKey: [
+          "is-contact",
+          otherUserId,
+        ],
+      },
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * CALLS
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   function callVoice() {
     if (!otherUserId) {
@@ -2463,11 +2829,9 @@ function ChatRoom() {
     messages.length >=
     limit;
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
    * CLOSE DELETE MENU
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   useEffect(() => {
     function closeMenu() {
@@ -2501,16 +2865,39 @@ function ChatRoom() {
     };
   }, []);
 
-  /*
-   * ---------------------------------------------------------
+  /* ==========================================================
+   * FILTERED STICKERS
+   * ========================================================== */
+
+  const visibleStickers =
+    useMemo(() => {
+      if (
+        stickerPack ===
+        "All"
+      ) {
+        return STICKERS;
+      }
+
+      return STICKERS.filter(
+        (sticker) =>
+          sticker.pack ===
+          stickerPack,
+      );
+    }, [
+      stickerPack,
+    ]);
+
+  /* ==========================================================
    * UI
-   * ---------------------------------------------------------
-   */
+   * ========================================================== */
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col app-gradient">
 
-      {/* HEADER */}
+      {/* ======================================================
+       * HEADER
+       * ====================================================== */}
+
       <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-background/85 px-2 py-2.5 backdrop-blur safe-top">
 
         <Button
@@ -2529,14 +2916,18 @@ function ChatRoom() {
         "group" ? (
           <Link
             to="/groups/$id"
-            params={{ id }}
+            params={{
+              id,
+            }}
             className="flex min-w-0 flex-1 items-center gap-3"
           >
             <UserAvatar
               path={
                 conv.avatar_url
               }
-              name={title}
+              name={
+                title
+              }
               bucket="chat-media"
               size="sm"
             />
@@ -2619,11 +3010,15 @@ function ChatRoom() {
               >
                 <VideoIcon className="h-5 w-5" />
               </Button>
+
             </div>
           )}
       </header>
 
-      {/* MESSAGES */}
+      {/* ======================================================
+       * MESSAGES
+       * ====================================================== */}
+
       <div className="flex-1 space-y-2 px-3 py-4">
 
         {hasMore && (
@@ -2678,13 +3073,17 @@ function ChatRoom() {
             const delivered =
               mine &&
               (
-                deliveryMap.get(
-                  message.id,
-                )?.some(
-                  (delivery) =>
-                    delivery.user_id !==
-                    user?.id,
-                ) ??
+                deliveryMap
+                  .get(
+                    message.id,
+                  )
+                  ?.some(
+                    (
+                      delivery,
+                    ) =>
+                      delivery.user_id !==
+                      user?.id,
+                  ) ??
                 false
               );
 
@@ -2705,6 +3104,17 @@ function ChatRoom() {
             const swiping =
               swipingMessageId ===
               message.id;
+
+            const sticker =
+              (
+                message.type as
+                  string
+              ) ===
+                "sticker"
+                ? getSticker(
+                    message.content,
+                  )
+                : null;
 
             return (
               <div
@@ -2742,7 +3152,8 @@ function ChatRoom() {
                   }`}
                 >
 
-                  {/* SWIPE REPLY INDICATOR */}
+                  {/* SWIPE REPLY ICON */}
+
                   {swiping && (
                     <div className="absolute -left-10 top-1/2 -translate-y-1/2 text-primary">
                       <Reply className="h-5 w-5" />
@@ -2750,24 +3161,29 @@ function ChatRoom() {
                   )}
 
                   {/* MESSAGE BUBBLE */}
+
                   <div
                     className={`rounded-2xl px-3 py-2 text-sm shadow-panel ${
-                      mine
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-surface"
+                      sticker
+                        ? "bg-transparent px-1 py-1 shadow-none"
+                        : mine
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-surface"
                     }`}
                   >
 
                     {conv?.type ===
                       "group" &&
-                      !mine && (
+                      !mine &&
+                      !sticker && (
                         <p className="mb-1 text-[11px] font-semibold text-primary">
                           {sender?.display_name ||
                             "Unknown"}
                         </p>
-                      )}
+                    )}
 
                     {/* REPLIED MESSAGE */}
+
                     {parent && (
                       <button
                         type="button"
@@ -2785,19 +3201,47 @@ function ChatRoom() {
                         <span className="line-clamp-2">
                           {(
                             parent as any
-                          ).deleted_at
+                          )
+                            .deleted_at
                             ? "Deleted message"
-                            : parent.content ||
-                              "Attachment"}
+                            : parent.type ===
+                                ("sticker" as any)
+                              ? getSticker(
+                                  parent.content,
+                                )
+                                  ?.emoji ??
+                                "Sticker"
+                              : parent.content ||
+                                "Attachment"}
                         </span>
                       </button>
                     )}
 
                     {/* DELETED */}
+
                     {deleted ? (
                       <p className="italic opacity-70">
                         This message was deleted
                       </p>
+                    ) : sticker ? (
+
+                      /* =================================================
+                       * STICKER MESSAGE
+                       * ================================================= */
+
+                      <div className="flex flex-col items-center justify-center">
+                        <span
+                          className="select-none text-7xl leading-none drop-shadow-sm"
+                          title={
+                            sticker.label
+                          }
+                        >
+                          {
+                            sticker.emoji
+                          }
+                        </span>
+                      </div>
+
                     ) : message.type ===
                       "text" ? (
                       <p className="whitespace-pre-wrap break-words">
@@ -2833,6 +3277,7 @@ function ChatRoom() {
                     )}
 
                     {/* TIME + STATUS */}
+
                     <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
 
                       {message.edited_at &&
@@ -2861,6 +3306,7 @@ function ChatRoom() {
                   </div>
 
                   {/* REACTION COUNTS */}
+
                   {counts.length >
                     0 &&
                     !deleted && (
@@ -2905,10 +3351,12 @@ function ChatRoom() {
                     )}
 
                   {/* ACTION BAR */}
+
                   {!deleted && (
                     <div className="mt-1 flex flex-wrap items-center gap-1">
 
                       {/* REACTION */}
+
                       <div className="relative">
                         <button
                           type="button"
@@ -2967,6 +3415,7 @@ function ChatRoom() {
                       </div>
 
                       {/* REPLY */}
+
                       <button
                         type="button"
                         className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
@@ -2981,6 +3430,7 @@ function ChatRoom() {
                       </button>
 
                       {/* EDIT */}
+
                       {mine &&
                         message.type ===
                           "text" && (
@@ -3007,7 +3457,8 @@ function ChatRoom() {
                           </button>
                         )}
 
-                      {/* DELETE MENU */}
+                      {/* DELETE */}
+
                       <button
                         type="button"
                         className="rounded-full bg-background/80 px-2 py-1 text-[11px] text-destructive shadow-sm hover:bg-background"
@@ -3032,6 +3483,7 @@ function ChatRoom() {
         )}
 
         {/* SENDING */}
+
         {sendingIds.map(
           (sendingId) => (
             <div
@@ -3051,6 +3503,7 @@ function ChatRoom() {
         )}
 
         {/* OFFLINE OUTBOX */}
+
         {pending.map(
           (item) => (
             <div
@@ -3058,6 +3511,7 @@ function ChatRoom() {
               className="flex justify-end"
             >
               <div className="max-w-[80%] rounded-2xl border border-dashed border-primary/50 bg-primary/20 px-3 py-2 text-sm">
+
                 <p className="whitespace-pre-wrap break-words">
                   {item.content}
                 </p>
@@ -3067,6 +3521,7 @@ function ChatRoom() {
                   "failed" ? (
                     <>
                       <AlertCircle className="h-3 w-3" />
+
                       Failed
 
                       <button
@@ -3096,6 +3551,7 @@ function ChatRoom() {
                   ) : (
                     <>
                       <Clock className="h-3 w-3" />
+
                       Waiting for connection
                     </>
                   )}
@@ -3106,6 +3562,7 @@ function ChatRoom() {
         )}
 
         {/* TYPING */}
+
         {typingUsers.length >
           0 && (
           <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
@@ -3141,7 +3598,10 @@ function ChatRoom() {
         />
       </div>
 
-      {/* DELETE MENU */}
+      {/* ======================================================
+       * DELETE MENU
+       * ====================================================== */}
+
       {deleteMenu && (
         <>
           <button
@@ -3158,8 +3618,10 @@ function ChatRoom() {
           <div
             className="fixed z-50 w-56 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
             style={{
-              left: deleteMenu.x,
-              top: deleteMenu.y,
+              left:
+                deleteMenu.x,
+              top:
+                deleteMenu.y,
             }}
           >
             <div className="border-b border-border px-3 py-2">
@@ -3230,7 +3692,10 @@ function ChatRoom() {
         </>
       )}
 
-      {/* COMPOSER */}
+      {/* ======================================================
+       * COMPOSER
+       * ====================================================== */}
+
       <form
         onSubmit={
           submit
@@ -3239,6 +3704,7 @@ function ChatRoom() {
       >
 
         {/* REPLY / EDIT PREVIEW */}
+
         {(replyTo ||
           editing) && (
           <div className="flex items-center justify-between rounded-xl bg-surface px-3 py-2 text-xs">
@@ -3257,8 +3723,15 @@ function ChatRoom() {
                       replyTo as any
                     ).deleted_at
                       ? "Deleted message"
-                      : replyTo.content ||
-                        "Attachment"}
+                      : replyTo.type ===
+                          ("sticker" as any)
+                        ? getSticker(
+                            replyTo.content,
+                          )
+                            ?.emoji ??
+                          "Sticker"
+                        : replyTo.content ||
+                          "Attachment"}
                   </p>
                 )}
             </div>
@@ -3283,7 +3756,8 @@ function ChatRoom() {
           </div>
         )}
 
-        {/* VOICE RECORDING UI */}
+        {/* VOICE RECORDING */}
+
         {recording && (
           <div className="flex items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/10 px-3 py-2">
 
@@ -3303,7 +3777,6 @@ function ChatRoom() {
 
             <div className="flex items-center gap-2">
 
-              {/* CANCEL */}
               <button
                 type="button"
                 className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
@@ -3315,7 +3788,6 @@ function ChatRoom() {
                 Cancel
               </button>
 
-              {/* SEND */}
               <button
                 type="button"
                 className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -3329,6 +3801,8 @@ function ChatRoom() {
             </div>
           </div>
         )}
+
+        {/* COMPOSER ROW */}
 
         <div className="flex items-center gap-2">
 
@@ -3348,6 +3822,8 @@ function ChatRoom() {
             }
           />
 
+          {/* MEDIA */}
+
           <Button
             type="button"
             size="icon"
@@ -3362,6 +3838,124 @@ function ChatRoom() {
           >
             <ImagePlus className="h-5 w-5" />
           </Button>
+
+          {/* =================================================
+           * STICKER BUTTON
+           * ================================================= */}
+
+          <div className="relative">
+
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={
+                !online ||
+                recording
+              }
+              title="Stickers"
+              onClick={() => {
+                setStickerPickerOpen(
+                  (value) =>
+                    !value,
+                );
+
+                setReactionPicker(
+                  null,
+                );
+              }}
+            >
+              <SmilePlus className="h-5 w-5" />
+            </Button>
+
+            {stickerPickerOpen && (
+              <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+
+                {/* STICKER HEADER */}
+
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+
+                  <div className="flex items-center gap-2">
+                    <SmilePlus className="h-4 w-4 text-primary" />
+
+                    <span className="text-sm font-semibold">
+                      Stickers
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStickerPickerOpen(
+                        false,
+                      )
+                    }
+                    className="rounded-full p-1 hover:bg-muted"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* STICKER PACKS */}
+
+                <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-2">
+                  {STICKER_PACKS.map(
+                    (pack) => (
+                      <button
+                        key={
+                          pack
+                        }
+                        type="button"
+                        onClick={() =>
+                          setStickerPack(
+                            pack,
+                          )
+                        }
+                        className={`whitespace-nowrap rounded-full px-3 py-1 text-xs ${
+                          stickerPack ===
+                          pack
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {pack}
+                      </button>
+                    ),
+                  )}
+                </div>
+
+                {/* STICKER GRID */}
+
+                <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto p-3">
+                  {visibleStickers.map(
+                    (sticker) => (
+                      <button
+                        key={
+                          sticker.id
+                        }
+                        type="button"
+                        title={
+                          sticker.label
+                        }
+                        onClick={() =>
+                          void sendSticker(
+                            sticker.id,
+                          )
+                        }
+                        className="flex aspect-square items-center justify-center rounded-xl text-4xl transition hover:scale-110 hover:bg-muted active:scale-95"
+                      >
+                        {
+                          sticker.emoji
+                        }
+                      </button>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* TEXT INPUT */}
 
           <Input
             value={text}
@@ -3388,6 +3982,8 @@ function ChatRoom() {
               recording
             }
           />
+
+          {/* SEND / MIC */}
 
           {text.trim() ? (
             <Button
