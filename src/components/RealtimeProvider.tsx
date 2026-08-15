@@ -509,6 +509,9 @@ export function RealtimeProvider({
    * =======================================================
    */
 
+  const callKind =
+    state.phase === "idle" ? undefined : state.kind;
+
   useEffect(() => {
     if (state.phase === "idle") return;
     if (state.kind !== "video") return;
@@ -528,7 +531,7 @@ export function RealtimeProvider({
       .catch(() => undefined);
   }, [
     state.phase,
-    state.kind,
+    callKind,
     sharingScreen,
   ]);
 
