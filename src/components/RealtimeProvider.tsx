@@ -104,10 +104,10 @@ const RealtimeContext = createContext<Ctx>({
  */
 
 const TURN_USERNAME =
-  import.meta.env.VITE_TURN_USERNAME?.trim() || "";
+  import.meta.env['VITE_TURN_USERNAME']?.trim() || "";
 
 const TURN_CREDENTIAL =
-  import.meta.env.VITE_TURN_CREDENTIAL?.trim() || "";
+  import.meta.env['VITE_TURN_CREDENTIAL']?.trim() || "";
 
 const ICE: RTCConfiguration = {
   iceServers: [
@@ -509,13 +509,12 @@ export function RealtimeProvider({
    * =======================================================
    */
 
+  const callKind =
+    state.phase === "idle" ? undefined : state.kind;
+
   useEffect(() => {
-    if (
-      state.phase === "idle" ||
-      state.kind !== "video"
-    ) {
-      return;
-    }
+    if (state.phase === "idle") return;
+    if (state.kind !== "video") return;
 
     if (
       !localVideo.current ||
@@ -532,7 +531,7 @@ export function RealtimeProvider({
       .catch(() => undefined);
   }, [
     state.phase,
-    state.kind,
+    callKind,
     sharingScreen,
   ]);
 
@@ -1602,10 +1601,12 @@ export function RealtimeProvider({
 
         try {
           await notifyIncomingCall({
-            calleeId: peer.id,
-            kind,
-            callerName,
-            callerAvatar,
+            data: {
+              calleeId: peer.id,
+              kind,
+              callerName,
+              callerAvatar,
+            },
           });
         } catch (error) {
           console.error(
