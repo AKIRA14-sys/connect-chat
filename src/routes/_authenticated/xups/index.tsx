@@ -478,15 +478,15 @@ function XupsPage() {
 
       const audience =
         audienceMode === "private"
-          ? "private"
+          ? ("only" as const)
           : audienceMode === "selected"
-            ? "selected"
-            : "contacts";
+            ? ("only" as const)
+            : ("contacts" as const);
 
       const audienceIds =
         audienceMode === "selected"
           ? selectedContactIds
-          : null;
+          : [];
 
       const { error: insertError } =
         await supabase

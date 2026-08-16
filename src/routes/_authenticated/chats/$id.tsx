@@ -2669,7 +2669,7 @@ function ChatRoom() {
     touchStartX.current.set(
       messageId,
       event.touches[0]
-        .clientX,
+        ?.clientX ?? 0,
     );
   }
 
@@ -2694,7 +2694,7 @@ function ChatRoom() {
 
     const end =
       event.changedTouches[0]
-        .clientX;
+        ?.clientX ?? start;
 
     const distance =
       end - start;
