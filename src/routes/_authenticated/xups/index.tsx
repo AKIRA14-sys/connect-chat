@@ -19,6 +19,7 @@ import { AppShell, PageHeader } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/UserAvatar";
+import { signedUrl } from "@/lib/whatsxup";
 
 export const Route = createFileRoute("/_authenticated/xups/")({
   head: () => ({
