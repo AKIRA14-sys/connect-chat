@@ -116,13 +116,9 @@ function XupMedia({
   useEffect(() => {
     let active = true;
 
-    const { data } = supabase.storage
-      .from("xups")
-      .getPublicUrl(path);
-
-    if (active) {
-      setUrl(data.publicUrl);
-    }
+    void signedUrl("xups", path).then((value) => {
+      if (active) setUrl(value);
+    });
 
     return () => {
       active = false;
