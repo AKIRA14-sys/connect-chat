@@ -19,6 +19,7 @@ import { AppShell, PageHeader } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserAvatar } from "@/components/UserAvatar";
+import { signedUrl } from "@/lib/whatsxup";
 
 export const Route = createFileRoute("/_authenticated/xups/")({
   head: () => ({
@@ -116,13 +117,9 @@ function XupMedia({
   useEffect(() => {
     let active = true;
 
-    const { data } = supabase.storage
-      .from("xups")
-      .getPublicUrl(path);
-
-    if (active) {
-      setUrl(data.publicUrl);
-    }
+    void signedUrl("xups", path).then((value) => {
+      if (active) setUrl(value);
+    });
 
     return () => {
       active = false;
@@ -478,15 +475,15 @@ function XupsPage() {
 
       const audience =
         audienceMode === "private"
-          ? "private"
+          ? ("only" as const)
           : audienceMode === "selected"
-            ? "selected"
-            : "contacts";
+            ? ("only" as const)
+            : ("contacts" as const);
 
       const audienceIds =
         audienceMode === "selected"
           ? selectedContactIds
-          : null;
+          : [];
 
       const { error: insertError } =
         await supabase
