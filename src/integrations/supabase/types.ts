@@ -120,7 +120,22 @@ export type Database = {
           owner_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "contacts_contact_profile_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contacts_owner_profile_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       conversation_members: {
         Row: {
@@ -228,6 +243,64 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      message_deletions: {
+        Row: {
+          created_at: string
+          message_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          message_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          message_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_deletions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      message_reactions: {
+        Row: {
+          created_at: string
+          id: string
+          message_id: string
+          reaction: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message_id: string
+          reaction: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message_id?: string
+          reaction?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "message_reactions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       message_reads: {
         Row: {
@@ -608,7 +681,7 @@ export type Database = {
       conv_type: "direct" | "group"
       friend_status: "pending" | "accepted" | "blocked"
       member_role: "owner" | "admin" | "member"
-      msg_type: "text" | "image" | "video" | "audio" | "system"
+      msg_type: "text" | "image" | "video" | "audio" | "system" | "sticker"
       report_status: "open" | "resolved" | "rejected"
       report_target: "user" | "message" | "group" | "media"
       xup_audience: "contacts" | "contacts_except" | "only"
@@ -754,7 +827,7 @@ export const Constants = {
       conv_type: ["direct", "group"],
       friend_status: ["pending", "accepted", "blocked"],
       member_role: ["owner", "admin", "member"],
-      msg_type: ["text", "image", "video", "audio", "system"],
+      msg_type: ["text", "image", "video", "audio", "system", "sticker"],
       report_status: ["open", "resolved", "rejected"],
       report_target: ["user", "message", "group", "media"],
       xup_audience: ["contacts", "contacts_except", "only"],
