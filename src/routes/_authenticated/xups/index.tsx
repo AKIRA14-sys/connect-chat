@@ -1,17 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Camera,
   Check,
-  ChevronLeft,
-  ChevronRight,
   ImagePlus,
   Loader2,
+  MessageCircle,
   MoreVertical,
-  Play,
   Send,
   Trash2,
+  Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -65,6 +69,21 @@ type XupReaction = {
   reaction: string;
 };
 
+type XupView = {
+  id: string;
+  xup_id: string;
+  viewer_id: string;
+  created_at?: string;
+};
+
+type XupComment = {
+  id: string;
+  xup_id: string;
+  user_id: string;
+  comment: string;
+  created_at: string;
+};
+
 type Contact = {
   id: string;
   contact_id: string;
@@ -76,13 +95,26 @@ type Contact = {
   };
 };
 
-type AudienceMode = "contacts" | "selected" | "private";
+type AudienceMode =
+  | "contacts"
+  | "selected"
+  | "private";
 
-const REACTIONS = ["❤️", "😂", "😮", "😢", "🔥", "👍"];
+const REACTIONS = [
+  "❤️",
+  "😂",
+  "😮",
+  "😢",
+  "🔥",
+  "👍",
+];
 
 function isVideo(path: string | null) {
   if (!path) return false;
-  return /\.(mp4|webm|mov|m4v)$/i.test(path);
+
+  return /\.(mp4|webm|mov|m4v)$/i.test(
+    path,
+  );
 }
 
 function formatTime(iso: string) {
@@ -90,14 +122,20 @@ function formatTime(iso: string) {
   const now = Date.now();
   const diff = now - date.getTime();
 
-  if (diff < 60_000) return "just now";
+  if (diff < 60_000) {
+    return "just now";
+  }
 
   if (diff < 3_600_000) {
-    return `${Math.floor(diff / 60_000)}m`;
+    return `${Math.floor(
+      diff / 60_000,
+    )}m`;
   }
 
   if (diff < 86_400_000) {
-    return `${Math.floor(diff / 3_600_000)}h`;
+    return `${Math.floor(
+      diff / 3_600_000,
+    )}h`;
   }
 
   return date.toLocaleDateString([], {
@@ -106,20 +144,40 @@ function formatTime(iso: string) {
   });
 }
 
+/* =========================================================
+   MEDIA
+   ========================================================= */
+
 function XupMedia({
   path,
   className = "",
+  viewer = false,
+  videoRef,
+  onLongPressStart,
+  onLongPressEnd,
 }: {
   path: string;
   className?: string;
+  viewer?: boolean;
+  videoRef?: React.MutableRefObject<
+    HTMLVideoElement | null
+  >;
+  onLongPressStart?: () => void;
+  onLongPressEnd?: () => void;
 }) {
-  const [url, setUrl] = useState<string | null>(null);
+  const [url, setUrl] =
+    useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    void signedUrl("xups", path).then((value) => {
-      if (active) setUrl(value);
+    void signedUrl(
+      "xups",
+      path,
+    ).then((value) => {
+      if (active) {
+        setUrl(value);
+      }
     });
 
     return () => {
@@ -130,9 +188,9 @@ function XupMedia({
   if (!url) {
     return (
       <div
-        className={`flex aspect-[9/16] items-center justify-center rounded-3xl bg-surface ${className}`}
+        className={`flex h-full min-h-[240px] w-full items-center justify-center bg-black ${className}`}
       >
-        <Loader2 className="h-6 w-6 animate-spin" />
+        <Loader2 className="h-7 w-7 animate-spin text-white" />
       </div>
     );
   }
@@ -140,11 +198,37 @@ function XupMedia({
   if (isVideo(path)) {
     return (
       <video
+        ref={(element) => {
+          if (videoRef) {
+            videoRef.current =
+              element;
+          }
+        }}
         src={url}
-        controls
+        autoPlay={viewer}
+        muted={false}
+        loop={false}
         playsInline
-        preload="metadata"
-        className={`h-full w-full rounded-3xl object-cover ${className}`}
+        preload="auto"
+        controls={false}
+        onContextMenu={(event) =>
+          event.preventDefault()
+        }
+        onPointerDown={
+          onLongPressStart
+        }
+        onPointerUp={onLongPressEnd}
+        onPointerCancel={
+          onLongPressEnd
+        }
+        onPointerLeave={
+          onLongPressEnd
+        }
+        className={`h-full w-full ${
+          viewer
+            ? "object-contain"
+            : "object-cover"
+        } ${className}`}
       />
     );
   }
@@ -153,47 +237,106 @@ function XupMedia({
     <img
       src={url}
       alt="XUP"
-      loading="lazy"
-      className={`h-full w-full rounded-3xl object-cover ${className}`}
+      draggable={false}
+      loading={viewer ? "eager" : "lazy"}
+      className={`h-full w-full ${
+        viewer
+          ? "object-contain"
+          : "object-cover"
+      } ${className}`}
     />
   );
 }
+
+/* =========================================================
+   PAGE
+   ========================================================= */
 
 function XupsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
 
-  const fileInput = useRef<HTMLInputElement | null>(null);
+  const fileInput =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [caption, setCaption] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const viewerVideoRef =
+    useRef<HTMLVideoElement | null>(
+      null,
+    );
+
+  const longPressTimer =
+    useRef<number | null>(null);
+
+  const touchStartX =
+    useRef<number | null>(null);
+
+  const touchStartY =
+    useRef<number | null>(null);
+
+  const [selectedFile, setSelectedFile] =
+    useState<File | null>(null);
+
+  const [caption, setCaption] =
+    useState("");
+
+  const [uploading, setUploading] =
+    useState(false);
 
   const [audienceMode, setAudienceMode] =
-    useState<AudienceMode>("contacts");
+    useState<AudienceMode>(
+      "contacts",
+    );
 
-  const [selectedContactIds, setSelectedContactIds] =
-    useState<string[]>([]);
+  const [
+    selectedContactIds,
+    setSelectedContactIds,
+  ] = useState<string[]>([]);
 
-  const [activeUserId, setActiveUserId] =
-    useState<string | null>(null);
+  const [
+    activeUserId,
+    setActiveUserId,
+  ] = useState<string | null>(
+    null,
+  );
 
-  const [activeIndex, setActiveIndex] =
-    useState(0);
+  const [
+    activeIndex,
+    setActiveIndex,
+  ] = useState(0);
 
-  const [reactionPicker, setReactionPicker] =
-    useState(false);
+  const [
+    reactionPicker,
+    setReactionPicker,
+  ] = useState(false);
 
-  const [showSettings, setShowSettings] =
-    useState(false);
+  const [
+    showSettings,
+    setShowSettings,
+  ] = useState(false);
 
-  const [now, setNow] = useState(Date.now());
+  const [
+    showViewers,
+    setShowViewers,
+  ] = useState(false);
 
-  /*
-   * ---------------------------------------------------------
-   * LOAD XUPS
-   * ---------------------------------------------------------
-   */
+  const [
+    showComments,
+    setShowComments,
+  ] = useState(false);
+
+  const [
+    commentText,
+    setCommentText,
+  ] = useState("");
+
+  const [now, setNow] =
+    useState(Date.now());
+
+  /* =========================================================
+     LOAD XUPS
+     ========================================================= */
 
   const {
     data: xups = [],
@@ -205,196 +348,382 @@ function XupsPage() {
     queryFn: async (): Promise<Xup[]> => {
       if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("xups")
-        .select("*")
-        .is("deleted_at", null)
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", {
-          ascending: false,
-        });
+      const { data, error } =
+        await supabase
+          .from("xups")
+          .select("*")
+          .is("deleted_at", null)
+          .gt(
+            "expires_at",
+            new Date().toISOString(),
+          )
+          .order("created_at", {
+            ascending: false,
+          });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return (data ?? []) as Xup[];
+      return (data ??
+        []) as Xup[];
     },
   });
 
-  /*
-   * ---------------------------------------------------------
-   * CONTACTS
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     CONTACTS
+     ========================================================= */
 
-  const { data: myContacts = [] } = useQuery({
-    queryKey: ["xup-audience-contacts", user?.id],
+  const {
+    data: myContacts = [],
+  } = useQuery({
+    queryKey: [
+      "xup-audience-contacts",
+      user?.id,
+    ],
     enabled: !!user,
 
-    queryFn: async (): Promise<Contact[]> => {
+    queryFn: async (): Promise<
+      Contact[]
+    > => {
       if (!user) return [];
 
-      const { data, error } = await supabase
-        .from("contacts")
-        .select(
-          "id, contact_id, profiles:contact_id(id, username, display_name, avatar_url)",
-        )
-        .eq("owner_id", user.id);
+      const { data, error } =
+        await supabase
+          .from("contacts")
+          .select(
+            "id, contact_id, profiles:contact_id(id, username, display_name, avatar_url)",
+          )
+          .eq(
+            "owner_id",
+            user.id,
+          );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return (data ?? []) as unknown as Contact[];
+      return (data ??
+        []) as unknown as Contact[];
     },
   });
 
-  /*
-   * ---------------------------------------------------------
-   * PROFILES
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     PROFILES
+     ========================================================= */
 
   const userIds = Array.from(
-    new Set(xups.map((xup) => xup.user_id)),
+    new Set(
+      xups.map(
+        (xup) => xup.user_id,
+      ),
+    ),
   );
 
-  const { data: profiles = [] } = useQuery({
+  const {
+    data: profiles = [],
+  } = useQuery({
     queryKey: [
       "xup-profiles",
       userIds.join(","),
     ],
-    enabled: userIds.length > 0,
+    enabled:
+      userIds.length > 0,
 
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select(
-          "id, username, display_name, avatar_url",
-        )
-        .in("id", userIds);
+      const { data, error } =
+        await supabase
+          .from("profiles")
+          .select(
+            "id, username, display_name, avatar_url",
+          )
+          .in(
+            "id",
+            userIds,
+          );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return (data ?? []) as Profile[];
+      return (data ??
+        []) as Profile[];
     },
   });
 
   const profileMap = useMemo(() => {
-    const map = new Map<string, Profile>();
+    const map =
+      new Map<string, Profile>();
 
     for (const profile of profiles) {
-      map.set(profile.id, profile);
+      map.set(
+        profile.id,
+        profile,
+      );
     }
 
     return map;
   }, [profiles]);
 
-  /*
-   * ---------------------------------------------------------
-   * REACTIONS
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     REACTIONS
+     ========================================================= */
 
-  const xupIds = xups.map((xup) => xup.id);
+  const xupIds = xups.map(
+    (xup) => xup.id,
+  );
 
-  const { data: reactions = [] } = useQuery({
+  const {
+    data: reactions = [],
+  } = useQuery({
     queryKey: [
       "xup-reactions",
       xupIds.join(","),
     ],
-    enabled: xupIds.length > 0,
+    enabled:
+      xupIds.length > 0,
 
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("xup_reactions")
-        .select("*")
-        .in("xup_id", xupIds);
+      const { data, error } =
+        await supabase
+          .from(
+            "xup_reactions",
+          )
+          .select("*")
+          .in(
+            "xup_id",
+            xupIds,
+          );
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return (data ?? []) as XupReaction[];
+      return (data ??
+        []) as XupReaction[];
     },
   });
 
-  /*
-   * ---------------------------------------------------------
-   * CLOCK
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     VIEWS
+     ========================================================= */
+
+  const {
+    data: xupViews = [],
+  } = useQuery({
+    queryKey: [
+      "xup-views",
+      xupIds.join(","),
+    ],
+    enabled:
+      xupIds.length > 0,
+
+    queryFn: async () => {
+      const { data, error } =
+        await supabase
+          .from("xup_views")
+          .select("*")
+          .in(
+            "xup_id",
+            xupIds,
+          );
+
+      if (error) {
+        console.error(
+          "Could not load XUP views:",
+          error,
+        );
+
+        return [];
+      }
+
+      return (data ??
+        []) as XupView[];
+    },
+  });
+
+  /* =========================================================
+     COMMENTS
+     ========================================================= */
+
+  const {
+    data: comments = [],
+  } = useQuery({
+    queryKey: [
+      "xup-comments",
+      xupIds.join(","),
+    ],
+    enabled:
+      xupIds.length > 0,
+
+    queryFn: async () => {
+      const { data, error } =
+        await supabase
+          .from(
+            "xup_comments",
+          )
+          .select("*")
+          .in(
+            "xup_id",
+            xupIds,
+          )
+          .order(
+            "created_at",
+            {
+              ascending: true,
+            },
+          );
+
+      if (error) {
+        console.error(
+          "Could not load XUP comments:",
+          error,
+        );
+
+        return [];
+      }
+
+      return (data ??
+        []) as XupComment[];
+    },
+  });
+
+  /* =========================================================
+     CLOCK
+     ========================================================= */
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(Date.now());
-    }, 30_000);
+    const timer =
+      window.setInterval(
+        () => {
+          setNow(Date.now());
+        },
+        30_000,
+      );
 
     return () => {
-      window.clearInterval(timer);
+      window.clearInterval(
+        timer,
+      );
     };
   }, []);
 
-  /*
-   * ---------------------------------------------------------
-   * REALTIME
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     REALTIME
+     ========================================================= */
 
   useEffect(() => {
     if (!user) return;
 
-    const channel = supabase
-      .channel("xups-feed")
+    const channel =
+      supabase
+        .channel("xups-feed")
 
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "xups",
-        },
-        () => {
-          void qc.invalidateQueries({
-            queryKey: ["xups", user.id],
-          });
-        },
-      )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "xups",
+          },
+          () => {
+            void qc.invalidateQueries(
+              {
+                queryKey: [
+                  "xups",
+                  user.id,
+                ],
+              },
+            );
+          },
+        )
 
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "xup_reactions",
-        },
-        () => {
-          void qc.invalidateQueries({
-            queryKey: ["xup-reactions"],
-          });
-        },
-      )
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table:
+              "xup_reactions",
+          },
+          () => {
+            void qc.invalidateQueries(
+              {
+                queryKey: [
+                  "xup-reactions",
+                ],
+              },
+            );
+          },
+        )
 
-      .subscribe();
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "xup_views",
+          },
+          () => {
+            void qc.invalidateQueries(
+              {
+                queryKey: [
+                  "xup-views",
+                ],
+              },
+            );
+          },
+        )
+
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table:
+              "xup_comments",
+          },
+          () => {
+            void qc.invalidateQueries(
+              {
+                queryKey: [
+                  "xup-comments",
+                ],
+              },
+            );
+          },
+        )
+
+        .subscribe();
 
     return () => {
-      void supabase.removeChannel(channel);
+      void supabase.removeChannel(
+        channel,
+      );
     };
   }, [user, qc]);
 
-  /*
-   * ---------------------------------------------------------
-   * FILE PICKER
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     FILE PICKER
+     ========================================================= */
 
   function chooseFile(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
     event.target.value = "";
 
     if (!file) return;
 
     if (
-      !file.type.startsWith("image/") &&
-      !file.type.startsWith("video/")
+      !file.type.startsWith(
+        "image/",
+      ) &&
+      !file.type.startsWith(
+        "video/",
+      )
     ) {
       toast.error(
         "XUPs can only contain photos or videos.",
@@ -402,7 +731,10 @@ function XupsPage() {
       return;
     }
 
-    if (file.size > 50 * 1024 * 1024) {
+    if (
+      file.size >
+      50 * 1024 * 1024
+    ) {
       toast.error(
         "XUP media must be under 50 MB.",
       );
@@ -412,18 +744,23 @@ function XupsPage() {
     setSelectedFile(file);
   }
 
-  /*
-   * ---------------------------------------------------------
-   * CREATE XUP
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     CREATE XUP
+     ========================================================= */
 
   async function createXup() {
-    if (!user || !selectedFile) return;
+    if (
+      !user ||
+      !selectedFile
+    ) {
+      return;
+    }
 
     if (
-      audienceMode === "selected" &&
-      selectedContactIds.length === 0
+      audienceMode ===
+        "selected" &&
+      selectedContactIds.length ===
+        0
     ) {
       toast.error(
         "Select at least one contact.",
@@ -435,67 +772,82 @@ function XupsPage() {
 
     try {
       const extension =
-        selectedFile.name.includes(".")
+        selectedFile.name.includes(
+          ".",
+        )
           ? selectedFile.name
               .split(".")
               .pop()
-              ?.toLowerCase() || "bin"
+              ?.toLowerCase() ||
+            "bin"
           : "bin";
 
       const path = `${user.id}/${crypto.randomUUID()}.${extension}`;
 
-      const { error: uploadError } =
-        await supabase.storage
-          .from("xups")
-          .upload(
-            path,
-            selectedFile,
-            {
-              contentType:
-                selectedFile.type ||
-                "application/octet-stream",
-              upsert: false,
-            },
-          );
+      const {
+        error: uploadError,
+      } = await supabase.storage
+        .from("xups")
+        .upload(
+          path,
+          selectedFile,
+          {
+            contentType:
+              selectedFile.type ||
+              "application/octet-stream",
+            upsert: false,
+          },
+        );
 
       if (uploadError) {
         throw uploadError;
       }
 
-      const expiresAt = new Date(
-        Date.now() +
-          24 * 60 * 60 * 1000,
-      ).toISOString();
+      const expiresAt =
+        new Date(
+          Date.now() +
+            24 *
+              60 *
+              60 *
+              1000,
+        ).toISOString();
 
       const audience =
-        audienceMode === "private"
+        audienceMode ===
+        "private"
           ? "only"
-          : audienceMode === "selected"
+          : audienceMode ===
+              "selected"
             ? "only"
             : "contacts";
 
       const audienceIds =
-        audienceMode === "selected"
+        audienceMode ===
+        "selected"
           ? selectedContactIds
           : [];
 
-      const { error: insertError } =
-        await supabase
-          .from("xups")
-          .insert({
-            user_id: user.id,
-            kind: selectedFile.type.startsWith(
-              "video/",
-            )
-              ? "video"
-              : "image",
-            content: path,
-            background:
-              caption.trim() || null,
-            audience,
-            audience_ids: audienceIds,
-            expires_at: expiresAt,
-          });
+      const {
+        error: insertError,
+      } = await supabase
+        .from("xups")
+        .insert({
+          user_id: user.id,
+          kind: selectedFile.type.startsWith(
+            "video/",
+          )
+            ? "video"
+            : "image",
+          content: path,
+          background:
+            caption.trim() ||
+            null,
+          audience,
+          audience_ids:
+            audienceIds,
+          expires_at:
+            expiresAt,
+        });
 
       if (insertError) {
         await supabase.storage
@@ -507,14 +859,25 @@ function XupsPage() {
 
       setSelectedFile(null);
       setCaption("");
-      setAudienceMode("contacts");
-      setSelectedContactIds([]);
+      setAudienceMode(
+        "contacts",
+      );
+      setSelectedContactIds(
+        [],
+      );
 
-      toast.success("XUP posted!");
+      toast.success(
+        "XUP posted!",
+      );
 
-      await qc.invalidateQueries({
-        queryKey: ["xups", user.id],
-      });
+      await qc.invalidateQueries(
+        {
+          queryKey: [
+            "xups",
+            user.id,
+          ],
+        },
+      );
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -526,179 +889,321 @@ function XupsPage() {
     }
   }
 
-  /*
-   * ---------------------------------------------------------
-   * DELETE XUP
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     DELETE XUP
+     ========================================================= */
 
-  async function deleteXup(xup: Xup) {
-    if (!user || xup.user_id !== user.id) {
+  async function deleteXup(
+    xup: Xup,
+  ) {
+    if (
+      !user ||
+      xup.user_id !== user.id
+    ) {
       return;
     }
 
-    const { error } = await supabase
-      .from("xups")
-      .update({
-        deleted_at:
-          new Date().toISOString(),
-      })
-      .eq("id", xup.id)
-      .eq("user_id", user.id);
+    const { error } =
+      await supabase
+        .from("xups")
+        .update({
+          deleted_at:
+            new Date().toISOString(),
+        })
+        .eq(
+          "id",
+          xup.id,
+        )
+        .eq(
+          "user_id",
+          user.id,
+        );
 
     if (error) {
-      toast.error(error.message);
+      toast.error(
+        error.message,
+      );
       return;
     }
 
     if (xup.content) {
       await supabase.storage
         .from("xups")
-        .remove([xup.content]);
+        .remove([
+          xup.content,
+        ]);
     }
 
     closeViewer();
 
-    toast.success("XUP deleted.");
+    toast.success(
+      "XUP deleted.",
+    );
 
-    await qc.invalidateQueries({
-      queryKey: ["xups", user.id],
-    });
+    await qc.invalidateQueries(
+      {
+        queryKey: [
+          "xups",
+          user.id,
+        ],
+      },
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * VISIBLE XUPS
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     VISIBLE XUPS
+     ========================================================= */
 
-  const visibleXups = useMemo(() => {
-    return xups.filter(
+  const visibleXups =
+    useMemo(() => {
+      return xups.filter(
+        (xup) =>
+          !xup.deleted_at &&
+          new Date(
+            xup.expires_at,
+          ).getTime() > now,
+      );
+    }, [xups, now]);
+
+  /* =========================================================
+     GROUP XUPS BY USER
+     ========================================================= */
+
+  const groupedXups =
+    useMemo(() => {
+      const groups =
+        new Map<
+          string,
+          Xup[]
+        >();
+
+      for (const xup of visibleXups) {
+        const current =
+          groups.get(
+            xup.user_id,
+          ) ?? [];
+
+        current.push(xup);
+
+        groups.set(
+          xup.user_id,
+          current,
+        );
+      }
+
+      for (const [
+        id,
+        items,
+      ] of groups) {
+        items.sort(
+          (a, b) =>
+            new Date(
+              a.created_at,
+            ).getTime() -
+            new Date(
+              b.created_at,
+            ).getTime(),
+        );
+
+        groups.set(
+          id,
+          items,
+        );
+      }
+
+      return groups;
+    }, [visibleXups]);
+
+  const people =
+    useMemo(
+      () =>
+        Array.from(
+          groupedXups.keys(),
+        ),
+      [groupedXups],
+    );
+
+  /* =========================================================
+     VIEWED USER
+     ========================================================= */
+
+  function hasViewedUser(
+    userId: string,
+  ) {
+    const story =
+      groupedXups.get(
+        userId,
+      ) ?? [];
+
+    if (
+      story.length ===
+      0
+    ) {
+      return false;
+    }
+
+    return story.every(
       (xup) =>
-        !xup.deleted_at &&
-        new Date(xup.expires_at).getTime() >
-          now,
+        xupViews.some(
+          (view) =>
+            view.xup_id ===
+              xup.id &&
+            view.viewer_id ===
+              user?.id,
+        ),
     );
-  }, [xups, now]);
+  }
 
-  /*
-   * ---------------------------------------------------------
-   * GROUP XUPS BY USER
-   *
-   * Each person gets ONE story card.
-   * Their individual XUPs remain inside
-   * the viewer.
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     ACTIVE STORY
+     ========================================================= */
 
-  const groupedXups = useMemo(() => {
-    const groups = new Map<string, Xup[]>();
+  const activeStory =
+    useMemo(() => {
+      if (!activeUserId) {
+        return [];
+      }
 
-    for (const xup of visibleXups) {
-      const current =
-        groups.get(xup.user_id) ?? [];
-
-      current.push(xup);
-
-      groups.set(
-        xup.user_id,
-        current,
+      return (
+        groupedXups.get(
+          activeUserId,
+        ) ?? []
       );
-    }
-
-    for (const [id, items] of groups) {
-      items.sort(
-        (a, b) =>
-          new Date(
-            a.created_at,
-          ).getTime() -
-          new Date(
-            b.created_at,
-          ).getTime(),
-      );
-
-      groups.set(id, items);
-    }
-
-    return groups;
-  }, [visibleXups]);
-
-  /*
-   * ---------------------------------------------------------
-   * CURRENT STORY
-   * ---------------------------------------------------------
-   */
-
-  const activeStory = useMemo(() => {
-    if (!activeUserId) return [];
-
-    return (
-      groupedXups.get(activeUserId) ?? []
-    );
-  }, [activeUserId, groupedXups]);
+    }, [
+      activeUserId,
+      groupedXups,
+    ]);
 
   const activeXup =
-    activeStory[activeIndex] ?? null;
+    activeStory[
+      activeIndex
+    ] ?? null;
 
-  /*
-   * ---------------------------------------------------------
-   * OPEN STORY
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     OPEN STORY
+     ========================================================= */
 
-  function openStory(userId: string) {
+  function openStory(
+    userId: string,
+  ) {
     const story =
-      groupedXups.get(userId) ?? [];
+      groupedXups.get(
+        userId,
+      ) ?? [];
 
-    if (story.length === 0) return;
-
-    setActiveUserId(userId);
-    setActiveIndex(0);
-    setReactionPicker(false);
-    setShowSettings(false);
-
-    void recordView(story[0]);
-  }
-
-  /*
-   * ---------------------------------------------------------
-   * CLOSE STORY
-   * ---------------------------------------------------------
-   */
-
-  function closeViewer() {
-    setActiveUserId(null);
-    setActiveIndex(0);
-    setReactionPicker(false);
-    setShowSettings(false);
-  }
-
-  /*
-   * ---------------------------------------------------------
-   * RECORD VIEW
-   * ---------------------------------------------------------
-   */
-
-  async function recordView(xup: Xup | undefined) {
-    if (!user || !xup) return;
-
-    if (xup.user_id === user.id) {
+    if (
+      story.length ===
+      0
+    ) {
       return;
     }
 
-    const { error } = await supabase
-      .from("xup_views")
-      .upsert(
-        {
-          xup_id: xup.id,
-          viewer_id: user.id,
-        },
-        {
-          onConflict:
-            "xup_id,viewer_id",
-          ignoreDuplicates: true,
-        },
+    setActiveUserId(
+      userId,
+    );
+
+    setActiveIndex(0);
+
+    setReactionPicker(
+      false,
+    );
+
+    setShowSettings(
+      false,
+    );
+
+    setShowViewers(
+      false,
+    );
+
+    setShowComments(
+      false,
+    );
+
+    void recordView(
+      story[0],
+    );
+  }
+
+  /* =========================================================
+     CLOSE VIEWER
+     ========================================================= */
+
+  function closeViewer() {
+    if (
+      longPressTimer.current
+    ) {
+      window.clearTimeout(
+        longPressTimer.current,
       );
+
+      longPressTimer.current =
+        null;
+    }
+
+    setActiveUserId(
+      null,
+    );
+
+    setActiveIndex(0);
+
+    setReactionPicker(
+      false,
+    );
+
+    setShowSettings(
+      false,
+    );
+
+    setShowViewers(
+      false,
+    );
+
+    setShowComments(
+      false,
+    );
+  }
+
+  /* =========================================================
+     RECORD VIEW
+     ========================================================= */
+
+  async function recordView(
+    xup:
+      | Xup
+      | undefined,
+  ) {
+    if (
+      !user ||
+      !xup
+    ) {
+      return;
+    }
+
+    if (
+      xup.user_id ===
+      user.id
+    ) {
+      return;
+    }
+
+    const { error } =
+      await supabase
+        .from("xup_views")
+        .upsert(
+          {
+            xup_id:
+              xup.id,
+            viewer_id:
+              user.id,
+          },
+          {
+            onConflict:
+              "xup_id,viewer_id",
+            ignoreDuplicates:
+              true,
+          },
+        );
 
     if (error) {
       console.error(
@@ -706,223 +1211,501 @@ function XupsPage() {
         error,
       );
     }
+
+    void qc.invalidateQueries(
+      {
+        queryKey: [
+          "xup-views",
+        ],
+      },
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * NEXT XUP
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     TAP NAVIGATION
+     
+     TAP LEFT/RIGHT = SAME PERSON'S XUPS
+     ========================================================= */
 
-  function nextXup() {
-    if (!activeUserId) return;
+  function tapNextXup() {
+    if (
+      !activeUserId
+    ) {
+      return;
+    }
 
     const story =
-      groupedXups.get(activeUserId) ?? [];
+      groupedXups.get(
+        activeUserId,
+      ) ?? [];
 
     if (
       activeIndex <
       story.length - 1
     ) {
-      const nextIndex =
+      const next =
         activeIndex + 1;
 
-      setActiveIndex(nextIndex);
-
-      void recordView(
-        story[nextIndex],
+      setActiveIndex(
+        next,
       );
 
-      setReactionPicker(false);
+      setReactionPicker(
+        false,
+      );
 
-      return;
+      setShowComments(
+        false,
+      );
+
+      void recordView(
+        story[next],
+      );
     }
-
-    /*
-     * If this is the final XUP from this person,
-     * move to the next person's story.
-     */
-
-    const people = Array.from(
-      groupedXups.keys(),
-    );
-
-    const currentPosition =
-      people.indexOf(activeUserId);
-
-    if (
-      currentPosition >= 0 &&
-      currentPosition <
-        people.length - 1
-    ) {
-      const nextUser =
-        people[currentPosition + 1];
-
-      if (!nextUser) {
-        closeViewer();
-        return;
-      }
-
-      const nextStory =
-        groupedXups.get(nextUser) ?? [];
-
-      setActiveUserId(nextUser);
-      setActiveIndex(0);
-      setReactionPicker(false);
-
-      if (nextStory[0]) {
-        void recordView(
-          nextStory[0],
-        );
-      }
-
-      return;
-    }
-
-    closeViewer();
   }
 
-  /*
-   * ---------------------------------------------------------
-   * PREVIOUS XUP
-   * ---------------------------------------------------------
-   */
-
-  function previousXup() {
-    if (!activeUserId) return;
+  function tapPreviousXup() {
+    if (
+      !activeUserId
+    ) {
+      return;
+    }
 
     const story =
-      groupedXups.get(activeUserId) ?? [];
+      groupedXups.get(
+        activeUserId,
+      ) ?? [];
 
-    if (activeIndex > 0) {
-      const previousIndex =
+    if (
+      activeIndex > 0
+    ) {
+      const previous =
         activeIndex - 1;
 
-      setActiveIndex(previousIndex);
+      setActiveIndex(
+        previous,
+      );
+
+      setReactionPicker(
+        false,
+      );
+
+      setShowComments(
+        false,
+      );
 
       void recordView(
-        story[previousIndex],
+        story[previous],
       );
-
-      setReactionPicker(false);
-
-      return;
     }
-
-    /*
-     * If this is the first XUP from this person,
-     * move to the previous person's final XUP.
-     */
-
-    const people = Array.from(
-      groupedXups.keys(),
-    );
-
-    const currentPosition =
-      people.indexOf(activeUserId);
-
-    if (currentPosition > 0) {
-      const previousUser =
-        people[currentPosition - 1];
-
-      if (!previousUser) return;
-
-      const previousStory =
-        groupedXups.get(previousUser) ??
-        [];
-
-
-      const previousIndex =
-        Math.max(
-          0,
-          previousStory.length - 1,
-        );
-
-      setActiveUserId(previousUser);
-      setActiveIndex(
-        previousIndex,
-      );
-      setReactionPicker(false);
-
-      if (previousStory[previousIndex]) {
-        void recordView(
-          previousStory[previousIndex],
-        );
-      }
-
-      return;
-    }
-
-    closeViewer();
   }
 
-  /*
-   * ---------------------------------------------------------
-   * REACTION
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     SWIPE NAVIGATION
+     
+     SWIPE LEFT = NEXT PERSON
+     SWIPE RIGHT = PREVIOUS PERSON
+     ========================================================= */
+
+  function swipeNextUser() {
+    if (
+      !activeUserId
+    ) {
+      return;
+    }
+
+    const current =
+      people.indexOf(
+        activeUserId,
+      );
+
+    if (
+      current < 0 ||
+      current >=
+        people.length - 1
+    ) {
+      return;
+    }
+
+    const nextUser =
+      people[
+        current + 1
+      ];
+
+    const nextStory =
+      groupedXups.get(
+        nextUser,
+      ) ?? [];
+
+    if (
+      nextStory.length ===
+      0
+    ) {
+      return;
+    }
+
+    setActiveUserId(
+      nextUser,
+    );
+
+    setActiveIndex(0);
+
+    setReactionPicker(
+      false,
+    );
+
+    setShowComments(
+      false,
+    );
+
+    void recordView(
+      nextStory[0],
+    );
+  }
+
+  function swipePreviousUser() {
+    if (
+      !activeUserId
+    ) {
+      return;
+    }
+
+    const current =
+      people.indexOf(
+        activeUserId,
+      );
+
+    if (
+      current <= 0
+    ) {
+      return;
+    }
+
+    const previousUser =
+      people[
+        current - 1
+      ];
+
+    const previousStory =
+      groupedXups.get(
+        previousUser,
+      ) ?? [];
+
+    if (
+      previousStory.length ===
+      0
+    ) {
+      return;
+    }
+
+    const lastIndex =
+      previousStory.length -
+      1;
+
+    setActiveUserId(
+      previousUser,
+    );
+
+    setActiveIndex(
+      lastIndex,
+    );
+
+    setReactionPicker(
+      false,
+    );
+
+    setShowComments(
+      false,
+    );
+
+    void recordView(
+      previousStory[
+        lastIndex
+      ],
+    );
+  }
+
+  /* =========================================================
+     TOUCH HANDLERS
+     ========================================================= */
+
+  function handleTouchStart(
+    event: React.TouchEvent,
+  ) {
+    if (
+      showSettings ||
+      showViewers ||
+      showComments ||
+      reactionPicker
+    ) {
+      return;
+    }
+
+    const touch =
+      event.touches[0];
+
+    if (!touch) return;
+
+    touchStartX.current =
+      touch.clientX;
+
+    touchStartY.current =
+      touch.clientY;
+  }
+
+  function handleTouchEnd(
+    event: React.TouchEvent,
+  ) {
+    if (
+      touchStartX.current ===
+        null ||
+      touchStartY.current ===
+        null
+    ) {
+      return;
+    }
+
+    const touch =
+      event.changedTouches[0];
+
+    if (!touch) {
+      return;
+    }
+
+    const dx =
+      touch.clientX -
+      touchStartX.current;
+
+    const dy =
+      touch.clientY -
+      touchStartY.current;
+
+    touchStartX.current =
+      null;
+
+    touchStartY.current =
+      null;
+
+    if (
+      Math.abs(dx) <
+        60 ||
+      Math.abs(dx) <
+        Math.abs(dy)
+    ) {
+      return;
+    }
+
+    if (dx < 0) {
+      swipeNextUser();
+    } else {
+      swipePreviousUser();
+    }
+  }
+
+  /* =========================================================
+     LONG PRESS VIDEO
+     ========================================================= */
+
+  function startVideoLongPress() {
+    if (
+      !viewerVideoRef.current
+    ) {
+      return;
+    }
+
+    if (
+      longPressTimer.current
+    ) {
+      window.clearTimeout(
+        longPressTimer.current,
+      );
+    }
+
+    longPressTimer.current =
+      window.setTimeout(
+        () => {
+          viewerVideoRef.current?.pause();
+        },
+        180,
+      );
+  }
+
+  function endVideoLongPress() {
+    if (
+      longPressTimer.current
+    ) {
+      window.clearTimeout(
+        longPressTimer.current,
+      );
+
+      longPressTimer.current =
+        null;
+    }
+
+    const video =
+      viewerVideoRef.current;
+
+    if (
+      video &&
+      video.paused &&
+      video.currentTime <
+        video.duration
+    ) {
+      void video.play().catch(
+        () => {},
+      );
+    }
+  }
+
+  /* =========================================================
+     VIEWER CLICK
+     
+     TAP RIGHT = SAME PERSON NEXT XUP
+     TAP LEFT = SAME PERSON PREVIOUS XUP
+     ========================================================= */
+
+  function handleViewerClick(
+    event: React.MouseEvent<HTMLDivElement>,
+  ) {
+    if (
+      showSettings ||
+      showViewers ||
+      showComments ||
+      reactionPicker
+    ) {
+      return;
+    }
+
+    const target =
+      event.target as HTMLElement;
+
+    if (
+      target.closest(
+        "button",
+      ) ||
+      target.closest(
+        "video",
+      ) ||
+      target.closest(
+        "input",
+      ) ||
+      target.closest(
+        "textarea",
+      )
+    ) {
+      return;
+    }
+
+    const rect =
+      event.currentTarget.getBoundingClientRect();
+
+    const x =
+      event.clientX -
+      rect.left;
+
+    if (
+      x <
+      rect.width * 0.5
+    ) {
+      tapPreviousXup();
+    } else {
+      tapNextXup();
+    }
+  }
+
+  /* =========================================================
+     REACTIONS
+     ========================================================= */
 
   async function react(
     xup: Xup,
     emoji: string,
   ) {
-    if (!user) return;
+    if (!user) {
+      return;
+    }
 
-    setReactionPicker(false);
+    setReactionPicker(
+      false,
+    );
 
     const existing =
       reactions.find(
         (item) =>
-          item.xup_id === xup.id &&
-          item.user_id === user.id &&
-          item.reaction === emoji,
+          item.xup_id ===
+            xup.id &&
+          item.user_id ===
+            user.id &&
+          item.reaction ===
+            emoji,
       );
 
     if (existing) {
       const { error } =
         await supabase
-          .from("xup_reactions")
+          .from(
+            "xup_reactions",
+          )
           .delete()
-          .eq("id", existing.id)
-          .eq("user_id", user.id);
+          .eq(
+            "id",
+            existing.id,
+          )
+          .eq(
+            "user_id",
+            user.id,
+          );
 
       if (error) {
-        toast.error(error.message);
+        toast.error(
+          error.message,
+        );
       }
     } else {
       const { error } =
         await supabase
-          .from("xup_reactions")
+          .from(
+            "xup_reactions",
+          )
           .insert({
-            xup_id: xup.id,
-            user_id: user.id,
-            reaction: emoji,
+            xup_id:
+              xup.id,
+            user_id:
+              user.id,
+            reaction:
+              emoji,
           });
 
       if (error) {
-        toast.error(error.message);
+        toast.error(
+          error.message,
+        );
       }
     }
 
-    await qc.invalidateQueries({
-      queryKey: ["xup-reactions"],
-    });
+    await qc.invalidateQueries(
+      {
+        queryKey: [
+          "xup-reactions",
+        ],
+      },
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * REACTION COUNTS
-   * ---------------------------------------------------------
-   */
-
-  function reactionCounts(xupId: string) {
-    const counts = new Map<
-      string,
-      number
-    >();
+  function reactionCounts(
+    xupId: string,
+  ) {
+    const counts =
+      new Map<
+        string,
+        number
+      >();
 
     for (const reaction of reactions) {
-      if (reaction.xup_id !== xupId) {
+      if (
+        reaction.xup_id !==
+        xupId
+      ) {
         continue;
       }
 
@@ -939,74 +1722,140 @@ function XupsPage() {
     );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * HANDLE VIEWER CLICK
-   *
-   * Left side = previous
-   * Right side = next
-   * Center = nothing
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     COMMENTS
+     ========================================================= */
 
-  function handleViewerClick(
-    event: React.MouseEvent<HTMLDivElement>,
-  ) {
+  const activeComments =
+    useMemo(() => {
+      if (!activeXup) {
+        return [];
+      }
+
+      return comments.filter(
+        (comment) =>
+          comment.xup_id ===
+          activeXup.id,
+      );
+    }, [
+      comments,
+      activeXup,
+    ]);
+
+  async function submitComment() {
     if (
-      showSettings ||
-      reactionPicker
+      !user ||
+      !activeXup ||
+      !commentText.trim()
     ) {
       return;
     }
 
-    const target =
-      event.target as HTMLElement;
+    const text =
+      commentText.trim();
 
-    if (
-      target.closest("button") ||
-      target.closest("video") ||
-      target.closest("input")
-    ) {
+    setCommentText("");
+
+    const { error } =
+      await supabase
+        .from(
+          "xup_comments",
+        )
+        .insert({
+          xup_id:
+            activeXup.id,
+          user_id:
+            user.id,
+          comment:
+            text,
+        });
+
+    if (error) {
+      toast.error(
+        error.message,
+      );
+      setCommentText(text);
       return;
     }
 
-    const rect =
-      event.currentTarget.getBoundingClientRect();
-
-    const x =
-      event.clientX - rect.left;
-
-    if (x < rect.width * 0.35) {
-      previousXup();
-      return;
-    }
-
-    if (x > rect.width * 0.65) {
-      nextXup();
-    }
+    await qc.invalidateQueries(
+      {
+        queryKey: [
+          "xup-comments",
+        ],
+      },
+    );
   }
 
-  /*
-   * ---------------------------------------------------------
-   * KEYBOARD NAVIGATION
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     VIEWERS
+     ========================================================= */
+
+  const activeViewers =
+    useMemo(() => {
+      if (!activeXup) {
+        return [];
+      }
+
+      return xupViews.filter(
+        (view) =>
+          view.xup_id ===
+          activeXup.id,
+      );
+    }, [
+      xupViews,
+      activeXup,
+    ]);
+
+  const viewerProfiles =
+    useMemo(() => {
+      return activeViewers
+        .map((view) =>
+          profileMap.get(
+            view.viewer_id,
+          ),
+        )
+        .filter(
+          (
+            profile,
+          ): profile is Profile =>
+            !!profile,
+        );
+    }, [
+      activeViewers,
+      profileMap,
+    ]);
+
+  /* =========================================================
+     KEYBOARD
+     ========================================================= */
 
   useEffect(() => {
-    if (!activeXup) return;
+    if (!activeXup) {
+      return;
+    }
 
     function handleKeyDown(
       event: KeyboardEvent,
     ) {
-      if (event.key === "ArrowRight") {
-        nextXup();
+      if (
+        event.key ===
+        "ArrowRight"
+      ) {
+        tapNextXup();
       }
 
-      if (event.key === "ArrowLeft") {
-        previousXup();
+      if (
+        event.key ===
+        "ArrowLeft"
+      ) {
+        tapPreviousXup();
       }
 
-      if (event.key === "Escape") {
+      if (
+        event.key ===
+        "Escape"
+      ) {
         closeViewer();
       }
     }
@@ -1029,22 +1878,21 @@ function XupsPage() {
     groupedXups,
   ]);
 
-  /*
-   * ---------------------------------------------------------
-   * RENDER
-   * ---------------------------------------------------------
-   */
+  /* =========================================================
+     RENDER
+     ========================================================= */
 
   return (
     <AppShell>
       <PageHeader title="XUPs" />
 
       <div className="flex flex-1 flex-col">
+        {/* =====================================================
+            CREATE XUP
+            ===================================================== */}
 
-        {/* CREATE XUP */}
         <section className="border-b border-border/60 p-4">
           <div className="rounded-3xl bg-surface p-4">
-
             <div className="mb-4 flex items-center gap-3">
               <UserAvatar
                 path={null}
@@ -1058,8 +1906,9 @@ function XupsPage() {
                 </p>
 
                 <p className="text-xs text-muted-foreground">
-                  Photos and videos disappear
-                  after 24 hours.
+                  Photos and videos
+                  disappear after
+                  24 hours.
                 </p>
               </div>
             </div>
@@ -1069,12 +1918,13 @@ function XupsPage() {
               type="file"
               accept="image/*,video/*"
               hidden
-              onChange={chooseFile}
+              onChange={
+                chooseFile
+              }
             />
 
             {selectedFile ? (
               <div className="space-y-3">
-
                 <div className="relative overflow-hidden rounded-2xl bg-background">
                   {selectedFile.type.startsWith(
                     "video/",
@@ -1085,7 +1935,7 @@ function XupsPage() {
                       )}
                       controls
                       playsInline
-                      className="max-h-80 w-full object-cover"
+                      className="max-h-80 w-full object-contain"
                     />
                   ) : (
                     <img
@@ -1093,14 +1943,16 @@ function XupsPage() {
                         selectedFile,
                       )}
                       alt="XUP preview"
-                      className="max-h-80 w-full object-cover"
+                      className="max-h-80 w-full object-contain"
                     />
                   )}
 
                   <button
                     type="button"
                     onClick={() =>
-                      setSelectedFile(null)
+                      setSelectedFile(
+                        null,
+                      )
                     }
                     className="absolute right-2 top-2 rounded-full bg-black/60 p-2 text-white"
                   >
@@ -1110,7 +1962,8 @@ function XupsPage() {
 
                 <div className="space-y-2">
                   <p className="text-sm font-semibold">
-                    Who can see this XUP?
+                    Who can see
+                    this XUP?
                   </p>
 
                   <div className="grid grid-cols-3 gap-2">
@@ -1127,6 +1980,7 @@ function XupsPage() {
                         setAudienceMode(
                           "contacts",
                         );
+
                         setSelectedContactIds(
                           [],
                         );
@@ -1166,6 +2020,7 @@ function XupsPage() {
                         setAudienceMode(
                           "private",
                         );
+
                         setSelectedContactIds(
                           [],
                         );
@@ -1181,12 +2036,16 @@ function XupsPage() {
                       {myContacts.length ===
                       0 ? (
                         <p className="p-3 text-center text-sm text-muted-foreground">
-                          You don't have any
-                          contacts yet.
+                          You don't
+                          have any
+                          contacts
+                          yet.
                         </p>
                       ) : (
                         myContacts.map(
-                          (contact) => {
+                          (
+                            contact,
+                          ) => {
                             const selected =
                               selectedContactIds.includes(
                                 contact.contact_id,
@@ -1273,7 +2132,8 @@ function XupsPage() {
                     selectedContactIds.length ===
                       0 && (
                       <p className="text-xs text-destructive">
-                        Select at least one
+                        Select at
+                        least one
                         contact.
                       </p>
                     )}
@@ -1281,25 +2141,36 @@ function XupsPage() {
                   {audienceMode ===
                     "contacts" && (
                     <p className="text-xs text-muted-foreground">
-                      Your XUP will be visible
-                      to your contacts.
+                      Your XUP
+                      will be
+                      visible to
+                      your
+                      contacts.
                     </p>
                   )}
 
                   {audienceMode ===
                     "private" && (
                     <p className="text-xs text-muted-foreground">
-                      Only you will be able to
-                      see this XUP.
+                      Only you
+                      will be
+                      able to see
+                      this XUP.
                     </p>
                   )}
                 </div>
 
                 <Input
-                  value={caption}
-                  onChange={(event) =>
+                  value={
+                    caption
+                  }
+                  onChange={(
+                    event,
+                  ) =>
                     setCaption(
-                      event.target.value,
+                      event
+                        .target
+                        .value,
                     )
                   }
                   placeholder="Add a caption..."
@@ -1347,7 +2218,10 @@ function XupsPage() {
           </div>
         </section>
 
-        {/* XUPS */}
+        {/* =====================================================
+            HORIZONTAL XUP USERS
+            ===================================================== */}
+
         <section className="p-4">
           <div className="mb-4">
             <h2 className="text-lg font-bold">
@@ -1355,23 +2229,28 @@ function XupsPage() {
             </h2>
 
             <p className="text-xs text-muted-foreground">
-              Tap someone's XUP to view their
-              moments.
+              Swipe through
+              people's XUPs.
             </p>
           </div>
 
           {isLoading ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {[0, 1, 2, 3, 4, 5].map(
-                (item) => (
-                  <div
-                    key={item}
-                    className="aspect-[9/16] animate-pulse rounded-3xl bg-surface"
-                  />
-                ),
-              )}
+            <div className="flex gap-4 overflow-hidden">
+              {[
+                0,
+                1,
+                2,
+                3,
+                4,
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="h-28 w-24 shrink-0 animate-pulse rounded-3xl bg-surface"
+                />
+              ))}
             </div>
-          ) : groupedXups.size === 0 ? (
+          ) : groupedXups.size ===
+            0 ? (
             <div className="flex flex-col items-center justify-center rounded-3xl bg-surface px-6 py-12 text-center">
               <Camera className="mb-3 h-10 w-10 text-muted-foreground" />
 
@@ -1380,19 +2259,28 @@ function XupsPage() {
               </h3>
 
               <p className="mt-1 text-sm text-muted-foreground">
-                Be the first person to share a
+                Be the first
+                person to
+                share a
                 moment.
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {Array.from(
-                groupedXups.entries(),
-              ).map(
-                ([
-                  ownerId,
-                  story,
-                ]) => {
+            <div className="flex gap-4 overflow-x-auto pb-3 scrollbar-hide">
+              {people.map(
+                (ownerId) => {
+                  const story =
+                    groupedXups.get(
+                      ownerId,
+                    ) ?? [];
+
+                  if (
+                    story.length ===
+                    0
+                  ) {
+                    return null;
+                  }
+
                   const profile =
                     profileMap.get(
                       ownerId,
@@ -1400,134 +2288,70 @@ function XupsPage() {
 
                   const latest =
                     story[
-                      story.length - 1
+                      story.length -
+                        1
                     ];
 
-                  if (!latest) return null;
-
-
-                  const counts =
-                    reactionCounts(
-                      latest.id,
+                  const viewed =
+                    hasViewedUser(
+                      ownerId,
                     );
 
                   return (
                     <button
-                      key={ownerId}
+                      key={
+                        ownerId
+                      }
                       type="button"
                       onClick={() =>
                         openStory(
                           ownerId,
                         )
                       }
-                      className="group relative aspect-[9/16] overflow-hidden rounded-3xl bg-surface text-left shadow-panel"
+                      className="flex w-24 shrink-0 flex-col items-center gap-2"
                     >
-                      <XupMedia
-                        path={
-                          latest.content ??
-                          ""
-                        }
-                        className="transition-transform duration-300 group-hover:scale-105"
-                      />
-
-                      {/* STORY COUNT */}
-                      {story.length >
-                        1 && (
-                        <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-1 text-[10px] font-semibold text-white">
-                          {story.length} XUPs
-                        </span>
-                      )}
-
-                      {/* PROFILE */}
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent p-3 pt-12 text-white">
-                        <div className="flex items-center gap-2">
-                          <div
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openStory(
-                                ownerId,
-                              );
-                            }}
-                          >
-                            <UserAvatar
-                              path={
-                                profile?.avatar_url ??
-                                null
-                              }
-                              name={
-                                profile?.display_name ||
-                                profile?.username ||
-                                "User"
-                              }
-                              size="sm"
-                            />
-                          </div>
-
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-semibold">
-                              {ownerId ===
-                              user?.id
-                                ? "Your XUP"
-                                : profile?.display_name ||
-                                  profile?.username ||
-                                  "User"}
-                            </p>
-
-                            <p className="text-[10px] opacity-75">
-                              {formatTime(
-                                latest.created_at,
-                              )}
-                            </p>
-                          </div>
-                        </div>
-
-                        {latest.background && (
-                          <p className="mt-2 line-clamp-2 text-xs">
-                            {
-                              latest.background
+                      <div
+                        className={`rounded-full p-[3px] ${
+                          viewed
+                            ? "bg-transparent"
+                            : "bg-blue-500"
+                        }`}
+                      >
+                        <div className="rounded-full bg-background p-[2px]">
+                          <UserAvatar
+                            path={
+                              profile?.avatar_url ??
+                              null
                             }
-                          </p>
-                        )}
-
-                        {counts.length >
-                          0 && (
-                          <div className="mt-2 flex gap-1">
-                            {counts
-                              .slice(
-                                0,
-                                3,
-                              )
-                              .map(
-                                ([
-                                  emoji,
-                                  count,
-                                ]) => (
-                                  <span
-                                    key={
-                                      emoji
-                                    }
-                                    className="rounded-full bg-black/40 px-2 py-0.5 text-[10px]"
-                                  >
-                                    {
-                                      emoji
-                                    }{" "}
-                                    {
-                                      count
-                                    }
-                                  </span>
-                                ),
-                              )}
-                          </div>
-                        )}
+                            name={
+                              profile?.display_name ||
+                              profile?.username ||
+                              "User"
+                            }
+                            size="lg"
+                          />
+                        </div>
                       </div>
 
-                      {isVideo(
-                        latest.content,
-                      ) && (
-                        <span className="absolute left-2 top-2 rounded-full bg-black/50 p-2 text-white">
-                          <Play className="h-3 w-3 fill-current" />
-                        </span>
-                      )}
+                      <div className="w-full text-center">
+                        <p className="truncate text-xs font-semibold">
+                          {ownerId ===
+                          user?.id
+                            ? "Your XUP"
+                            : profile?.display_name ||
+                              profile?.username ||
+                              "User"}
+                        </p>
+
+                        <p className="text-[10px] text-muted-foreground">
+                          {story.length >
+                          1
+                            ? `${story.length} XUPs`
+                            : formatTime(
+                                latest.created_at,
+                              )}
+                        </p>
+                      </div>
                     </button>
                   );
                 },
@@ -1538,29 +2362,41 @@ function XupsPage() {
       </div>
 
       {/* =====================================================
-          STORY VIEWER
+          FULL SCREEN XUP VIEWER
           ===================================================== */}
 
       {activeXup && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 p-0 sm:p-3"
-          onClick={handleViewerClick}
+          className="fixed inset-0 z-50 bg-black"
+          onClick={
+            handleViewerClick
+          }
+          onTouchStart={
+            handleTouchStart
+          }
+          onTouchEnd={
+            handleTouchEnd
+          }
         >
-          <div className="relative h-full max-h-[900px] w-full max-w-md overflow-hidden bg-black sm:rounded-3xl">
-
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black">
             {/* =================================================
-                PROGRESS INDICATORS
+                PROGRESS
                 ================================================= */}
 
-            <div className="absolute inset-x-0 top-0 z-30 flex gap-1 px-3 pt-3">
+            <div className="absolute inset-x-0 top-0 z-40 flex gap-1 px-3 pt-3">
               {activeStory.map(
-                (storyItem, index) => (
+                (
+                  storyItem,
+                  index,
+                ) => (
                   <div
-                    key={storyItem.id}
+                    key={
+                      storyItem.id
+                    }
                     className="h-1 flex-1 overflow-hidden rounded-full bg-white/30"
                   >
                     <div
-                      className={`h-full rounded-full transition-all ${
+                      className={`h-full rounded-full ${
                         index <=
                         activeIndex
                           ? "w-full bg-white"
@@ -1572,11 +2408,24 @@ function XupsPage() {
               )}
             </div>
 
-            {/* MEDIA */}
+            {/* =================================================
+                MEDIA
+                ================================================= */}
 
             <XupMedia
               path={
-                activeXup.content ?? ""
+                activeXup.content ??
+                ""
+              }
+              viewer
+              videoRef={
+                viewerVideoRef
+              }
+              onLongPressStart={
+                startVideoLongPress
+              }
+              onLongPressEnd={
+                endVideoLongPress
               }
             />
 
@@ -1584,15 +2433,14 @@ function XupsPage() {
                 TOP BAR
                 ================================================= */}
 
-            <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-4 pb-20 pt-7 text-white">
-
+            <div className="absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-4 pb-20 pt-8 text-white">
               <div className="flex items-center justify-between">
-
                 <div className="flex min-w-0 items-center gap-3">
-
                   <button
                     type="button"
-                    onClick={(event) => {
+                    onClick={(
+                      event,
+                    ) => {
                       event.stopPropagation();
 
                       if (
@@ -1625,13 +2473,7 @@ function XupsPage() {
                     />
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={(event) =>
-                      event.stopPropagation()
-                    }
-                    className="min-w-0 text-left"
-                  >
+                  <div className="min-w-0">
                     <p className="truncate text-sm font-semibold">
                       {activeXup.user_id ===
                       user?.id
@@ -1650,20 +2492,30 @@ function XupsPage() {
                         activeXup.created_at,
                       )}
                     </p>
-                  </button>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-1">
-
                   <Button
                     size="icon"
                     variant="ghost"
                     className="text-white hover:bg-white/10 hover:text-white"
-                    onClick={(event) => {
+                    onClick={(
+                      event,
+                    ) => {
                       event.stopPropagation();
+
                       setShowSettings(
                         (value) =>
                           !value,
+                      );
+
+                      setShowViewers(
+                        false,
+                      );
+
+                      setShowComments(
+                        false,
                       );
                     }}
                   >
@@ -1674,66 +2526,44 @@ function XupsPage() {
                     size="icon"
                     variant="ghost"
                     className="text-white hover:bg-white/10 hover:text-white"
-                    onClick={(event) => {
+                    onClick={(
+                      event,
+                    ) => {
                       event.stopPropagation();
+
                       closeViewer();
                     }}
                   >
                     <X className="h-5 w-5" />
                   </Button>
-
                 </div>
               </div>
             </div>
-
-            {/* =================================================
-                LEFT / RIGHT VISUAL ARROWS
-                ================================================= */}
-
-            <button
-              type="button"
-              aria-label="Previous XUP"
-              onClick={(event) => {
-                event.stopPropagation();
-                previousXup();
-              }}
-              className="absolute left-2 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/20 text-white opacity-50 transition hover:bg-black/50 hover:opacity-100"
-            >
-              <ChevronLeft className="h-7 w-7" />
-            </button>
-
-            <button
-              type="button"
-              aria-label="Next XUP"
-              onClick={(event) => {
-                event.stopPropagation();
-                nextXup();
-              }}
-              className="absolute right-2 top-1/2 z-20 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-black/20 text-white opacity-50 transition hover:bg-black/50 hover:opacity-100"
-            >
-              <ChevronRight className="h-7 w-7" />
-            </button>
 
             {/* =================================================
                 CAPTION
                 ================================================= */}
 
             {activeXup.background && (
-              <div className="absolute inset-x-0 bottom-20 z-10 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-4 pt-20 text-white">
+              <div className="absolute inset-x-0 bottom-24 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 pt-20 text-white">
                 <p className="text-sm">
-                  {activeXup.background}
+                  {
+                    activeXup.background
+                  }
                 </p>
               </div>
             )}
 
             {/* =================================================
-                SETTINGS MENU
+                SETTINGS
                 ================================================= */}
 
             {showSettings && (
               <div
                 className="absolute right-3 top-16 z-50 w-64 overflow-hidden rounded-2xl bg-surface shadow-2xl"
-                onClick={(event) =>
+                onClick={(
+                  event,
+                ) =>
                   event.stopPropagation()
                 }
               >
@@ -1747,14 +2577,54 @@ function XupsPage() {
                   </p>
                 </div>
 
+                {activeXup.user_id ===
+                  user?.id && (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-muted"
+                    onClick={() => {
+                      setShowSettings(
+                        false,
+                      );
+
+                      setShowViewers(
+                        true,
+                      );
+                    }}
+                  >
+                    <Users className="h-4 w-4" />
+                    Viewers
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm hover:bg-muted"
+                  onClick={() => {
+                    setShowSettings(
+                      false,
+                    );
+
+                    setShowComments(
+                      true,
+                    );
+                  }}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Comments
+                </button>
+
                 <button
                   type="button"
                   className="w-full px-4 py-3 text-left text-sm hover:bg-muted"
                   onClick={() => {
                     toast.info(
-                      "XUP resharing will be connected to Supabase later.",
+                      "XUP resharing will be connected to Supabase.",
                     );
-                    setShowSettings(false);
+
+                    setShowSettings(
+                      false,
+                    );
                   }}
                 >
                   🔁 Reshare XUP
@@ -1765,9 +2635,12 @@ function XupsPage() {
                   className="w-full px-4 py-3 text-left text-sm hover:bg-muted"
                   onClick={() => {
                     toast.info(
-                      "XUP privacy controls will be connected later.",
+                      "Privacy controls are available through the XUP audience settings.",
                     );
-                    setShowSettings(false);
+
+                    setShowSettings(
+                      false,
+                    );
                   }}
                 >
                   🔒 Privacy
@@ -1780,7 +2653,10 @@ function XupsPage() {
                     toast.info(
                       "Mute controls will be connected later.",
                     );
-                    setShowSettings(false);
+
+                    setShowSettings(
+                      false,
+                    );
                   }}
                 >
                   🔇 Mute XUPs
@@ -1792,7 +2668,9 @@ function XupsPage() {
                     type="button"
                     className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-destructive hover:bg-muted"
                     onClick={() => {
-                      setShowSettings(false);
+                      setShowSettings(
+                        false,
+                      );
 
                       void deleteXup(
                         activeXup,
@@ -1807,79 +2685,363 @@ function XupsPage() {
             )}
 
             {/* =================================================
-                BOTTOM ACTIONS
+                VIEWERS PANEL
                 ================================================= */}
 
-            <div
-              className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 bg-black/70 p-3 backdrop-blur"
-              onClick={(event) =>
-                event.stopPropagation()
-              }
-            >
-              <div className="relative flex-1">
+            {showViewers && (
+              <div
+                className="absolute inset-x-0 bottom-0 z-50 max-h-[65%] overflow-y-auto rounded-t-3xl bg-surface p-4 text-foreground shadow-2xl"
+                onClick={(
+                  event,
+                ) =>
+                  event.stopPropagation()
+                }
+              >
+                <div className="mb-4 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-bold">
+                      XUP Viewers
+                    </h3>
 
-                {reactionPicker && (
-                  <div className="absolute bottom-14 left-0 flex gap-1 rounded-2xl bg-surface p-2 shadow-xl">
-                    {REACTIONS.map(
-                      (emoji) => (
-                        <button
-                          key={emoji}
-                          type="button"
-                          className="rounded-full p-2 text-xl transition-transform hover:scale-125"
-                          onClick={() =>
-                            void react(
-                              activeXup,
-                              emoji,
-                            )
+                    <p className="text-xs text-muted-foreground">
+                      {activeViewers.length}{" "}
+                      {activeViewers.length ===
+                      1
+                        ? "view"
+                        : "views"}
+                    </p>
+                  </div>
+
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() =>
+                      setShowViewers(
+                        false,
+                      )
+                    }
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+
+                {viewerProfiles.length ===
+                0 ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">
+                    Nobody has viewed
+                    this XUP yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {viewerProfiles.map(
+                      (
+                        profile,
+                      ) => (
+                        <div
+                          key={
+                            profile.id
                           }
+                          className="flex items-center gap-3 rounded-2xl p-2"
                         >
-                          {emoji}
-                        </button>
+                          <UserAvatar
+                            path={
+                              profile.avatar_url
+                            }
+                            name={
+                              profile.display_name ||
+                              profile.username ||
+                              "User"
+                            }
+                            size="sm"
+                          />
+
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold">
+                              {profile.display_name ||
+                                profile.username ||
+                                "User"}
+                            </p>
+
+                            {profile.username && (
+                              <p className="text-xs text-muted-foreground">
+                                @
+                                {
+                                  profile.username
+                                }
+                              </p>
+                            )}
+                          </div>
+                        </div>
                       ),
                     )}
                   </div>
                 )}
-
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  onClick={() =>
-                    setReactionPicker(
-                      (current) =>
-                        !current,
-                    )
-                  }
-                >
-                  ❤️ React
-                </Button>
               </div>
-
-              {activeXup.user_id ===
-                user?.id && (
-                <Button
-                  variant="destructive"
-                  size="icon"
-                  title="Delete XUP"
-                  onClick={() =>
-                    void deleteXup(
-                      activeXup,
-                    )
-                  }
-                >
-                  <Trash2 className="h-5 w-5" />
-                </Button>
-              )}
-            </div>
+            )}
 
             {/* =================================================
-                STORY POSITION
+                COMMENTS PANEL
                 ================================================= */}
 
-            <div className="absolute bottom-16 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] text-white">
-              {activeIndex + 1} /{" "}
-              {activeStory.length}
-            </div>
+            {showComments && (
+              <div
+                className="absolute inset-x-0 bottom-0 z-50 flex max-h-[70%] flex-col rounded-t-3xl bg-surface text-foreground shadow-2xl"
+                onClick={(
+                  event,
+                ) =>
+                  event.stopPropagation()
+                }
+              >
+                <div className="flex items-center justify-between border-b border-border p-4">
+                  <div>
+                    <h3 className="font-bold">
+                      Comments
+                    </h3>
 
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        activeComments.length
+                      }{" "}
+                      comments
+                    </p>
+                  </div>
+
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() =>
+                      setShowComments(
+                        false,
+                      )
+                    }
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4">
+                  {activeComments.length ===
+                  0 ? (
+                    <div className="py-8 text-center text-sm text-muted-foreground">
+                      No comments
+                      yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {activeComments.map(
+                        (
+                          comment,
+                        ) => {
+                          const profile =
+                            profileMap.get(
+                              comment.user_id,
+                            );
+
+                          return (
+                            <div
+                              key={
+                                comment.id
+                              }
+                              className="flex gap-3"
+                            >
+                              <UserAvatar
+                                path={
+                                  profile?.avatar_url ??
+                                  null
+                                }
+                                name={
+                                  profile?.display_name ||
+                                  profile?.username ||
+                                  "User"
+                                }
+                                size="sm"
+                              />
+
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold">
+                                  {profile?.display_name ||
+                                    profile?.username ||
+                                    "User"}
+                                </p>
+
+                                <p className="mt-1 break-words text-sm">
+                                  {
+                                    comment.comment
+                                  }
+                                </p>
+
+                                <p className="mt-1 text-[10px] text-muted-foreground">
+                                  {formatTime(
+                                    comment.created_at,
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          );
+                        },
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-2 border-t border-border p-3">
+                  <Input
+                    value={
+                      commentText
+                    }
+                    onChange={(
+                      event,
+                    ) =>
+                      setCommentText(
+                        event
+                          .target
+                          .value,
+                      )
+                    }
+                    placeholder="Write a comment..."
+                    onKeyDown={(
+                      event,
+                    ) => {
+                      if (
+                        event.key ===
+                        "Enter"
+                      ) {
+                        void submitComment();
+                      }
+                    }}
+                  />
+
+                  <Button
+                    size="icon"
+                    onClick={() =>
+                      void submitComment()
+                    }
+                    disabled={
+                      !commentText.trim()
+                    }
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* =================================================
+                BOTTOM ACTIONS
+                ================================================= */}
+
+            {!showViewers &&
+              !showComments && (
+                <div
+                  className="absolute inset-x-0 bottom-0 z-30 flex items-center gap-2 bg-black/70 p-3 backdrop-blur"
+                  onClick={(
+                    event,
+                  ) =>
+                    event.stopPropagation()
+                  }
+                >
+                  <div className="relative flex-1">
+                    {reactionPicker && (
+                      <div className="absolute bottom-14 left-0 flex gap-1 rounded-2xl bg-surface p-2 shadow-xl">
+                        {REACTIONS.map(
+                          (
+                            emoji,
+                          ) => (
+                            <button
+                              key={
+                                emoji
+                              }
+                              type="button"
+                              className="rounded-full p-2 text-xl transition-transform hover:scale-125"
+                              onClick={() =>
+                                void react(
+                                  activeXup,
+                                  emoji,
+                                )
+                              }
+                            >
+                              {
+                                emoji
+                              }
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() =>
+                        setReactionPicker(
+                          (
+                            current,
+                          ) =>
+                            !current,
+                        )
+                      }
+                    >
+                      ❤️ React
+                    </Button>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() =>
+                      setShowComments(
+                        true,
+                      )
+                    }
+                  >
+                    <MessageCircle className="h-5 w-5" />
+                  </Button>
+
+                  {activeXup.user_id ===
+                    user?.id && (
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setShowViewers(
+                          true,
+                        )
+                      }
+                    >
+                      <Users className="h-5 w-5" />
+                    </Button>
+                  )}
+
+                  {activeXup.user_id ===
+                    user?.id && (
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      title="Delete XUP"
+                      onClick={() =>
+                        void deleteXup(
+                          activeXup,
+                        )
+                      }
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </Button>
+                  )}
+                </div>
+              )}
+
+            {/* =================================================
+                POSITION
+                ================================================= */}
+
+            {!showViewers &&
+              !showComments && (
+                <div className="absolute bottom-20 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] text-white">
+                  {activeIndex + 1}{" "}
+                  /{" "}
+                  {activeStory.length}
+                </div>
+              )}
           </div>
         </div>
       )}
