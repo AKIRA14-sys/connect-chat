@@ -1403,6 +1403,9 @@ function XupsPage() {
                       story.length - 1
                     ];
 
+                  if (!latest) return null;
+
+
                   const counts =
                     reactionCounts(
                       latest.id,
