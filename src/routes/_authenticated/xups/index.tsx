@@ -155,6 +155,7 @@ function XupMedia({
   videoRef,
   onLongPressStart,
   onLongPressEnd,
+  onEnded,
 }: {
   path: string;
   className?: string;
@@ -164,6 +165,7 @@ function XupMedia({
   >;
   onLongPressStart?: () => void;
   onLongPressEnd?: () => void;
+  onEnded?: () => void;
 }) {
   const [url, setUrl] =
     useState<string | null>(null);
@@ -211,6 +213,7 @@ function XupMedia({
         playsInline
         preload="auto"
         controls={false}
+        onEnded={onEnded}
         onContextMenu={(event) =>
           event.preventDefault()
         }
@@ -1223,8 +1226,10 @@ function XupsPage() {
 
   /* =========================================================
      TAP NAVIGATION
-     
-     TAP LEFT/RIGHT = SAME PERSON'S XUPS
+
+     TAP LEFT/RIGHT = SAME PERSON'S XUPS.
+     AT THE EDGES, ROLLS OVER INTO THE
+     PREVIOUS/NEXT PERSON'S STORY.
      ========================================================= */
 
   function tapNextXup() {
@@ -1261,7 +1266,12 @@ function XupsPage() {
       void recordView(
         story[next],
       );
+
+      return;
     }
+
+    // End of this person's story — roll over to the next person.
+    swipeNextUser();
   }
 
   function tapPreviousXup() {
@@ -1297,12 +1307,114 @@ function XupsPage() {
       void recordView(
         story[previous],
       );
+
+      return;
     }
+
+    // Start of this person's story — roll back to the previous person.
+    swipePreviousUser();
+  }
+
+  /* =========================================================
+     AUTO ADVANCE
+
+     USED BY: THE 20s PHOTO TIMER AND
+     THE VIDEO onEnded HANDLER.
+     ========================================================= */
+
+  function advanceStory() {
+    if (
+      !activeUserId
+    ) {
+      return;
+    }
+
+    const story =
+      groupedXups.get(
+        activeUserId,
+      ) ?? [];
+
+    // Next XUP in the same person's story.
+    if (
+      activeIndex <
+      story.length - 1
+    ) {
+      const next =
+        activeIndex + 1;
+
+      setActiveIndex(
+        next,
+      );
+
+      setReactionPicker(
+        false,
+      );
+
+      setShowComments(
+        false,
+      );
+
+      void recordView(
+        story[next],
+      );
+
+      return;
+    }
+
+    // No more XUPs for this person — move to the next person.
+    const current =
+      people.indexOf(
+        activeUserId,
+      );
+
+    if (
+      current >= 0 &&
+      current <
+        people.length - 1
+    ) {
+      const nextUser =
+        people[
+          current + 1
+        ];
+
+      const nextStory =
+        groupedXups.get(
+          nextUser,
+        ) ?? [];
+
+      if (
+        nextStory.length >
+        0
+      ) {
+        setActiveUserId(
+          nextUser,
+        );
+
+        setActiveIndex(0);
+
+        setReactionPicker(
+          false,
+        );
+
+        setShowComments(
+          false,
+        );
+
+        void recordView(
+          nextStory[0],
+        );
+
+        return;
+      }
+    }
+
+    // No more people either — close the viewer.
+    closeViewer();
   }
 
   /* =========================================================
      SWIPE NAVIGATION
-     
+
      SWIPE LEFT = NEXT PERSON
      SWIPE RIGHT = PREVIOUS PERSON
      ========================================================= */
@@ -1324,6 +1436,7 @@ function XupsPage() {
       current >=
         people.length - 1
     ) {
+      closeViewer();
       return;
     }
 
@@ -1341,6 +1454,7 @@ function XupsPage() {
       nextStory.length ===
       0
     ) {
+      closeViewer();
       return;
     }
 
@@ -1559,9 +1673,9 @@ function XupsPage() {
 
   /* =========================================================
      VIEWER CLICK
-     
-     TAP RIGHT = SAME PERSON NEXT XUP
-     TAP LEFT = SAME PERSON PREVIOUS XUP
+
+     TAP RIGHT HALF = NEXT XUP (ROLLS OVER TO NEXT PERSON)
+     TAP LEFT HALF = PREVIOUS XUP (ROLLS OVER TO PREVIOUS PERSON)
      ========================================================= */
 
   function handleViewerClick(
@@ -1876,6 +1990,45 @@ function XupsPage() {
     activeUserId,
     activeIndex,
     groupedXups,
+  ]);
+
+  /* =========================================================
+     PHOTO AUTO-ADVANCE TIMER (20s)
+
+     VIDEOS ADVANCE ON THEIR OWN VIA THE
+     onEnded HANDLER PASSED TO XupMedia.
+     ========================================================= */
+
+  useEffect(() => {
+    if (!activeXup) {
+      return;
+    }
+
+    if (
+      showSettings ||
+      showViewers ||
+      showComments
+    ) {
+      return;
+    }
+
+    if (activeXup.kind === "video") {
+      return;
+    }
+
+    const timer =
+      window.setTimeout(() => {
+        advanceStory();
+      }, 20_000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    activeXup?.id,
+    showSettings,
+    showViewers,
+    showComments,
   ]);
 
   /* =========================================================
@@ -2426,6 +2579,9 @@ function XupsPage() {
               }
               onLongPressEnd={
                 endVideoLongPress
+              }
+              onEnded={
+                advanceStory
               }
             />
 
