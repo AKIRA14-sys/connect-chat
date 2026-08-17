@@ -679,8 +679,8 @@ function XupsPage() {
    * ---------------------------------------------------------
    */
 
-  async function recordView(xup: Xup) {
-    if (!user) return;
+  async function recordView(xup: Xup | undefined) {
+    if (!user || !xup) return;
 
     if (xup.user_id === user.id) {
       return;
@@ -758,6 +758,11 @@ function XupsPage() {
       const nextUser =
         people[currentPosition + 1];
 
+      if (!nextUser) {
+        closeViewer();
+        return;
+      }
+
       const nextStory =
         groupedXups.get(nextUser) ?? [];
 
@@ -820,9 +825,12 @@ function XupsPage() {
       const previousUser =
         people[currentPosition - 1];
 
+      if (!previousUser) return;
+
       const previousStory =
         groupedXups.get(previousUser) ??
         [];
+
 
       const previousIndex =
         Math.max(
@@ -1394,6 +1402,9 @@ function XupsPage() {
                     story[
                       story.length - 1
                     ];
+
+                  if (!latest) return null;
+
 
                   const counts =
                     reactionCounts(

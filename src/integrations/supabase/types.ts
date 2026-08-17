@@ -139,26 +139,44 @@ export type Database = {
       }
       conversation_members: {
         Row: {
+          chat_background: string | null
+          chat_theme: string | null
           conversation_id: string
           id: string
+          is_archived: boolean
+          is_muted: boolean
+          is_pinned: boolean
           joined_at: string
           last_read_at: string
+          muted_until: string | null
           role: Database["public"]["Enums"]["member_role"]
           user_id: string
         }
         Insert: {
+          chat_background?: string | null
+          chat_theme?: string | null
           conversation_id: string
           id?: string
+          is_archived?: boolean
+          is_muted?: boolean
+          is_pinned?: boolean
           joined_at?: string
           last_read_at?: string
+          muted_until?: string | null
           role?: Database["public"]["Enums"]["member_role"]
           user_id: string
         }
         Update: {
+          chat_background?: string | null
+          chat_theme?: string | null
           conversation_id?: string
           id?: string
+          is_archived?: boolean
+          is_muted?: boolean
+          is_pinned?: boolean
           joined_at?: string
           last_read_at?: string
+          muted_until?: string | null
           role?: Database["public"]["Enums"]["member_role"]
           user_id?: string
         }
@@ -535,6 +553,69 @@ export type Database = {
         }
         Relationships: []
       }
+      xup_comments: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          parent_id: string | null
+          user_id: string
+          xup_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          parent_id?: string | null
+          user_id: string
+          xup_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          parent_id?: string | null
+          user_id?: string
+          xup_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xup_comments_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "xup_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "xup_comments_xup_id_fkey"
+            columns: ["xup_id"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      xup_mutes: {
+        Row: {
+          created_at: string
+          id: string
+          muted_user_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          muted_user_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          muted_user_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       xup_reactions: {
         Row: {
           created_at: string
@@ -560,6 +641,35 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "xup_reactions_xup_id_fkey"
+            columns: ["xup_id"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      xup_saves: {
+        Row: {
+          created_at: string
+          id: string
+          user_id: string
+          xup_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          user_id: string
+          xup_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          user_id?: string
+          xup_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xup_saves_xup_id_fkey"
             columns: ["xup_id"]
             isOneToOne: false
             referencedRelation: "xups"
@@ -609,6 +719,7 @@ export type Database = {
           id: string
           kind: Database["public"]["Enums"]["xup_kind"]
           media_url: string | null
+          reshared_from: string | null
           user_id: string
         }
         Insert: {
@@ -623,6 +734,7 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["xup_kind"]
           media_url?: string | null
+          reshared_from?: string | null
           user_id: string
         }
         Update: {
@@ -637,9 +749,18 @@ export type Database = {
           id?: string
           kind?: Database["public"]["Enums"]["xup_kind"]
           media_url?: string | null
+          reshared_from?: string | null
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "xups_reshared_from_fkey"
+            columns: ["reshared_from"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
