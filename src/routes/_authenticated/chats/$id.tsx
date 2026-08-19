@@ -39,6 +39,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useRealtime } from "@/components/RealtimeProvider";
 import { UserAvatar } from "@/components/UserAvatar";
+import XupGames from "@/components/XupGames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useOnlineStatus } from "@/components/ConnectionBanner";
@@ -235,6 +236,7 @@ function ChatRoom() {
   const online = useOnlineStatus();
 
   const [text, setText] = useState("");
+  const [gamesOpen, setGamesOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
