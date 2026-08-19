@@ -879,6 +879,11 @@ function ReactionBattle({
 
 /* =========================================================
    MAIN XUP GAMES COMPONENT
+
+   NOTE: This component no longer renders its own full-screen
+   overlay or close button. The parent ($id.tsx) already wraps
+   this in its own modal (backdrop + close button), so this
+   component just renders the current game's content directly.
 ========================================================= */
 
 export default function XupGames({
@@ -930,21 +935,5 @@ export default function XupGames({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-background/95 p-4 backdrop-blur-md">
-      <div className="relative my-auto w-full max-w-md rounded-3xl border bg-background p-5 shadow-2xl">
-        {/* Close button */}
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close XUP Games"
-          className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted hover:text-foreground active:scale-90"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
-        {content()}
-      </div>
-    </div>
-  );
+  return content();
 }
