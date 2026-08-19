@@ -2198,9 +2198,15 @@ function ChatRoom() {
             >
               <X className="h-5 w-5" />
             </button>
-
+              
             <div className="pr-8">
-              <XupGames onClose={() => setGamesOpen(false)} />
+              <XupGames
+  onClose={() => setGamesOpen(false)}
+  conversationId={id}
+  userId={user?.id ?? ""}
+  peerId={otherUserId}
+  peerName={otherName}
+/>
             </div>
           </div>
         </div>
