@@ -3751,4 +3751,337 @@ function ChatRoom() {
             disabled={!online || recording}
             title="Camera"
             onClick={() =>
-              v
+              void openCamera()
+            }
+          >
+            <Camera className="h-5 w-5" />
+          </Button>
+
+          {/* ==================================================
+           * STICKER BUTTON
+           * ================================================== */}
+
+          <div className="relative">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={
+                !online ||
+                recording
+              }
+              title="Stickers"
+              onClick={() => {
+                setStickerPickerOpen(
+                  (value) =>
+                    !value,
+                );
+
+                setReactionPicker(
+                  null,
+                );
+
+                setPlusOpen(false);
+                setEffectsOpen(
+                  false,
+                );
+              }}
+            >
+              <SmilePlus className="h-5 w-5" />
+            </Button>
+
+            {stickerPickerOpen && (
+              <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+                <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <SmilePlus className="h-4 w-4 text-primary" />
+
+                    <span className="text-sm font-semibold">
+                      Stickers
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setStickerPickerOpen(
+                        false,
+                      )
+                    }
+                    className="rounded-full p-1 hover:bg-muted"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-2">
+                  {STICKER_PACKS.map(
+                    (pack) => (
+                      <button
+                        key={pack}
+                        type="button"
+                        onClick={() =>
+                          setStickerPack(
+                            pack,
+                          )
+                        }
+                        className={`whitespace-nowrap rounded-full px-3 py-1 text-xs ${
+                          stickerPack ===
+                          pack
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {pack}
+                      </button>
+                    ),
+                  )}
+                </div>
+
+                <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto p-3">
+                  {visibleStickers.map(
+                    (sticker) => (
+                      <button
+                        key={
+                          sticker.id
+                        }
+                        type="button"
+                        title={
+                          sticker.label
+                        }
+                        onClick={() =>
+                          void sendSticker(
+                            sticker.id,
+                          )
+                        }
+                        className="flex aspect-square items-center justify-center rounded-xl text-4xl transition hover:scale-110 hover:bg-muted active:scale-95"
+                      >
+                        {sticker.emoji}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ==================================================
+           * INPUT
+           * ================================================== */}
+
+          <Input
+            value={text}
+            onChange={(event) => {
+              setText(
+                event.target.value,
+              );
+
+              broadcastTyping();
+            }}
+            placeholder={
+              recording
+                ? `Recording ${durationLabel(
+                    recSecs,
+                  )}`
+                : online
+                  ? "Message"
+                  : "Message (offline)"
+            }
+            disabled={recording}
+          />
+
+          {text.trim() ? (
+            <Button
+              type="submit"
+              size="icon"
+              title={
+                selectedEffect !==
+                  "none" ||
+                secretMode
+                  ? "Send special message"
+                  : "Send"
+              }
+            >
+              {selectedEffect !==
+                "none" ||
+              secretMode ? (
+                <Sparkles className="h-5 w-5" />
+              ) : (
+                <Send className="h-5 w-5" />
+              )}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              variant={
+                recording
+                  ? "destructive"
+                  : "default"
+              }
+              disabled={
+                !online &&
+                !recording
+              }
+              onClick={() => {
+                if (recording) {
+                  stopRecordingAndSend();
+                } else {
+                  void startRecording();
+                }
+              }}
+            >
+              {recording ? (
+                <Square className="h-5 w-5" />
+              ) : (
+                <Mic className="h-5 w-5" />
+              )}
+            </Button>
+          )}
+        </div>
+
+        {/* ====================================================
+         * EFFECT PICKER
+         * ==================================================== */}
+
+        {effectsOpen && (
+          <div className="rounded-2xl border border-border bg-background p-3 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <p className="flex items-center gap-2 text-sm font-semibold">
+                  <Wand2 className="h-4 w-4 text-primary" />
+                  Choose message animation
+                </p>
+
+                <p className="text-[10px] text-muted-foreground">
+                  Pick the animation before sending your message.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setEffectsOpen(
+                    false,
+                  )
+                }
+                className="rounded-full p-1 hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {EFFECTS.map(
+                (effect) => {
+                  const active =
+                    selectedEffect ===
+                    effect.id;
+
+                  return (
+                    <button
+                      key={
+                        effect.id
+                      }
+                      type="button"
+                      onClick={() => {
+                        setSelectedEffect(
+                          effect.id,
+                        );
+
+                        setSecretMode(
+                          false,
+                        );
+                      }}
+                      className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition active:scale-[.98] ${
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-muted/30 hover:bg-muted"
+                      }`}
+                    >
+                      <span className="text-2xl">
+                        {
+                          effect.emoji
+                        }
+                      </span>
+
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">
+                          {
+                            effect.name
+                          }
+                        </span>
+
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {
+                            effect.description
+                          }
+                        </span>
+                      </span>
+                    </button>
+                  );
+                },
+              )}
+            </div>
+
+            {selectedEffect !==
+              "none" && (
+              <div className="mt-3 rounded-xl bg-primary/10 px-3 py-2 text-[11px] text-primary">
+                ✨{" "}
+                {
+                  EFFECTS.find(
+                    (effect) =>
+                      effect.id ===
+                      selectedEffect,
+                  )?.name
+                }{" "}
+                is selected. Type your message and tap send.
+              </div>
+            )}
+          </div>
+        )}
+      </form>
+
+      {/* ======================================================
+       * XUP GAMES OVERLAY
+       * ====================================================== */}
+
+      {gamesOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
+          <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-4 shadow-2xl">
+            <button
+              type="button"
+              aria-label="Close XUP Games"
+              onClick={() =>
+                setGamesOpen(false)
+              }
+              className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:bg-muted/80 active:scale-90"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="pr-8">
+              <XupGames
+                onClose={() =>
+                  setGamesOpen(false)
+                }
+                conversationId={
+                  id
+                }
+                userId={
+                  user?.id ?? ""
+                }
+                peerId={
+                  otherUserId
+                }
+                peerName={
+                  otherName
+                }
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
