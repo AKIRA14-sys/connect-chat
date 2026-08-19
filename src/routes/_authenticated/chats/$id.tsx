@@ -96,9 +96,6 @@ type DeliveryReceipt = {
 
 /* ============================================================
  * STICKERS
- *
- * Stored in messages.content as the sticker ID.
- * This keeps stickers inside the existing messages system.
  * ============================================================ */
 
 type Sticker = {
@@ -637,14 +634,6 @@ function ChatRoom() {
 
   /* ==========================================================
    * REALTIME
-   *
-   * Uses BOTH postgres_changes (in case Realtime replication is
-   * enabled on the server) AND a direct broadcast fallback (sent
-   * by the sender right after a successful insert). The broadcast
-   * path does not depend on any Supabase dashboard configuration,
-   * so it works even if the "messages" table isn't added to the
-   * realtime publication. applyMessage dedupes by id, so if both
-   * paths fire for the same message, nothing breaks or duplicates.
    * ========================================================== */
 
   useEffect(() => {
@@ -681,7 +670,6 @@ function ChatRoom() {
       },
     );
 
-    // NEW: direct broadcast fallback for new/edited/deleted messages.
     ch.on("broadcast", { event: "message_upsert" }, ({ payload }) => {
       const row = payload?.message as Message | undefined;
       if (!row) return;
@@ -850,7 +838,6 @@ function ChatRoom() {
         dequeue(item.id);
         applyMessage(data as Message);
 
-        // NEW: broadcast so the other person sees it instantly too.
         void roomChannel.current?.send({
           type: "broadcast",
           event: "message_upsert",
@@ -932,11 +919,6 @@ function ChatRoom() {
 
   /* ==========================================================
    * SEND MESSAGE
-   *
-   * Optimistic bubble shows instantly for the sender. After the
-   * insert succeeds, the confirmed row is also broadcast directly
-   * to everyone else in the room, so they see it immediately too
-   * — independent of whether postgres_changes/replication works.
    * ========================================================== */
 
   async function sendMessage(payload: Partial<Message>, preview: string) {
@@ -995,8 +977,6 @@ function ChatRoom() {
       );
     });
 
-    // NEW: broadcast the confirmed message directly to everyone else
-    // in the room, instead of waiting on postgres_changes replication.
     void roomChannel.current?.send({
       type: "broadcast",
       event: "message_upsert",
@@ -1062,7 +1042,6 @@ function ChatRoom() {
       if (error) {
         toast.error(error.message);
       } else if (data) {
-        // NEW: broadcast the edit too, so it's instant for others.
         void roomChannel.current?.send({
           type: "broadcast",
           event: "message_upsert",
@@ -1303,7 +1282,6 @@ function ChatRoom() {
       if (data) {
         applyMessage(data as Message);
 
-        // NEW: broadcast the deletion so it's instant for others.
         void roomChannel.current?.send({
           type: "broadcast",
           event: "message_upsert",
@@ -2082,6 +2060,19 @@ function ChatRoom() {
             <ImagePlus className="h-5 w-5" />
           </Button>
 
+          {/* XUP GAMES */}
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            disabled={!online || recording}
+            title="XUP Games"
+            onClick={() => setGamesOpen(true)}
+            className="text-blue-500"
+          >
+            🎮
+          </Button>
+
           <div className="relative">
             <Button
               type="button"
@@ -2191,6 +2182,29 @@ function ChatRoom() {
           )}
         </div>
       </form>
+
+      {/* ======================================================
+       * XUP GAMES OVERLAY
+       * ====================================================== */}
+
+      {gamesOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm">
+          <div className="relative max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-border bg-background p-4 shadow-2xl">
+            <button
+              type="button"
+              aria-label="Close XUP Games"
+              onClick={() => setGamesOpen(false)}
+              className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:bg-muted/80 active:scale-90"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="pr-8">
+              <XupGames onClose={() => setGamesOpen(false)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
