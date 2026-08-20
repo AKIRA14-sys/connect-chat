@@ -20,6 +20,7 @@ import {
   Clock,
   ImagePlus,
   Mic,
+  MoreVertical,
   Pencil,
   Phone,
   Plus,
@@ -30,6 +31,7 @@ import {
   Square,
   Trash2,
   UserPlus,
+  UserRound,
   Video as VideoIcon,
   X,
   Zap,
@@ -460,6 +462,27 @@ function ChatRoom() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraBusy, setCameraBusy] = useState(false);
 
+  /* ==========================================================
+   * CHAT MENU (three-dot) + CUSTOM CHAT NAME
+   *
+   * Customize name is LOCAL ONLY: it lives in the browser's
+   * localStorage under a conversation-specific key, and is
+   * never written to Supabase. It only changes what the
+   * current device shows for this chat's header — the real
+   * profile display_name (used for calls, notifications,
+   * add-contact, etc.) is untouched.
+   * ========================================================== */
+
+  const [chatMenuOpen, setChatMenuOpen] = useState(false);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
+  const [customName, setCustomName] = useState<string | null>(null);
+  const [nameInput, setNameInput] = useState("");
+
+  const localChatNameKey = useMemo(
+    () => `whatsxup-chat-name:${id}`,
+    [id],
+  );
+
   const recorder = useRef<MediaRecorder | null>(null);
   const recordingStream = useRef<MediaStream | null>(null);
   const chunks = useRef<Blob[]>([]);
@@ -485,6 +508,29 @@ function ChatRoom() {
     () => ["messages", id, limit] as const,
     [id, limit],
   );
+
+  /* ==========================================================
+   * LOAD CUSTOM CHAT NAME FROM LOCALSTORAGE
+   *
+   * Guarded with typeof window so this is safe if the route
+   * is ever rendered in a non-browser environment.
+   * ========================================================== */
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const stored = window.localStorage.getItem(
+        localChatNameKey,
+      );
+
+      setCustomName(
+        stored && stored.trim() ? stored.trim() : null,
+      );
+    } catch {
+      setCustomName(null);
+    }
+  }, [localChatNameKey]);
 
   /* ==========================================================
    * CONVERSATION
@@ -564,6 +610,11 @@ function ChatRoom() {
 
   const title =
     conv?.type === "group" ? conv.name?.trim() || "Group" : otherName;
+
+  // Only the header display for direct chats uses the local
+  // nickname. `otherName` itself stays the real profile name
+  // everywhere else (calls, add-contact, push previews, etc.).
+  const displayedChatName = customName || otherName;
 
   /* ==========================================================
    * MESSAGES
@@ -2210,6 +2261,9 @@ function ChatRoom() {
 
   /* ==========================================================
    * CALLS
+   *
+   * Calls intentionally keep using the real profile name
+   * (otherName), not the local nickname, per spec.
    * ========================================================== */
 
   function callVoice() {
@@ -2286,12 +2340,13 @@ function ChatRoom() {
     messages.length >= limit;
 
   /* ==========================================================
-   * CLOSE DELETE MENU
+   * CLOSE DELETE MENU + CHAT MENU ON SCROLL/RESIZE
    * ========================================================== */
 
   useEffect(() => {
     function closeMenu() {
       setDeleteMenu(null);
+      setChatMenuOpen(false);
     }
 
     window.addEventListener(
@@ -2318,6 +2373,69 @@ function ChatRoom() {
       );
     };
   }, []);
+
+  /* ==========================================================
+   * CHAT MENU ACTIONS
+   * ========================================================== */
+
+  function openCustomizeNameModal() {
+    setChatMenuOpen(false);
+    setNameInput(customName ?? otherName);
+    setNameModalOpen(true);
+  }
+
+  function saveCustomChatName() {
+    const trimmed = nameInput.trim().slice(0, 40);
+
+    if (!trimmed) {
+      toast.error("Name can't be empty.");
+      return;
+    }
+
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          localChatNameKey,
+          trimmed,
+        );
+      }
+
+      setCustomName(trimmed);
+      setNameModalOpen(false);
+
+      toast.success("Chat name changed on your device");
+    } catch {
+      toast.error(
+        "Could not save the name on this device.",
+      );
+    }
+  }
+
+  function resetCustomChatName() {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(
+          localChatNameKey,
+        );
+      }
+    } catch {
+      // Best effort — nothing else to do if storage is
+      // unavailable (e.g. private browsing restrictions).
+    }
+
+    setCustomName(null);
+    setNameModalOpen(false);
+
+    toast.success("Original profile name restored");
+  }
+
+  function handleProfilePictureTap() {
+    setChatMenuOpen(false);
+
+    toast.info(
+      "Profile pictures are controlled by the account owner.",
+    );
+  }
 
   /* ==========================================================
    * FILTERED STICKERS
@@ -2527,14 +2645,14 @@ function ChatRoom() {
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <UserAvatar
               path={otherAvatar}
-              name={otherName}
+              name={displayedChatName}
               size="sm"
               online={isOtherOnline}
             />
 
             <div className="min-w-0">
               <p className="truncate font-medium leading-tight">
-                {otherName}
+                {displayedChatName}
               </p>
 
               <p className="truncate text-xs text-muted-foreground">
@@ -2577,9 +2695,157 @@ function ChatRoom() {
               >
                 <VideoIcon className="h-5 w-5" />
               </Button>
+
+              {/* ==========================================
+               * CHAT MENU (three-dot)
+               * ========================================== */}
+
+              <div className="relative">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Chat options"
+                  onClick={() =>
+                    setChatMenuOpen(
+                      (value) => !value,
+                    )
+                  }
+                >
+                  <MoreVertical className="h-5 w-5" />
+                </Button>
+
+                {chatMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close chat menu"
+                      className="fixed inset-0 z-40 cursor-default"
+                      onClick={() =>
+                        setChatMenuOpen(false)
+                      }
+                    />
+
+                    <div className="fixed right-2 top-14 z-50 w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
+                      <button
+                        type="button"
+                        onClick={
+                          openCustomizeNameModal
+                        }
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
+                      >
+                        <Pencil className="h-4 w-4 shrink-0" />
+
+                        <span>
+                          <span className="block font-medium">
+                            Customize name
+                          </span>
+
+                          <span className="block text-[10px] text-muted-foreground">
+                            Change how this chat appears
+                            to you
+                          </span>
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={
+                          handleProfilePictureTap
+                        }
+                        className="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left text-sm transition hover:bg-muted"
+                      >
+                        <UserRound className="h-4 w-4 shrink-0" />
+
+                        <span>
+                          <span className="block font-medium">
+                            Profile picture
+                          </span>
+
+                          <span className="block text-[10px] text-muted-foreground">
+                            Set by the account owner
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           )}
       </header>
+
+      {/* ======================================================
+       * CUSTOMIZE NAME MODAL
+       * ====================================================== */}
+
+      {nameModalOpen && (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm safe-top safe-bottom">
+          <button
+            type="button"
+            aria-label="Close customize name"
+            className="fixed inset-0 cursor-default"
+            onClick={() => setNameModalOpen(false)}
+          />
+
+          <div className="relative w-full max-w-sm rounded-3xl border border-border bg-background p-5 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold">
+                  Customize name
+                </h3>
+
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This changes the name only for you.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setNameModalOpen(false)
+                }
+                className="rounded-full p-1 hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <Input
+              value={nameInput}
+              onChange={(event) =>
+                setNameInput(
+                  event.target.value.slice(0, 40),
+                )
+              }
+              placeholder={otherName}
+              maxLength={40}
+              autoFocus
+            />
+
+            <p className="mt-1 text-right text-[10px] text-muted-foreground">
+              {nameInput.length}/40
+            </p>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={resetCustomChatName}
+                className="rounded-xl border px-4 py-2 text-sm font-semibold transition hover:bg-muted active:scale-95"
+              >
+                Reset
+              </button>
+
+              <button
+                type="button"
+                onClick={saveCustomChatName}
+                className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 active:scale-95"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ======================================================
        * MESSAGES
