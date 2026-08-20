@@ -163,7 +163,107 @@ type ChatEffect =
   | "pop"
   | "neon"
   | "rainbow"
-  | "zoom";
+  | "zoom"
+  | "from-top"
+  | "from-right"
+  | "from-left"
+  | "from-bottom"
+  | "explosion"
+  | "spin";
+
+type EffectOption = {
+  id: ChatEffect;
+  name: string;
+  emoji: string;
+  description: string;
+};
+
+const EFFECTS: EffectOption[] = [
+  {
+    id: "none",
+    name: "Normal",
+    emoji: "💬",
+    description: "Normal message",
+  },
+  {
+    id: "dramatic",
+    name: "Dramatic",
+    emoji: "💥",
+    description: "Big dramatic entrance",
+  },
+  {
+    id: "bounce",
+    name: "Bounce",
+    emoji: "🏀",
+    description: "Bouncy entrance",
+  },
+  {
+    id: "shake",
+    name: "Shake",
+    emoji: "📳",
+    description: "Shakes when it appears",
+  },
+  {
+    id: "pop",
+    name: "Pop",
+    emoji: "🎉",
+    description: "Pops into the chat",
+  },
+  {
+    id: "neon",
+    name: "Neon",
+    emoji: "✨",
+    description: "Glowing neon effect",
+  },
+  {
+    id: "rainbow",
+    name: "Rainbow",
+    emoji: "🌈",
+    description: "Rainbow color effect",
+  },
+  {
+    id: "zoom",
+    name: "Zoom",
+    emoji: "🔎",
+    description: "Zooms into the chat",
+  },
+  {
+    id: "from-top",
+    name: "Drop In",
+    emoji: "⬇️",
+    description: "Drops from the top",
+  },
+  {
+    id: "from-right",
+    name: "Slide Right",
+    emoji: "➡️",
+    description: "Slides in from the right",
+  },
+  {
+    id: "from-left",
+    name: "Slide Left",
+    emoji: "⬅️",
+    description: "Slides in from the left",
+  },
+  {
+    id: "from-bottom",
+    name: "Rise Up",
+    emoji: "⬆️",
+    description: "Rises from the bottom",
+  },
+  {
+    id: "explosion",
+    name: "Explosion",
+    emoji: "💣",
+    description: "Explosive entrance",
+  },
+  {
+    id: "spin",
+    name: "Spin",
+    emoji: "🌀",
+    description: "Spins into the chat",
+  },
+];
 
 type EffectOption = {
   id: ChatEffect;
@@ -328,11 +428,29 @@ function effectClass(effect: ChatEffect) {
     case "zoom":
       return "xup-effect-zoom";
 
+    case "from-top":
+      return "xup-effect-from-top";
+
+    case "from-right":
+      return "xup-effect-from-right";
+
+    case "from-left":
+      return "xup-effect-from-left";
+
+    case "from-bottom":
+      return "xup-effect-from-bottom";
+
+    case "explosion":
+      return "xup-effect-explosion";
+
+    case "spin":
+      return "xup-effect-spin";
+
+    case "none":
     default:
       return "";
   }
 }
-
 /* ============================================================
  * DELETE MENU
  * ============================================================ */
@@ -2462,142 +2580,333 @@ function ChatRoom() {
        * ====================================================== */}
 
       <style>{`
-        @keyframes xup-dramatic {
-          0% {
-            opacity: 0;
-            transform: scale(.45) rotate(-7deg);
-          }
-          55% {
-            opacity: 1;
-            transform: scale(1.12) rotate(2deg);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1) rotate(0);
-          }
-        }
+  @keyframes xup-dramatic {
+    0% {
+      opacity: 0;
+      transform: scale(.45) rotate(-7deg);
+    }
 
-        @keyframes xup-bounce {
-          0% {
-            transform: translateY(18px) scale(.85);
-            opacity: 0;
-          }
-          55% {
-            transform: translateY(-8px) scale(1.04);
-            opacity: 1;
-          }
-          75% {
-            transform: translateY(3px) scale(.98);
-          }
-          100% {
-            transform: translateY(0) scale(1);
-          }
-        }
+    55% {
+      opacity: 1;
+      transform: scale(1.08) rotate(2deg);
+    }
 
-        @keyframes xup-shake {
-          0%, 100% {
-            transform: translateX(0);
-          }
-          20% {
-            transform: translateX(-6px) rotate(-1deg);
-          }
-          40% {
-            transform: translateX(6px) rotate(1deg);
-          }
-          60% {
-            transform: translateX(-4px);
-          }
-          80% {
-            transform: translateX(4px);
-          }
-        }
+    75% {
+      transform: scale(.97) rotate(-1deg);
+    }
 
-        @keyframes xup-pop {
-          0% {
-            opacity: 0;
-            transform: scale(.65);
-          }
-          70% {
-            opacity: 1;
-            transform: scale(1.08);
-          }
-          100% {
-            transform: scale(1);
-          }
-        }
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+    }
+  }
 
-        @keyframes xup-neon {
-          0%, 100% {
-            filter: drop-shadow(0 0 2px currentColor);
-          }
-          50% {
-            filter: drop-shadow(0 0 10px currentColor);
-          }
-        }
+  @keyframes xup-bounce {
+    0% {
+      transform: translateY(22px) scale(.82);
+      opacity: 0;
+    }
 
-        @keyframes xup-rainbow {
-          0% {
-            filter: hue-rotate(0deg);
-          }
-          50% {
-            filter: hue-rotate(180deg);
-          }
-          100% {
-            filter: hue-rotate(360deg);
-          }
-        }
+    45% {
+      transform: translateY(-8px) scale(1.04);
+      opacity: 1;
+    }
 
-        @keyframes xup-zoom {
-          0% {
-            opacity: 0;
-            transform: scale(1.5);
-          }
-          100% {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
+    70% {
+      transform: translateY(3px) scale(.98);
+    }
 
-        .xup-effect-dramatic {
-          animation: xup-dramatic .55s cubic-bezier(.2,.8,.2,1);
-        }
+    100% {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
 
-        .xup-effect-bounce {
-          animation: xup-bounce .65s cubic-bezier(.2,.8,.2,1);
-        }
+  @keyframes xup-shake {
+    0%,
+    100% {
+      transform: translateX(0) rotate(0);
+    }
 
-        .xup-effect-shake {
-          animation: xup-shake .5s ease-in-out;
-        }
+    15% {
+      transform: translateX(-7px) rotate(-1deg);
+    }
 
-        .xup-effect-pop {
-          animation: xup-pop .42s cubic-bezier(.2,.8,.2,1);
-        }
+    30% {
+      transform: translateX(7px) rotate(1deg);
+    }
 
-        .xup-effect-neon {
-          animation: xup-neon 1.2s ease-in-out infinite;
-        }
+    45% {
+      transform: translateX(-5px) rotate(-1deg);
+    }
 
-        .xup-effect-rainbow {
-          animation: xup-rainbow 2s linear infinite;
-        }
+    60% {
+      transform: translateX(5px) rotate(1deg);
+    }
 
-        .xup-effect-zoom {
-          animation: xup-zoom .45s cubic-bezier(.2,.8,.2,1);
-        }
+    75% {
+      transform: translateX(-2px);
+    }
+  }
 
-        @media (prefers-reduced-motion: reduce) {
-          .xup-effect-dramatic,
-          .xup-effect-bounce,
-          .xup-effect-shake,
-          .xup-effect-pop,
-          .xup-effect-neon,
-          .xup-effect-rainbow,
-          .xup-effect-zoom {
-            animation: none !important;
-          }
-        }
-      `}</style>
+  @keyframes xup-pop {
+    0% {
+      opacity: 0;
+      transform: scale(.55);
+    }
+
+    65% {
+      opacity: 1;
+      transform: scale(1.12);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes xup-neon {
+    0%,
+    100% {
+      filter: drop-shadow(0 0 2px currentColor);
+    }
+
+    50% {
+      filter:
+        drop-shadow(0 0 5px currentColor)
+        drop-shadow(0 0 12px currentColor);
+    }
+  }
+
+  @keyframes xup-rainbow {
+    0% {
+      filter: hue-rotate(0deg);
+    }
+
+    25% {
+      filter: hue-rotate(90deg);
+    }
+
+    50% {
+      filter: hue-rotate(180deg);
+    }
+
+    75% {
+      filter: hue-rotate(270deg);
+    }
+
+    100% {
+      filter: hue-rotate(360deg);
+    }
+  }
+
+  @keyframes xup-zoom {
+    0% {
+      opacity: 0;
+      transform: scale(1.5);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  /* ==========================================
+   * NEW DIRECTIONAL EFFECTS
+   * ========================================== */
+
+  @keyframes xup-from-top {
+    0% {
+      opacity: 0;
+      transform: translateY(-100vh) scale(.85);
+    }
+
+    60% {
+      opacity: 1;
+      transform: translateY(18px) scale(1.03);
+    }
+
+    78% {
+      transform: translateY(-7px) scale(.99);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes xup-from-right {
+    0% {
+      opacity: 0;
+      transform: translateX(100vw) rotate(5deg);
+    }
+
+    65% {
+      opacity: 1;
+      transform: translateX(-14px) rotate(-1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0) rotate(0);
+    }
+  }
+
+  @keyframes xup-from-left {
+    0% {
+      opacity: 0;
+      transform: translateX(-100vw) rotate(-5deg);
+    }
+
+    65% {
+      opacity: 1;
+      transform: translateX(14px) rotate(1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0) rotate(0);
+    }
+  }
+
+  @keyframes xup-from-bottom {
+    0% {
+      opacity: 0;
+      transform: translateY(100vh) scale(.9);
+    }
+
+    60% {
+      opacity: 1;
+      transform: translateY(-16px) scale(1.03);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes xup-explosion {
+    0% {
+      opacity: 0;
+      transform: scale(.05) rotate(-20deg);
+      filter: blur(8px);
+    }
+
+    35% {
+      opacity: 1;
+      transform: scale(1.35) rotate(8deg);
+      filter: blur(0);
+    }
+
+    55% {
+      transform: scale(.82) rotate(-3deg);
+    }
+
+    75% {
+      transform: scale(1.08) rotate(1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+      filter: blur(0);
+    }
+  }
+
+  @keyframes xup-spin {
+    0% {
+      opacity: 0;
+      transform: rotate(-180deg) scale(.3);
+    }
+
+    60% {
+      opacity: 1;
+      transform: rotate(20deg) scale(1.08);
+    }
+
+    100% {
+      opacity: 1;
+      transform: rotate(0) scale(1);
+    }
+  }
+
+  .xup-effect-dramatic {
+    animation: xup-dramatic 650ms cubic-bezier(.2,.8,.2,1);
+    transform-origin: center;
+  }
+
+  .xup-effect-bounce {
+    animation: xup-bounce 650ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-shake {
+    animation: xup-shake 600ms ease-in-out;
+  }
+
+  .xup-effect-pop {
+    animation: xup-pop 450ms cubic-bezier(.2,1.4,.4,1);
+  }
+
+  .xup-effect-neon {
+    animation: xup-neon 1200ms ease-in-out infinite;
+  }
+
+  .xup-effect-rainbow {
+    animation: xup-rainbow 1800ms linear infinite;
+  }
+
+  .xup-effect-zoom {
+    animation: xup-zoom 550ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-from-top {
+    animation: xup-from-top 750ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-right {
+    animation: xup-from-right 650ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-left {
+    animation: xup-from-left 650ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-bottom {
+    animation: xup-from-bottom 700ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-explosion {
+    animation: xup-explosion 750ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-spin {
+    animation: xup-spin 700ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .xup-effect-dramatic,
+    .xup-effect-bounce,
+    .xup-effect-shake,
+    .xup-effect-pop,
+    .xup-effect-neon,
+    .xup-effect-rainbow,
+    .xup-effect-zoom,
+    .xup-effect-from-top,
+    .xup-effect-from-right,
+    .xup-effect-from-left,
+    .xup-effect-from-bottom,
+    .xup-effect-explosion,
+    .xup-effect-spin {
+      animation: none !important;
+      filter: none !important;
+      transform: none !important;
+    }
+  }
+`}</style>
 
       {/* ======================================================
        * HEADER
