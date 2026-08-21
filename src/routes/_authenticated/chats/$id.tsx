@@ -265,64 +265,6 @@ const EFFECTS: EffectOption[] = [
   },
 ];
 
-type EffectOption = {
-  id: ChatEffect;
-  name: string;
-  emoji: string;
-  description: string;
-};
-
-const EFFECTS: EffectOption[] = [
-  {
-    id: "none",
-    name: "Normal",
-    emoji: "💬",
-    description: "Normal message",
-  },
-  {
-    id: "dramatic",
-    name: "Dramatic",
-    emoji: "💥",
-    description: "Big dramatic entrance",
-  },
-  {
-    id: "bounce",
-    name: "Bounce",
-    emoji: "🏀",
-    description: "Bouncy message",
-  },
-  {
-    id: "shake",
-    name: "Shake",
-    emoji: "📳",
-    description: "Shake effect",
-  },
-  {
-    id: "pop",
-    name: "Pop",
-    emoji: "🎉",
-    description: "Pop into the chat",
-  },
-  {
-    id: "neon",
-    name: "Neon",
-    emoji: "✨",
-    description: "Glowing message",
-  },
-  {
-    id: "rainbow",
-    name: "Rainbow",
-    emoji: "🌈",
-    description: "Rainbow animation",
-  },
-  {
-    id: "zoom",
-    name: "Zoom",
-    emoji: "🔎",
-    description: "Zoom entrance",
-  },
-];
-
 /* ============================================================
  * SPECIAL MESSAGE FORMAT
  *
