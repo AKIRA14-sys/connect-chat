@@ -3220,7 +3220,7 @@ function ChatRoom() {
           builtinWallpaperCss ||
           activeTheme.messageAreaBackground) && (
           <div
-            className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
+            className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
             style={{
               background:
                 builtinWallpaperCss ||
@@ -3232,7 +3232,7 @@ function ChatRoom() {
               <img
                 src={wallpaperUrl}
                 alt=""
-                className="h-full w-full object-contain opacity-90"
+                className="h-full w-full object-cover object-center"
               />
             )}
 
@@ -3243,7 +3243,7 @@ function ChatRoom() {
                 loop
                 muted
                 playsInline
-                className="h-full w-full object-contain opacity-90"
+                className="h-full w-full object-cover object-center"
               />
             )}
           </div>
@@ -4748,6 +4748,13 @@ function ChatRoom() {
                 }
                 peerName={
                   otherName
+                }
+                messages={messages}
+                onSendChatMessage={(text) =>
+                  sendMessage(
+                    { type: "text", content: text },
+                    text,
+                  )
                 }
               />
             </div>
