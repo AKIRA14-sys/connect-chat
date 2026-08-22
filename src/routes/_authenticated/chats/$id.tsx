@@ -38,7 +38,6 @@ import {
   Eye,
   EyeOff,
   Wand2,
-  Palette,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,18 +46,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useRealtime } from "@/components/RealtimeProvider";
 import { UserAvatar } from "@/components/UserAvatar";
 import XupGames from "@/components/XupGames";
-import ChatCustomizeSheet from "@/components/ChatCustomizeSheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useOnlineStatus } from "@/components/ConnectionBanner";
-import {
-  getChatCustomization,
-  getChatWallpaperMedia,
-  getTheme,
-  getBuiltinWallpaper,
-  type ChatCustomization,
-} from "@/lib/chatCustomization";
-import { getFontFamilyCss, loadGoogleFont } from "@/lib/chatFonts";
 
 import {
   dequeue,
@@ -548,23 +538,6 @@ function ChatRoom() {
   const [customName, setCustomName] = useState<string | null>(null);
   const [nameInput, setNameInput] = useState("");
 
-  /* ==========================================================
-   * CHAT CUSTOMIZATION (theme / font / wallpaper)
-   *
-   * Local-only, per-chat, stored in IndexedDB (see
-   * src/lib/chatCustomization.ts). Never written to Supabase,
-   * never affects other chats or other devices.
-   * ========================================================== */
-
-  const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [customization, setCustomization] =
-    useState<ChatCustomization | null>(null);
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
-  const [wallpaperType, setWallpaperType] = useState<
-    "image" | "video" | null
-  >(null);
-  const [customizationVersion, setCustomizationVersion] = useState(0);
-
   const localChatNameKey = useMemo(
     () => `whatsxup-chat-name:${id}`,
     [id],
@@ -618,67 +591,6 @@ function ChatRoom() {
       setCustomName(null);
     }
   }, [localChatNameKey]);
-
-  /* ==========================================================
-   * LOAD CHAT CUSTOMIZATION (theme / font) FROM INDEXEDDB
-   * ========================================================== */
-
-  useEffect(() => {
-    let cancelled = false;
-
-    getChatCustomization(id).then((result) => {
-      if (cancelled) return;
-      setCustomization(result);
-      loadGoogleFont(result.fontId);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [id, customizationVersion]);
-
-  /* ==========================================================
-   * LOAD CUSTOM WALLPAPER MEDIA (image/video blob) FROM
-   * INDEXEDDB WHEN THIS CHAT HAS ONE SELECTED
-   * ========================================================== */
-
-  useEffect(() => {
-    let cancelled = false;
-    let objectUrl: string | null = null;
-
-    async function loadWallpaperMedia() {
-      if (
-        customization?.wallpaper.kind !== "custom-image" &&
-        customization?.wallpaper.kind !== "custom-video"
-      ) {
-        setWallpaperUrl(null);
-        setWallpaperType(null);
-        return;
-      }
-
-      const media = await getChatWallpaperMedia(id);
-      if (cancelled || !media) return;
-
-      objectUrl = URL.createObjectURL(media.blob);
-      setWallpaperUrl(objectUrl);
-      setWallpaperType(media.mediaType);
-    }
-
-    void loadWallpaperMedia();
-
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [id, customization?.wallpaper]);
-
-  const activeTheme = getTheme(customization?.themeId);
-  const activeFontFamily = getFontFamilyCss(customization?.fontId);
-
-  const builtinWallpaperCss =
-    customization?.wallpaper.kind === "builtin"
-      ? getBuiltinWallpaper(customization.wallpaper.builtinId)?.css
-      : null;
 
   /* ==========================================================
    * CONVERSATION
@@ -2604,10 +2516,7 @@ function ChatRoom() {
    * ========================================================== */
 
   return (
-    <div
-      className="mx-auto flex min-h-screen w-full max-w-2xl flex-col app-gradient"
-      style={{ fontFamily: activeFontFamily }}
-    >
+    <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col app-gradient">
       {/* ======================================================
        * ANIMATION STYLES
        * ====================================================== */}
@@ -3091,28 +3000,6 @@ function ChatRoom() {
 
                       <button
                         type="button"
-                        onClick={() => {
-                          setChatMenuOpen(false);
-                          setCustomizeOpen(true);
-                        }}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-                      >
-                        <Palette className="h-4 w-4 shrink-0" />
-
-                        <span>
-                          <span className="block font-medium">
-                            Customize chat
-                          </span>
-
-                          <span className="block text-[10px] text-muted-foreground">
-                            Theme, font, and wallpaper
-                            for this chat
-                          </span>
-                        </span>
-                      </button>
-
-                      <button
-                        type="button"
                         onClick={
                           handleProfilePictureTap
                         }
@@ -3215,40 +3102,7 @@ function ChatRoom() {
        * MESSAGES
        * ====================================================== */}
 
-      <div className="relative flex-1 space-y-2 px-3 py-4">
-        {(wallpaperUrl ||
-          builtinWallpaperCss ||
-          activeTheme.messageAreaBackground) && (
-          <div
-            className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
-            style={{
-              background:
-                builtinWallpaperCss ||
-                activeTheme.messageAreaBackground ||
-                undefined,
-            }}
-          >
-            {wallpaperUrl && wallpaperType === "image" && (
-              <img
-                src={wallpaperUrl}
-                alt=""
-                className="h-full w-full object-cover opacity-70"
-              />
-            )}
-
-            {wallpaperUrl && wallpaperType === "video" && (
-              <video
-                src={wallpaperUrl}
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="h-full w-full object-cover opacity-70"
-              />
-            )}
-          </div>
-        )}
-
+      <div className="flex-1 space-y-2 px-3 py-4">
         {hasMore && (
           <div className="flex justify-center pb-2">
             <Button
@@ -3392,7 +3246,7 @@ function ChatRoom() {
                     sticker
                       ? "bg-transparent px-1 py-1 shadow-none"
                       : mine
-                        ? "text-primary-foreground"
+                        ? "bg-primary text-primary-foreground"
                         : "bg-surface"
                   } ${
                     hasSpecialEffect &&
@@ -3401,16 +3255,7 @@ function ChatRoom() {
                           decoded.effect,
                         )
                       : ""
-                  } ${
-                    mine && !sticker && !activeTheme.bubbleMine
-                      ? "bg-primary"
-                      : ""
                   }`}
-                  style={
-                    mine && !sticker && activeTheme.bubbleMine
-                      ? { background: activeTheme.bubbleMine }
-                      : undefined
-                  }
                 >
                   {conv?.type ===
                     "group" &&
@@ -4754,19 +4599,6 @@ function ChatRoom() {
           </div>
         </div>
       )}
-
-      {/* ======================================================
-       * CHAT CUSTOMIZATION SHEET (theme / font / wallpaper)
-       * ====================================================== */}
-
-      <ChatCustomizeSheet
-        chatId={id}
-        open={customizeOpen}
-        onClose={() => setCustomizeOpen(false)}
-        onChanged={() =>
-          setCustomizationVersion((value) => value + 1)
-        }
-      />
     </div>
   );
 }
