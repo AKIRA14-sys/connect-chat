@@ -3232,7 +3232,7 @@ function ChatRoom() {
               <img
                 src={wallpaperUrl}
                 alt=""
-                className="h-full w-full object-cover opacity-70"
+                className="h-full w-full object-contain opacity-90"
               />
             )}
 
@@ -3243,7 +3243,7 @@ function ChatRoom() {
                 loop
                 muted
                 playsInline
-                className="h-full w-full object-cover opacity-70"
+                className="h-full w-full object-contain opacity-90"
               />
             )}
           </div>
