@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
-import { ensureGamingProfile } from "@/lib/gaming.functions";
 import type { Message } from "@/lib/whatsxup";
 
 type Game =
@@ -4001,18 +4000,6 @@ export default function XupGames({
   onSendChatMessage,
 }: XupGamesProps) {
   const [game, setGame] = useState<Game>("menu");
-
-  // Connect the already-authenticated Connect Chat user to the
-  // separate gaming Supabase project. The server function uses
-  // the existing authenticated user ID and never exposes the
-  // gaming service-role key to the browser.
-  useEffect(() => {
-    if (!userId) return;
-
-    void ensureGamingProfile({}).catch((error) => {
-      console.error("Gaming profile initialization failed:", error);
-    });
-  }, [userId]);
 
   const sync = useGameSync(conversationId, userId);
 
