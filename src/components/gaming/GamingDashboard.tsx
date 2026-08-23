@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   Flame,
@@ -9,41 +9,35 @@ import {
 } from "lucide-react";
 
 import { XCoinIcon } from "@/components/gaming/XCoinIcon";
-import { supabase } from "@/integrations/supabase/client";
+import { ensureGamingProfile } from "@/lib/gaming.functions";
 
 type GamingProfile = {
+  user_id: string;
   x_coins: number;
-  xp: number;
-  level: number;
-  games_played: number;
-  wins: number;
-  losses: number;
-  draws: number;
-  current_streak: number;
-  longest_streak: number;
+  total_xp: number;
+  current_level: number;
+  created_at: string;
+  updated_at: string;
 };
 
 type GamingDashboardProps = {
   userId: string;
 };
 
-const DEFAULT_PROFILE: GamingProfile = {
+const EMPTY_PROFILE: GamingProfile = {
+  user_id: "",
   x_coins: 0,
-  xp: 0,
-  level: 1,
-  games_played: 0,
-  wins: 0,
-  losses: 0,
-  draws: 0,
-  current_streak: 0,
-  longest_streak: 0,
+  total_xp: 0,
+  current_level: 1,
+  created_at: "",
+  updated_at: "",
 };
 
 export function GamingDashboard({
   userId,
 }: GamingDashboardProps) {
   const [profile, setProfile] =
-    useState<GamingProfile>(DEFAULT_PROFILE);
+    useState<GamingProfile>(EMPTY_PROFILE);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +45,7 @@ export function GamingDashboard({
   useEffect(() => {
     let cancelled = false;
 
-    async function loadGamingProfile() {
+    async function loadProfile() {
       if (!userId) {
         setLoading(false);
         return;
@@ -61,30 +55,13 @@ export function GamingDashboard({
       setError(null);
 
       try {
-        const { data, error } = await supabase
-          .from("gaming_profiles")
-          .select(
-            `
-              x_coins,
-              xp,
-              level,
-              games_played,
-              wins,
-              losses,
-              draws,
-              current_streak,
-              longest_streak
-            `,
-          )
-          .eq("user_id", userId)
-          .maybeSingle();
-
-        if (error) {
-          throw error;
-        }
+        const response = await ensureGamingProfile({});
 
         if (!cancelled) {
-          setProfile(data ?? DEFAULT_PROFILE);
+          setProfile(
+            (response.profile as GamingProfile) ??
+              EMPTY_PROFILE,
+          );
         }
       } catch (err) {
         console.error(
@@ -104,46 +81,21 @@ export function GamingDashboard({
       }
     }
 
-    loadGamingProfile();
+    void loadProfile();
 
     return () => {
       cancelled = true;
     };
   }, [userId]);
 
-  const winRate = useMemo(() => {
-    if (profile.games_played <= 0) {
-      return 0;
-    }
-
-    return Math.round(
-      (profile.wins / profile.games_played) * 100,
-    );
-  }, [profile.games_played, profile.wins]);
-
-  const xpForNextLevel = useMemo(() => {
-    return profile.level * 500;
-  }, [profile.level]);
-
-  const xpProgress = useMemo(() => {
-    if (xpForNextLevel <= 0) {
-      return 0;
-    }
-
-    return Math.min(
-      100,
-      Math.round(
-        (profile.xp / xpForNextLevel) * 100,
-      ),
-    );
-  }, [profile.xp, xpForNextLevel]);
-
   if (loading) {
     return (
       <section className="w-full rounded-2xl border border-white/10 bg-black/20 p-5">
         <div className="animate-pulse space-y-4">
           <div className="h-7 w-40 rounded bg-white/10" />
+
           <div className="h-24 rounded-xl bg-white/10" />
+
           <div className="grid grid-cols-2 gap-3">
             <div className="h-20 rounded-xl bg-white/10" />
             <div className="h-20 rounded-xl bg-white/10" />
@@ -163,6 +115,28 @@ export function GamingDashboard({
     );
   }
 
+  const xp = Number(profile.total_xp ?? 0);
+  const coins = Number(profile.x_coins ?? 0);
+  const level = Number(profile.current_level ?? 1);
+
+  /*
+   * The Gaming Supabase currently exposes the authoritative
+   * profile values above. Match statistics and streak data
+   * will be added from their dedicated gaming tables/functions
+   * rather than pretending they are columns in gaming_profiles.
+   */
+
+  const xpForNextLevel = Math.max(level * 500, 500);
+
+  const xpProgress = Math.min(
+    100,
+    Math.round(
+      (xp % xpForNextLevel) /
+        xpForNextLevel *
+        100,
+    ),
+  );
+
   return (
     <section className="w-full space-y-4">
       {/* Header */}
@@ -177,7 +151,7 @@ export function GamingDashboard({
           </h2>
 
           <p className="text-sm text-white/50">
-            Your gaming progress and rewards
+            Your gaming rewards and progression
           </p>
         </div>
       </div>
@@ -197,7 +171,7 @@ export function GamingDashboard({
               />
 
               <span className="text-3xl font-black">
-                {profile.x_coins.toLocaleString()}
+                {coins.toLocaleString()}
               </span>
             </div>
           </div>
@@ -206,13 +180,12 @@ export function GamingDashboard({
         </div>
 
         <p className="mt-3 text-xs text-white/40">
-          Your balance is controlled by the gaming
-          server and cannot be changed directly
-          from this screen.
+          Your X Coin balance is controlled by the
+          secure gaming system.
         </p>
       </div>
 
-      {/* Level and XP */}
+      {/* XP / Level */}
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -226,13 +199,13 @@ export function GamingDashboard({
               </p>
 
               <p className="text-2xl font-bold">
-                Level {profile.level}
+                Level {level}
               </p>
             </div>
           </div>
 
           <p className="text-sm font-semibold">
-            {profile.xp.toLocaleString()} XP
+            {xp.toLocaleString()} XP
           </p>
         </div>
 
@@ -240,9 +213,7 @@ export function GamingDashboard({
           <div className="mb-2 flex justify-between text-xs text-white/50">
             <span>XP Progress</span>
 
-            <span>
-              {xpProgress}%
-            </span>
+            <span>{xpProgress}%</span>
           </div>
 
           <div className="h-2 overflow-hidden rounded-full bg-white/10">
@@ -253,76 +224,50 @@ export function GamingDashboard({
               }}
             />
           </div>
-
-          <p className="mt-2 text-xs text-white/40">
-            {Math.max(
-              0,
-              xpForNextLevel - profile.xp,
-            ).toLocaleString()}{" "}
-            XP until the next level
-          </p>
         </div>
       </div>
 
-      {/* Statistics */}
-      <div>
-        <div className="mb-3 flex items-center gap-2">
+      {/* Coming gaming statistics */}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <div className="mb-4 flex items-center gap-2">
           <BarChart3 className="h-5 w-5" />
 
           <h3 className="font-bold">
-            Gaming Stats
+            Gaming Statistics
           </h3>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard
-            label="Games Played"
-            value={profile.games_played}
-            icon={<Gamepad2 className="h-4 w-4" />}
-          />
-
-          <StatCard
-            label="Wins"
-            value={profile.wins}
+            label="Level"
+            value={level}
             icon={<Trophy className="h-4 w-4" />}
           />
 
           <StatCard
-            label="Losses"
-            value={profile.losses}
-            icon={<span>✕</span>}
-          />
-
-          <StatCard
-            label="Draws"
-            value={profile.draws}
-            icon={<span>＝</span>}
-          />
-
-          <StatCard
-            label="Win Rate"
-            value={`${winRate}%`}
-            icon={<BarChart3 className="h-4 w-4" />}
-          />
-
-          <StatCard
-            label="Current Streak"
-            value={profile.current_streak}
-            icon={<Flame className="h-4 w-4" />}
-          />
-
-          <StatCard
-            label="Longest Streak"
-            value={profile.longest_streak}
-            icon={<Trophy className="h-4 w-4" />}
-          />
-
-          <StatCard
-            label="XP"
-            value={profile.xp}
+            label="Total XP"
+            value={xp}
             icon={<Star className="h-4 w-4" />}
           />
+
+          <StatCard
+            label="X Coins"
+            value={coins}
+            icon={<XCoinIcon size={18} />}
+          />
+
+          <StatCard
+            label="Gaming"
+            value="Active"
+            icon={<Flame className="h-4 w-4" />}
+          />
         </div>
+
+        <p className="mt-4 text-xs text-white/40">
+          Detailed wins, losses, draws and streaks
+          will be connected to their dedicated gaming
+          statistics data next.
+        </p>
       </div>
     </section>
   );
