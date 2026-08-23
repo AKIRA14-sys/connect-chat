@@ -1620,6 +1620,7 @@ function RockPaperScissors({
   }, [sync, hasPeer]);
 
   useEffect(() => {
+    if (!hasPeer) return;
     if (!playerChoice || !opponentChoice) return;
     if (result) return;
 
@@ -1813,14 +1814,6 @@ function EmojiGuess({
   const hasPeer = !!peerId;
   const amHost = !hasPeer || userId < (peerId as string);
 
-  const gamingMatch = useGamingMatchSession({
-    sync,
-    userId,
-    peerId,
-    gameType: "emoji",
-    isBot: !hasPeer,
-  });
-
   const [question, setQuestion] = useState(() =>
     getRandomItem(EMOJI_QUESTIONS),
   );
@@ -1901,12 +1894,6 @@ function EmojiGuess({
       setMyScore((s) => s + 1);
       setLastWinner("You");
 
-      void gamingMatch.complete({
-        result: "win",
-        winnerId: userId,
-        loserId: peerId ?? null,
-      });
-
       const next = pickQuestion();
       setQuestion(next);
       setAnswer("");
@@ -1917,12 +1904,6 @@ function EmojiGuess({
     }
 
     setMyScore((s) => s + 1);
-
-    void gamingMatch.complete({
-      result: "win",
-      winnerId: userId,
-      loserId: null,
-    });
 
     const next = pickQuestion();
     setQuestion(next);
