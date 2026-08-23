@@ -3605,6 +3605,74 @@ function LudoGame({
    and looks at the regular chat.
 ========================================================= */
 
+/* =========================================================
+   FLOATING BUTTON POSITION
+
+   Persisted per-device so the button stays where the person
+   last dragged it, across game sessions. Falls back to the
+   original bottom-right spot on first use or if storage is
+   unavailable.
+========================================================= */
+
+const BUBBLE_POSITION_KEY = "whatsxup-game-chat-bubble-pos";
+const BUBBLE_SIZE = 48;
+const BUBBLE_MARGIN = 16;
+const DRAG_THRESHOLD = 6;
+
+function loadBubblePosition(): { x: number; y: number } | null {
+  try {
+    const raw = localStorage.getItem(BUBBLE_POSITION_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+
+    if (
+      typeof parsed?.x === "number" &&
+      typeof parsed?.y === "number"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to default position.
+  }
+
+  return null;
+}
+
+function saveBubblePosition(position: { x: number; y: number }) {
+  try {
+    localStorage.setItem(
+      BUBBLE_POSITION_KEY,
+      JSON.stringify(position),
+    );
+  } catch {
+    // Non-critical — position just won't persist this time.
+  }
+}
+
+function defaultBubblePosition(): { x: number; y: number } {
+  if (typeof window === "undefined") {
+    return { x: 0, y: 0 };
+  }
+
+  return {
+    x: window.innerWidth - BUBBLE_SIZE - BUBBLE_MARGIN,
+    y: window.innerHeight - BUBBLE_SIZE - 96,
+  };
+}
+
+function clampBubblePosition(x: number, y: number) {
+  if (typeof window === "undefined") return { x, y };
+
+  const maxX = window.innerWidth - BUBBLE_SIZE - BUBBLE_MARGIN / 2;
+  const maxY = window.innerHeight - BUBBLE_SIZE - BUBBLE_MARGIN / 2;
+
+  return {
+    x: Math.min(Math.max(BUBBLE_MARGIN / 2, x), maxX),
+    y: Math.min(Math.max(BUBBLE_MARGIN / 2, y), maxY),
+  };
+}
+
 function GameChatBubble({
   messages,
   onSend,
@@ -3619,7 +3687,20 @@ function GameChatBubble({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [position, setPosition] = useState(() =>
+    loadBubblePosition() ?? defaultBubblePosition(),
+  );
+
   const listRef = useRef<HTMLDivElement | null>(null);
+  const lastSeenLength = useRef(messages.length);
+  const dragState = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    dragging: boolean;
+  } | null>(null);
 
   const quickPhrases = [
     "Your turn 😂",
@@ -3639,6 +3720,88 @@ function GameChatBubble({
     });
   }, [open, messages.length]);
 
+  // Unread badge: only counts up while the panel is closed,
+  // and only for messages that arrived from the other person.
+  useEffect(() => {
+    if (messages.length <= lastSeenLength.current) {
+      lastSeenLength.current = messages.length;
+      return;
+    }
+
+    const newOnes = messages.slice(lastSeenLength.current);
+    lastSeenLength.current = messages.length;
+
+    if (open) return;
+
+    const fromPeer = newOnes.filter(
+      (message) => message.sender_id !== currentUserId,
+    );
+
+    if (fromPeer.length > 0) {
+      setUnreadCount((count) => count + fromPeer.length);
+    }
+  }, [messages, open, currentUserId]);
+
+  useEffect(() => {
+    if (open) setUnreadCount(0);
+  }, [open]);
+
+  function handlePointerDown(event: React.PointerEvent) {
+    (event.target as Element).setPointerCapture(
+      event.pointerId,
+    );
+
+    dragState.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: position.x,
+      originY: position.y,
+      dragging: false,
+    };
+  }
+
+  function handlePointerMove(event: React.PointerEvent) {
+    if (!dragState.current) return;
+
+    const dx = event.clientX - dragState.current.startX;
+    const dy = event.clientY - dragState.current.startY;
+
+    if (
+      !dragState.current.dragging &&
+      Math.hypot(dx, dy) > DRAG_THRESHOLD
+    ) {
+      dragState.current.dragging = true;
+    }
+
+    if (dragState.current.dragging) {
+      setPosition(
+        clampBubblePosition(
+          dragState.current.originX + dx,
+          dragState.current.originY + dy,
+        ),
+      );
+    }
+  }
+
+  function handlePointerUp() {
+    const wasDragging = dragState.current?.dragging ?? false;
+
+    if (wasDragging) {
+      setPosition((current) => {
+        saveBubblePosition(current);
+        return current;
+      });
+    }
+
+    dragState.current = null;
+
+    // Only treat it as a tap (open/close the panel) if the
+    // pointer never actually moved past the drag threshold.
+    if (!wasDragging) {
+      setOpen((value) => !value);
+    }
+  }
+
   const send = async (value: string) => {
     const body = value.trim();
     if (!body || sending) return;
@@ -3651,6 +3814,39 @@ function GameChatBubble({
   };
 
   const recent = messages.slice(-25);
+
+  // Position the chat panel just above wherever the bubble
+  // currently sits, clamped so it never runs off-screen —
+  // same idea as a normal popover anchored to its trigger.
+  const PANEL_WIDTH = 320;
+  const PANEL_HEIGHT = 360;
+  const PANEL_GAP = 10;
+
+  const viewportWidth =
+    typeof window !== "undefined" ? window.innerWidth : 400;
+  const viewportHeight =
+    typeof window !== "undefined" ? window.innerHeight : 800;
+
+  const panelLeft = Math.min(
+    Math.max(12, position.x - PANEL_WIDTH / 2 + BUBBLE_SIZE / 2),
+    viewportWidth - PANEL_WIDTH - 12,
+  );
+
+  const panelTop = Math.max(
+    12,
+    position.y - PANEL_HEIGHT - PANEL_GAP,
+  );
+
+  const panelStyle: React.CSSProperties = {
+    left: panelLeft,
+    top:
+      panelTop < 12
+        ? Math.min(
+            position.y + BUBBLE_SIZE + PANEL_GAP,
+            viewportHeight - PANEL_HEIGHT - 12,
+          )
+        : panelTop,
+  };
 
   const labelFor = (message: Message) => {
     if ((message as any).deleted_at) return "Deleted message";
@@ -3675,15 +3871,27 @@ function GameChatBubble({
     <>
       <button
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         aria-label="Game chat"
-        className="fixed bottom-24 right-4 z-[110] flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-xl transition active:scale-90"
+        className="fixed z-[110] flex h-12 w-12 touch-none items-center justify-center rounded-full bg-blue-600 text-xl text-white shadow-xl transition active:scale-90"
+        style={{ left: position.x, top: position.y }}
       >
         💬
+        {unreadCount > 0 && (
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full border-2 border-background bg-red-500 px-1 text-[10px] font-bold text-white">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
       </button>
 
       {open && (
-        <div className="fixed inset-x-3 bottom-40 z-[110] flex max-h-[45vh] flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl">
+        <div
+          className="fixed z-[110] flex max-h-[360px] w-[calc(100vw-1.5rem)] max-w-sm flex-col overflow-hidden rounded-2xl border bg-background shadow-2xl"
+          style={panelStyle}
+        >
           <div className="flex items-center justify-between border-b px-3 py-2">
             <p className="text-xs font-semibold">
               Chat with {peerName ?? "them"}
@@ -3733,13 +3941,13 @@ function GameChatBubble({
             )}
           </div>
 
-          <div className="flex gap-1 overflow-x-auto border-t px-2 py-2">
+          <div className="flex gap-1.5 overflow-x-auto border-t px-2 py-2">
             {quickPhrases.map((phrase) => (
               <button
                 key={phrase}
                 type="button"
                 onClick={() => void send(phrase)}
-                className="shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition hover:bg-muted active:scale-95"
+                className="flex-shrink-0 whitespace-nowrap rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-medium text-foreground transition hover:bg-muted/70 active:scale-95"
               >
                 {phrase}
               </button>
