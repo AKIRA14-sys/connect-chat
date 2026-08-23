@@ -39,10 +39,6 @@ import {
   EyeOff,
   Wand2,
   Palette,
-  Forward,
-  Copy,
-  Star,
-  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -569,32 +565,6 @@ function ChatRoom() {
   >(null);
   const [customizationVersion, setCustomizationVersion] = useState(0);
 
-  /* ==========================================================
-   * MESSAGE ACTION SHEET (long-press) + FORWARD + STAR
-   *
-   * Star is stored locally per-device (like the chat name/
-   * theme settings above) since there's no starred-messages
-   * table yet — safe, additive, no schema changes required.
-   * Forward reuses the existing "messages" and
-   * "conversation_members" tables exactly as sendMessage()
-   * already does, so no new tables are needed there either.
-   * ========================================================== */
-
-  const [actionSheetMessage, setActionSheetMessage] =
-    useState<Message | null>(null);
-  const [forwardSheetMessage, setForwardSheetMessage] =
-    useState<Message | null>(null);
-  const [forwardSelected, setForwardSelected] = useState<
-    Set<string>
-  >(new Set());
-  const [forwarding, setForwarding] = useState(false);
-  const [starredIds, setStarredIds] = useState<Set<string>>(
-    new Set(),
-  );
-
-  const longPressTimer = useRef<number | null>(null);
-  const longPressTriggered = useRef(false);
-
   const localChatNameKey = useMemo(
     () => `whatsxup-chat-name:${id}`,
     [id],
@@ -709,47 +679,6 @@ function ChatRoom() {
     customization?.wallpaper.kind === "builtin"
       ? getBuiltinWallpaper(customization.wallpaper.builtinId)?.css
       : null;
-
-  /* ==========================================================
-   * STARRED MESSAGES (local, per chat)
-   * ========================================================== */
-
-  const starredKey = useMemo(
-    () => `whatsxup-starred:${id}`,
-    [id],
-  );
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(starredKey);
-      setStarredIds(new Set(raw ? JSON.parse(raw) : []));
-    } catch {
-      setStarredIds(new Set());
-    }
-  }, [starredKey]);
-
-  function toggleStar(messageId: string) {
-    setStarredIds((prev) => {
-      const next = new Set(prev);
-
-      if (next.has(messageId)) {
-        next.delete(messageId);
-      } else {
-        next.add(messageId);
-      }
-
-      try {
-        localStorage.setItem(
-          starredKey,
-          JSON.stringify(Array.from(next)),
-        );
-      } catch {
-        // Non-critical — starring is a local convenience only.
-      }
-
-      return next;
-    });
-  }
 
   /* ==========================================================
    * CONVERSATION
@@ -2395,67 +2324,12 @@ function ChatRoom() {
       messageId,
       event.touches[0]?.clientX ?? 0,
     );
-
-    longPressTriggered.current = false;
-
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current);
-    }
-
-    longPressTimer.current = window.setTimeout(() => {
-      const target = messages.find(
-        (item) => item.id === messageId,
-      );
-
-      if (target && !(target as any).deleted_at) {
-        longPressTriggered.current = true;
-
-        if (
-          typeof navigator !== "undefined" &&
-          navigator.vibrate
-        ) {
-          navigator.vibrate(15);
-        }
-
-        setActionSheetMessage(target);
-      }
-    }, 450);
-  }
-
-  function handleTouchMove(
-    event: React.TouchEvent,
-    messageId: string,
-  ) {
-    const start = touchStartX.current.get(messageId);
-    if (start == null) return;
-
-    const current =
-      event.touches[0]?.clientX ?? start;
-
-    if (
-      Math.abs(current - start) > 12 &&
-      longPressTimer.current
-    ) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
   }
 
   function handleTouchEnd(
     event: React.TouchEvent,
     message: Message,
   ) {
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-
-    if (longPressTriggered.current) {
-      longPressTriggered.current = false;
-      touchStartX.current.delete(message.id);
-      return;
-    }
-
     const start =
       touchStartX.current.get(
         message.id,
@@ -2483,208 +2357,6 @@ function ChatRoom() {
       setTimeout(() => {
         setSwipingMessageId(null);
       }, 300);
-    }
-  }
-
-  /* ==========================================================
-   * COPY MESSAGE TEXT
-   * ========================================================== */
-
-  async function copyMessageText(message: Message) {
-    try {
-      const decoded = decodeSpecialMessage(
-        message.content,
-      );
-
-      const text = decoded.text ?? message.content ?? "";
-
-      await navigator.clipboard.writeText(text);
-      toast.success("Copied to clipboard");
-    } catch {
-      toast.error("Couldn't copy that message.");
-    }
-
-    setActionSheetMessage(null);
-  }
-
-  /* ==========================================================
-   * FORWARD MESSAGE
-   * ========================================================== */
-
-  const forwardTargetsQuery = useQuery({
-    queryKey: ["forward-targets", user?.id, id],
-    enabled: !!forwardSheetMessage && !!user?.id,
-    queryFn: async () => {
-      const { data: myRows, error: myError } = await supabase
-        .from("conversation_members")
-        .select("conversation_id")
-        .eq("user_id", user!.id);
-
-      if (myError) throw myError;
-
-      const conversationIds = (myRows ?? [])
-        .map((row) => row.conversation_id as string)
-        .filter((convId) => convId !== id);
-
-      if (conversationIds.length === 0) return [];
-
-      const { data: convRows, error: convError } =
-        await supabase
-          .from("conversations")
-          .select("*")
-          .in("id", conversationIds);
-
-      if (convError) throw convError;
-
-      const conversations = (convRows ?? []) as Conversation[];
-
-      const { data: memberRows, error: memberError } =
-        await supabase
-          .from("conversation_members")
-          .select("conversation_id, user_id")
-          .in("conversation_id", conversationIds);
-
-      if (memberError) throw memberError;
-
-      const otherUserIds = Array.from(
-        new Set(
-          (memberRows ?? [])
-            .filter(
-              (row) =>
-                row.user_id !== user!.id,
-            )
-            .map((row) => row.user_id as string),
-        ),
-      );
-
-      let profileMap = new Map<string, Profile>();
-
-      if (otherUserIds.length > 0) {
-        const { data: profileRows } = await supabase
-          .from("profiles")
-          .select("*")
-          .in("id", otherUserIds);
-
-        profileMap = new Map(
-          (profileRows ?? []).map((profile: any) => [
-            profile.id,
-            profile as Profile,
-          ]),
-        );
-      }
-
-      const directOtherByConv = new Map<string, string>();
-
-      (memberRows ?? []).forEach((row) => {
-        if (row.user_id !== user!.id) {
-          directOtherByConv.set(
-            row.conversation_id as string,
-            row.user_id as string,
-          );
-        }
-      });
-
-      return conversations
-        .map((conversation) => {
-          const otherId = directOtherByConv.get(
-            conversation.id,
-          );
-
-          const otherProfileForConv = otherId
-            ? profileMap.get(otherId)
-            : undefined;
-
-          const displayName =
-            conversation.type === "group"
-              ? conversation.name ?? "Group"
-              : otherProfileForConv?.display_name ??
-                "Unknown";
-
-          const avatarUrl =
-            conversation.type === "group"
-              ? conversation.avatar_url
-              : otherProfileForConv?.avatar_url ?? null;
-
-          const avatarBucket =
-            conversation.type === "group"
-              ? "chat-media"
-              : "avatars";
-
-          return {
-            id: conversation.id,
-            name: displayName,
-            avatarUrl,
-            avatarBucket,
-            type: conversation.type,
-          };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name));
-    },
-  });
-
-  function toggleForwardTarget(conversationId: string) {
-    setForwardSelected((prev) => {
-      const next = new Set(prev);
-
-      if (next.has(conversationId)) {
-        next.delete(conversationId);
-      } else {
-        next.add(conversationId);
-      }
-
-      return next;
-    });
-  }
-
-  async function confirmForward() {
-    if (!forwardSheetMessage || !user?.id) return;
-    if (forwardSelected.size === 0) return;
-
-    setForwarding(true);
-
-    const targets = Array.from(forwardSelected);
-    let successCount = 0;
-
-    for (const targetId of targets) {
-      try {
-        const { error } = await supabase
-          .from("messages")
-          .insert({
-            conversation_id: targetId,
-            sender_id: user.id,
-            type: forwardSheetMessage.type,
-            content: forwardSheetMessage.content,
-            media_url: forwardSheetMessage.media_url,
-            media_duration:
-              forwardSheetMessage.media_duration,
-            reply_to: null,
-          });
-
-        if (error) throw error;
-        successCount += 1;
-      } catch {
-        // Continue forwarding to remaining targets even if
-        // one fails, then report the final tally below.
-      }
-    }
-
-    setForwarding(false);
-    setForwardSheetMessage(null);
-    setForwardSelected(new Set());
-    setActionSheetMessage(null);
-
-    if (successCount === targets.length) {
-      toast.success(
-        successCount === 1
-          ? "Message forwarded"
-          : `Forwarded to ${successCount} chats`,
-      );
-    } else if (successCount > 0) {
-      toast.warning(
-        `Forwarded to ${successCount} of ${targets.length} chats`,
-      );
-    } else {
-      toast.error("Couldn't forward that message.");
     }
   }
 
@@ -3548,33 +3220,22 @@ function ChatRoom() {
           builtinWallpaperCss ||
           activeTheme.messageAreaBackground) && (
           <div
-            className="pointer-events-none -z-10 overflow-hidden"
+            className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
             style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: "100vw",
-              height: "100vh",
               background:
-                wallpaperUrl && wallpaperType === "image"
-                  ? `url(${wallpaperUrl})`
-                  : builtinWallpaperCss ||
-                    activeTheme.messageAreaBackground ||
-                    undefined,
-              backgroundSize:
-                wallpaperUrl && wallpaperType === "image"
-                  ? "contain"
-                  : "cover",
-              backgroundColor:
-                wallpaperUrl && wallpaperType === "image"
-                  ? "#0a0e14"
-                  : undefined,
-              backgroundPosition: "center",
-              backgroundRepeat: "no-repeat",
+                builtinWallpaperCss ||
+                activeTheme.messageAreaBackground ||
+                undefined,
             }}
           >
+            {wallpaperUrl && wallpaperType === "image" && (
+              <img
+                src={wallpaperUrl}
+                alt=""
+                className="h-full w-full object-cover object-center"
+              />
+            )}
+
             {wallpaperUrl && wallpaperType === "video" && (
               <video
                 src={wallpaperUrl}
@@ -3582,15 +3243,7 @@ function ChatRoom() {
                 loop
                 muted
                 playsInline
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                  objectPosition: "center",
-                }}
+                className="h-full w-full object-cover object-center"
               />
             )}
           </div>
@@ -3714,25 +3367,12 @@ function ChatRoom() {
                   message.id,
                 )
               }
-              onTouchMove={(event) =>
-                handleTouchMove(
-                  event,
-                  message.id,
-                )
-              }
               onTouchEnd={(event) =>
                 handleTouchEnd(
                   event,
                   message,
                 )
               }
-              onContextMenu={(event) => {
-                event.preventDefault();
-
-                if (!(message as any).deleted_at) {
-                  setActionSheetMessage(message);
-                }
-              }}
             >
               <div
                 className={`relative max-w-[82%] transition-transform ${
@@ -3907,11 +3547,6 @@ function ChatRoom() {
                   )}
 
                   <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
-                    {starredIds.has(message.id) &&
-                      !deleted && (
-                        <Star className="h-2.5 w-2.5 fill-current" />
-                      )}
-
                     {message.edited_at &&
                       !deleted && (
                         <span>
@@ -4204,258 +3839,6 @@ function ChatRoom() {
       {/* ======================================================
        * DELETE MENU
        * ====================================================== */}
-
-      {/* ======================================================
-       * MESSAGE ACTION SHEET (long-press / right-click)
-       * ====================================================== */}
-
-      {actionSheetMessage && (
-        <div className="fixed inset-0 z-[115] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center">
-          <button
-            type="button"
-            aria-label="Close message actions"
-            className="absolute inset-0 cursor-default"
-            onClick={() => setActionSheetMessage(null)}
-          />
-
-          <div className="relative w-full max-w-sm overflow-hidden rounded-t-3xl border border-border bg-background shadow-2xl sm:rounded-3xl">
-            <div className="flex items-center justify-center gap-1.5 border-b border-border px-4 py-3">
-              {REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => {
-                    void toggleReaction(
-                      actionSheetMessage,
-                      emoji,
-                    );
-                    setActionSheetMessage(null);
-                  }}
-                  className="rounded-full p-2 text-2xl transition hover:scale-125 active:scale-95"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => {
-                startReply(actionSheetMessage);
-                setActionSheetMessage(null);
-              }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-            >
-              <Reply className="h-4 w-4 shrink-0" />
-              Reply
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setForwardSheetMessage(actionSheetMessage);
-                setForwardSelected(new Set());
-              }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-            >
-              <Forward className="h-4 w-4 shrink-0" />
-              Forward
-            </button>
-
-            {actionSheetMessage.type === "text" &&
-              !(actionSheetMessage as any).deleted_at && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    void copyMessageText(
-                      actionSheetMessage,
-                    )
-                  }
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-                >
-                  <Copy className="h-4 w-4 shrink-0" />
-                  Copy
-                </button>
-              )}
-
-            <button
-              type="button"
-              onClick={() => {
-                toggleStar(actionSheetMessage.id);
-                setActionSheetMessage(null);
-              }}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-            >
-              <Star
-                className={`h-4 w-4 shrink-0 ${
-                  starredIds.has(actionSheetMessage.id)
-                    ? "fill-current"
-                    : ""
-                }`}
-              />
-              {starredIds.has(actionSheetMessage.id)
-                ? "Unstar"
-                : "Star"}
-            </button>
-
-            {actionSheetMessage.sender_id === user?.id &&
-              actionSheetMessage.type === "text" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const decodedMessage =
-                      decodeSpecialMessage(
-                        actionSheetMessage.content,
-                      );
-
-                    setEditing(actionSheetMessage);
-                    setReplyTo(null);
-                    setSelectedEffect(decodedMessage.effect);
-                    setSecretMode(decodedMessage.secret);
-                    setText(decodedMessage.text);
-                    setActionSheetMessage(null);
-                  }}
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
-                >
-                  <Pencil className="h-4 w-4 shrink-0" />
-                  Edit
-                </button>
-              )}
-
-            <button
-              type="button"
-              onClick={() => {
-                const message = actionSheetMessage;
-                setActionSheetMessage(null);
-
-                setDeleteMenu({
-                  message,
-                  x: Math.max(
-                    16,
-                    window.innerWidth / 2 - 112,
-                  ),
-                  y: Math.max(
-                    16,
-                    window.innerHeight / 2 - 75,
-                  ),
-                });
-              }}
-              className="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left text-sm text-destructive transition hover:bg-destructive/10"
-            >
-              <Trash2 className="h-4 w-4 shrink-0" />
-              Delete
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================
-       * FORWARD SHEET
-       * ====================================================== */}
-
-      {forwardSheetMessage && (
-        <div className="fixed inset-0 z-[116] flex items-end justify-center bg-black/60 backdrop-blur-sm sm:items-center">
-          <div className="max-h-[75vh] w-full max-w-sm overflow-hidden rounded-t-3xl border border-border bg-background shadow-2xl sm:rounded-3xl">
-            <div className="flex items-center justify-between border-b border-border px-4 py-3">
-              <p className="text-sm font-semibold">
-                Forward message
-              </p>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setForwardSheetMessage(null);
-                  setForwardSelected(new Set());
-                }}
-                className="rounded-full p-1 hover:bg-muted"
-                aria-label="Close forward"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="max-h-[50vh] overflow-y-auto">
-              {forwardTargetsQuery.isLoading && (
-                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  Loading your chats…
-                </p>
-              )}
-
-              {!forwardTargetsQuery.isLoading &&
-                (forwardTargetsQuery.data ?? []).length ===
-                  0 && (
-                  <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                    No other chats to forward to yet.
-                  </p>
-                )}
-
-              {(forwardTargetsQuery.data ?? []).map(
-                (target) => {
-                  const selected = forwardSelected.has(
-                    target.id,
-                  );
-
-                  return (
-                    <button
-                      key={target.id}
-                      type="button"
-                      onClick={() =>
-                        toggleForwardTarget(target.id)
-                      }
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-muted"
-                    >
-                      <UserAvatar
-                        path={target.avatarUrl}
-                        name={target.name}
-                        bucket={target.avatarBucket}
-                        size="sm"
-                      />
-
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                        {target.name}
-                      </span>
-
-                      <span
-                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-                          selected
-                            ? "border-primary bg-primary"
-                            : "border-border"
-                        }`}
-                      >
-                        {selected && (
-                          <Check className="h-3 w-3 text-primary-foreground" />
-                        )}
-                      </span>
-                    </button>
-                  );
-                },
-              )}
-            </div>
-
-            <div className="border-t border-border p-3">
-              <button
-                type="button"
-                disabled={
-                  forwarding || forwardSelected.size === 0
-                }
-                onClick={() => void confirmForward()}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:opacity-90 disabled:opacity-50"
-              >
-                {forwarding && (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                )}
-                {forwarding
-                  ? "Forwarding…"
-                  : forwardSelected.size === 0
-                    ? "Select a chat"
-                    : `Send to ${forwardSelected.size} chat${
-                        forwardSelected.size === 1 ? "" : "s"
-                      }`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {deleteMenu && (
         <>
