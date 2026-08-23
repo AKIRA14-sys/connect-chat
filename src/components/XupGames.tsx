@@ -4264,22 +4264,37 @@ function useGamingMatchSession({
         });
 
         // Extract reward values from the secure backend response only.
-        // Never invent client-side coin/XP amounts.
-        const payload =
-          (response && typeof response === "object" && "result" in response
+        // Gaming Supabase RPC complete_game_match_and_reward returns:
+        // { ok, match_id, reward_processed, reward: { x_coins_awarded, xp_awarded, ... } }
+        // Server fn wraps it as: { success: true, result: <rpc data> }
+        const rpcPayload =
+          response && typeof response === "object" && "result" in response
             ? (response as { result?: unknown }).result
-            : response) ?? {};
+            : response;
 
         const data =
-          payload && typeof payload === "object"
-            ? (payload as Record<string, unknown>)
+          rpcPayload && typeof rpcPayload === "object"
+            ? (rpcPayload as Record<string, unknown>)
+            : {};
+
+        const rewardObj =
+          data.reward && typeof data.reward === "object"
+            ? (data.reward as Record<string, unknown>)
             : {};
 
         const coins = Number(
-          data.x_coins ?? data.xCoins ?? data.coins ?? data.reward_coins ?? 0,
+          rewardObj.x_coins_awarded ??
+            rewardObj.xCoinsAwarded ??
+            data.x_coins_awarded ??
+            data.x_coins ??
+            0,
         );
         const xp = Number(
-          data.xp ?? data.total_xp ?? data.xp_earned ?? data.reward_xp ?? 0,
+          rewardObj.xp_awarded ??
+            rewardObj.xpAwarded ??
+            data.xp_awarded ??
+            data.xp ??
+            0,
         );
 
         setRewardResult(result === "loss" ? "loss" : result);
