@@ -13,7 +13,10 @@ import {
 } from "lucide-react";
 
 import { supabase } from "@/integrations/supabase/client";
-import { ensureGamingProfile } from "@/lib/gaming.functions";
+import {
+  completeGamingMatch,
+  startGamingMatch,
+} from "@/lib/gaming.functions";
 import type { Message } from "@/lib/whatsxup";
 
 type Game =
@@ -1301,6 +1304,35 @@ function TicTacToe({
     [board],
   );
 
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId,
+    gameType: "tictactoe",
+    isBot: !hasPeer,
+  });
+
+  useEffect(() => {
+    if (!winner) return;
+
+    const winnerId = winner === "draw"
+      ? null
+      : winner === myMark
+        ? userId
+        : peerId ?? null;
+    const loserId = winner === "draw"
+      ? null
+      : winner === myMark
+        ? peerId ?? null
+        : userId;
+
+    void gamingMatch.complete({
+      result: winner === "draw" ? "draw" : winner === myMark ? "win" : "loss",
+      winnerId,
+      loserId,
+    });
+  }, [gamingMatch.complete, myMark, peerId, userId, winner]);
+
   const runFlip = useCallback(
     (broadcast: boolean) => {
       setPhase("flip");
@@ -1410,6 +1442,7 @@ function TicTacToe({
   };
 
   const playAgain = () => {
+    gamingMatch.start();
     if (hasPeer) {
       if (isHost) {
         runFlip(true);
@@ -1536,15 +1569,25 @@ function TicTacToe({
 function RockPaperScissors({
   onBack,
   sync,
+  userId,
   peerId,
   peerName,
 }: {
   onBack: () => void;
   sync: GameSync;
+  userId: string;
   peerId?: string | null;
   peerName?: string | null;
 }) {
   const hasPeer = !!peerId;
+
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId,
+    gameType: "rps",
+    isBot: !hasPeer,
+  });
 
   const [result, setResult] = useState<string | null>(null);
   const [playerChoice, setPlayerChoice] =
@@ -1596,7 +1639,24 @@ function RockPaperScissors({
       setScore((c) => ({ ...c, draws: c.draws + 1 }));
       setResult("🤝 Draw!");
     }
-  }, [playerChoice, opponentChoice, hasPeer, result]);
+
+    const winnerId = outcome === "win"
+      ? userId
+      : outcome === "lose"
+        ? peerId ?? null
+        : null;
+    const loserId = outcome === "win"
+      ? peerId ?? null
+      : outcome === "lose"
+        ? userId
+        : null;
+
+    void gamingMatch.complete({
+      result: outcome === "win" ? "win" : outcome === "lose" ? "loss" : "draw",
+      winnerId,
+      loserId,
+    });
+  }, [gamingMatch.complete, playerChoice, opponentChoice, hasPeer, result, peerId, userId]);
 
   const play = (choice: RpsChoice) => {
     if (hasPeer) {
@@ -1629,6 +1689,7 @@ function RockPaperScissors({
   };
 
   const reset = () => {
+    gamingMatch.start();
     setResult(null);
     setPlayerChoice(null);
     setOpponentChoice(null);
@@ -1949,15 +2010,25 @@ function EmojiGuess({
 function ReactionBattle({
   onBack,
   sync,
+  userId,
   peerId,
   peerName,
 }: {
   onBack: () => void;
   sync: GameSync;
+  userId: string;
   peerId?: string | null;
   peerName?: string | null;
 }) {
   const hasPeer = !!peerId;
+
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId,
+    gameType: "reaction",
+    isBot: !hasPeer,
+  });
 
   const [state, setState] = useState<
     "idle" | "waiting" | "ready" | "result" | "tooSoon"
@@ -2072,6 +2143,21 @@ function ReactionBattle({
     state === "result" &&
     reactionTime != null &&
     peerTime != null;
+
+  useEffect(() => {
+    if (!showMatchup) return;
+
+    const result = reactionTime! < peerTime!
+      ? "win"
+      : reactionTime! > peerTime!
+        ? "loss"
+        : "draw";
+    void gamingMatch.complete({
+      result,
+      winnerId: result === "draw" ? null : result === "win" ? userId : peerId ?? null,
+      loserId: result === "draw" ? null : result === "win" ? peerId ?? null : userId,
+    });
+  }, [gamingMatch.complete, peerId, peerTime, reactionTime, showMatchup, userId]);
 
   return (
     <div className="w-full">
@@ -2188,11 +2274,21 @@ function ChessGame({
   peerName?: string | null;
 }) {
   const hasPeer = !!peerId;
+
   const isHost = !hasPeer || userId < (peerId as string);
 
   const [mode, setMode] = useState<
     "select" | "friend" | "bot"
   >(hasPeer ? "select" : "bot");
+
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId: mode === "friend" ? peerId : null,
+    gameType: "chess",
+    isBot: mode === "bot",
+    enabled: mode !== "select",
+  });
 
   const [board, setBoard] = useState<ChessBoard>(() =>
     createInitialChessBoard(),
@@ -2334,6 +2430,7 @@ function ChessGame({
   };
 
   const startNewGame = () => {
+    gamingMatch.start();
     setBoard(createInitialChessBoard());
     setTurnColor("w");
     setSelected(null);
@@ -2352,6 +2449,13 @@ function ChessGame({
           ? "win"
           : "lose"
         : null;
+
+  useEffect(() => {
+    if (!outcome) return;
+    const winnerId = outcome === "win" ? userId : peerId ?? null;
+    const loserId = outcome === "win" ? peerId ?? null : userId;
+    void gamingMatch.complete({ result: outcome, winnerId, loserId });
+  }, [gamingMatch.complete, outcome, peerId, userId]);
 
   if (mode === "select") {
     return (
@@ -2550,6 +2654,15 @@ function CheckersGame({
     "select" | "friend" | "bot"
   >(hasPeer ? "select" : "bot");
 
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId: mode === "friend" ? peerId : null,
+    gameType: "checkers",
+    isBot: mode === "bot",
+    enabled: mode !== "select",
+  });
+
   const [state, setState] = useState<CheckersState>(() => ({
     board: createInitialCheckersBoard(),
     turn: "r",
@@ -2625,6 +2738,17 @@ function CheckersGame({
   }, [state, myColor]);
 
   const gameOver = outcome !== null;
+
+  useEffect(() => {
+    if (!outcome) return;
+    const winnerId = outcome.type === "win" ? userId : peerId ?? null;
+    const loserId = outcome.type === "win" ? peerId ?? null : userId;
+    void gamingMatch.complete({
+      result: outcome.type,
+      winnerId,
+      loserId,
+    });
+  }, [gamingMatch.complete, outcome, peerId, userId]);
 
   const commitLocalMove = useCallback(
     (move: CheckersMove) => {
@@ -2809,6 +2933,7 @@ function CheckersGame({
   };
 
   const startNewGame = () => {
+    gamingMatch.start();
     setState({
       board: createInitialCheckersBoard(),
       turn: "r",
@@ -3037,6 +3162,15 @@ function LudoGame({
     "select" | "friend" | "bot"
   >(hasPeer ? "select" : "bot");
 
+  const gamingMatch = useGamingMatchSession({
+    sync,
+    userId,
+    peerId: mode === "friend" ? peerId : null,
+    gameType: "ludo",
+    isBot: mode === "bot",
+    enabled: mode !== "select",
+  });
+
   const [state, setState] = useState<LudoState>(() =>
     createInitialLudoState(),
   );
@@ -3060,6 +3194,13 @@ function LudoGame({
       ? "win"
       : "lose"
     : null;
+
+  useEffect(() => {
+    if (!outcome) return;
+    const winnerId = outcome === "win" ? userId : peerId ?? null;
+    const loserId = outcome === "win" ? peerId ?? null : userId;
+    void gamingMatch.complete({ result: outcome, winnerId, loserId });
+  }, [gamingMatch.complete, outcome, peerId, userId]);
 
   const legalForCurrentDice =
     state.dice !== null
@@ -3278,6 +3419,7 @@ function LudoGame({
   }, [mode, state.turn, gameOver]);
 
   const startNewGame = () => {
+    gamingMatch.start();
     setState(createInitialLudoState());
 
     if (mode === "friend") {
@@ -3982,6 +4124,118 @@ function GameChatBubble({
 }
 
 /* =========================================================
+   SECURE GAMING REWARD SESSION
+   Starts a server-side match session and submits the final
+   result through the protected gaming server functions.
+========================================================= */
+
+function createMatchId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function useGamingMatchSession({
+  sync,
+  userId,
+  peerId,
+  gameType,
+  isBot,
+  enabled = true,
+}: {
+  sync: GameSync;
+  userId: string;
+  peerId?: string | null;
+  gameType: string;
+  isBot: boolean;
+  enabled?: boolean;
+}) {
+  const isHost = !peerId || userId < peerId;
+  const matchIdRef = useRef<string | null>(null);
+  const startedRef = useRef(false);
+  const completedRef = useRef(false);
+
+  const start = useCallback(() => {
+    startedRef.current = true;
+    completedRef.current = false;
+
+    if (isBot || isHost) {
+      const id = createMatchId();
+      matchIdRef.current = id;
+
+      if (!isBot && peerId) {
+        sync.send("gaming_match_started", { matchId: id });
+      }
+
+      void startGamingMatch({
+        data: {
+          matchId: id,
+          gameType,
+          player2Id: isBot ? null : peerId,
+          isBot,
+        },
+      }).catch((error) => {
+        console.error("Failed to start gaming match:", error);
+      });
+
+      return;
+    }
+
+    matchIdRef.current = null;
+  }, [gameType, isBot, isHost, peerId, sync]);
+
+  useEffect(() => {
+    const off = sync.on("gaming_match_started", (data) => {
+      if (!data?.matchId) return;
+      matchIdRef.current = data.matchId;
+      completedRef.current = false;
+    });
+
+    if (enabled && !startedRef.current) start();
+
+    return off;
+  }, [enabled, start, sync]);
+
+  const complete = useCallback(
+    async ({
+      result,
+      winnerId,
+      loserId,
+    }: {
+      result: "win" | "loss" | "draw";
+      winnerId?: string | null;
+      loserId?: string | null;
+    }) => {
+      const matchId = matchIdRef.current;
+      if (!matchId || completedRef.current) return;
+
+      completedRef.current = true;
+
+      try {
+        await completeGamingMatch({
+          data: {
+            matchId,
+            gameType,
+            player1Id: isBot ? userId : isHost ? userId : peerId ?? userId,
+            player2Id: isBot ? null : isHost ? peerId : userId,
+            isBot,
+            winnerId: winnerId ?? null,
+            loserId: loserId ?? null,
+            result,
+          },
+        });
+      } catch (error) {
+        completedRef.current = false;
+        console.error("Failed to submit gaming result:", error);
+      }
+    }, [gameType, isBot, isHost, peerId, userId]);
+
+  return { complete, start };
+}
+
+/* =========================================================
    MAIN XUP GAMES COMPONENT
 
    Renders game content only — the parent ($id.tsx) provides
@@ -4001,18 +4255,6 @@ export default function XupGames({
   onSendChatMessage,
 }: XupGamesProps) {
   const [game, setGame] = useState<Game>("menu");
-
-  // Connect the already-authenticated Connect Chat user to the
-  // separate gaming Supabase project. The server function uses
-  // the existing authenticated user ID and never exposes the
-  // gaming service-role key to the browser.
-  useEffect(() => {
-    if (!userId) return;
-
-    void ensureGamingProfile({}).catch((error) => {
-      console.error("Gaming profile initialization failed:", error);
-    });
-  }, [userId]);
 
   const sync = useGameSync(conversationId, userId);
 
@@ -4038,6 +4280,7 @@ export default function XupGames({
           <RockPaperScissors
             onBack={goBack}
             sync={sync}
+            userId={userId}
             peerId={peerId}
             peerName={peerName}
           />
@@ -4059,6 +4302,7 @@ export default function XupGames({
           <ReactionBattle
             onBack={goBack}
             sync={sync}
+            userId={userId}
             peerId={peerId}
             peerName={peerName}
           />
