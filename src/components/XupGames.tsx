@@ -15,6 +15,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import {
   completeGamingMatch,
+  getGamingMatchReward,
   startGamingMatch,
 } from "@/lib/gaming.functions";
 import type { Message } from "@/lib/whatsxup";
@@ -4363,31 +4364,73 @@ function useGamingMatchSession({
             0,
         );
 
-        const safeCoins = Number.isFinite(coins) ? Math.max(0, coins) : 0;
-        const safeXp = Number.isFinite(xp) ? Math.max(0, xp) : 0;
+        let finalCoins = Number.isFinite(coins) ? Math.max(0, coins) : 0;
+        let finalXp = Number.isFinite(xp) ? Math.max(0, xp) : 0;
 
-        // Only the user who is actually the winner should display the coin
-        // reward. The database returns the original reward to the winner
-        // even if the opponent's completion request won the race.
+        // The database is authoritative. If the completion response does not
+        // contain the reward (for example, because the other player's
+        // completion request won the race), fetch the reward that was actually
+        // recorded for THIS user and THIS match. This prevents the UI from
+        // depending on which player's request reached the database first.
         const isCurrentUserWinner = winnerId === userId;
+
+        if (
+          result === "win" &&
+          isCurrentUserWinner &&
+          (finalCoins <= 0 && finalXp <= 0)
+        ) {
+          for (let attempt = 0; attempt < 5; attempt += 1) {
+            try {
+              const storedReward = await getGamingMatchReward({
+                data: { matchId },
+              });
+
+              const storedCoins = Number(storedReward?.x_coins ?? 0);
+              const storedXp = Number(storedReward?.xp ?? 0);
+
+              if (storedCoins > 0 || storedXp > 0) {
+                finalCoins = Number.isFinite(storedCoins)
+                  ? Math.max(0, storedCoins)
+                  : 0;
+                finalXp = Number.isFinite(storedXp)
+                  ? Math.max(0, storedXp)
+                  : 0;
+                break;
+              }
+            } catch (rewardLookupError) {
+              console.error(
+                "Failed to recover recorded gaming reward:",
+                rewardLookupError,
+              );
+            }
+
+            if (attempt < 4) {
+              await new Promise((resolve) => setTimeout(resolve, 200));
+            }
+          }
+        }
+
         const shouldShowReward =
           result === "win" &&
           isCurrentUserWinner &&
-          (safeCoins > 0 || safeXp > 0) &&
+          (finalCoins > 0 || finalXp > 0) &&
           !rewardShownMatchIdsRef.current.has(matchId);
 
         if (shouldShowReward) {
           rewardShownMatchIdsRef.current.add(matchId);
           setRewardResult("win");
-          setRewardCoins(safeCoins);
-          setRewardXp(safeXp);
+          setRewardCoins(finalCoins);
+          setRewardXp(finalXp);
           setRewardOpen(true);
-        } else if (result === "draw" && !rewardShownMatchIdsRef.current.has(matchId)) {
+        } else if (
+          result === "draw" &&
+          !rewardShownMatchIdsRef.current.has(matchId)
+        ) {
           // Draws receive XP from Gaming Supabase but no X Coins.
           rewardShownMatchIdsRef.current.add(matchId);
           setRewardResult("draw");
-          setRewardCoins(safeCoins);
-          setRewardXp(safeXp);
+          setRewardCoins(finalCoins);
+          setRewardXp(finalXp);
           setRewardOpen(true);
         }
 
