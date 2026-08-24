@@ -18,16 +18,14 @@ if (!gamingSupabaseServiceRoleKey) {
   );
 }
 
-export const gamingSupabaseAdmin = createClient(
-  gamingSupabaseUrl,
-  gamingSupabaseServiceRoleKey,
-  {
-    db: {
-      schema: "gaming",
+export const gamingSupabaseAdmin =
+  createClient(
+    gamingSupabaseUrl,
+    gamingSupabaseServiceRoleKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
     },
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  },
-);
+  );
