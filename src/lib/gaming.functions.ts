@@ -886,3 +886,366 @@ export const getGamingRewardHistory = createServerFn({
 
     return { success: true, items };
   });
+
+
+/* =========================================================
+ * SHOP / TRANSFER / PUBLIC PROFILE / TRANSACTIONS
+ * Uses REAL Gaming Supabase tables + RPCs only.
+ * ========================================================= */
+
+export type TransferXCoinsInput = {
+  recipientId: string;
+  amount: number;
+  idempotencyKey: string;
+};
+
+export const transferXCoins = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: TransferXCoinsInput) => {
+    if (!input || typeof input !== "object") {
+      throw new Error("Invalid transfer input");
+    }
+    if (!input.recipientId || typeof input.recipientId !== "string") {
+      throw new Error("Recipient is required");
+    }
+    if (!input.idempotencyKey || typeof input.idempotencyKey !== "string") {
+      throw new Error("Idempotency key is required");
+    }
+    const amount = Number(input.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
+      throw new Error("Amount must be a positive whole number");
+    }
+    return {
+      recipientId: input.recipientId,
+      amount,
+      idempotencyKey: input.idempotencyKey,
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const actorId = context.userId;
+
+    if (data.recipientId === actorId) {
+      throw new Error("You cannot transfer X Coins to yourself");
+    }
+
+    const { data: result, error } = await gamingSupabaseAdmin.rpc(
+      "transfer_x_coins",
+      {
+        p_actor_id: actorId,
+        p_recipient_id: data.recipientId,
+        p_amount: data.amount,
+        p_idempotency_key: data.idempotencyKey,
+      },
+    );
+
+    if (error) {
+      console.error("transfer_x_coins failed:", error);
+      throw new Error(error.message || "Transfer failed");
+    }
+
+    return { success: true, result };
+  });
+
+export type PurchaseShopItemInput = {
+  itemId: string;
+  quantity?: number;
+};
+
+export const purchaseShopItem = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: PurchaseShopItemInput) => {
+    if (!input || typeof input !== "object" || !input.itemId) {
+      throw new Error("Item ID is required");
+    }
+    const quantity =
+      input.quantity == null ? 1 : Math.floor(Number(input.quantity));
+    if (!Number.isFinite(quantity) || quantity < 1) {
+      throw new Error("Quantity must be at least 1");
+    }
+    return { itemId: input.itemId, quantity };
+  })
+  .handler(async ({ data, context }) => {
+    const actorId = context.userId;
+
+    const { data: result, error } = await gamingSupabaseAdmin.rpc(
+      "purchase_shop_item",
+      {
+        p_actor_id: actorId,
+        p_item_id: data.itemId,
+        p_quantity: data.quantity,
+      },
+    );
+
+    if (error) {
+      console.error("purchase_shop_item failed:", error);
+      throw new Error(error.message || "Purchase failed");
+    }
+
+    return { success: true, result };
+  });
+
+export type ShopCategory = {
+  category_id: string;
+  name: string;
+  description: string | null;
+};
+
+export type ShopItem = {
+  item_id: string;
+  category_id: string | null;
+  item_key: string | null;
+  name: string;
+  description: string | null;
+  price_x_coins: number;
+  metadata: unknown;
+  available: boolean;
+  unique_ownership: boolean;
+};
+
+export const getShopCatalog = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const [catRes, itemRes] = await Promise.all([
+      gamingSupabaseAdmin
+        .from("shop_categories")
+        .select("category_id, name, description, created_at")
+        .order("name", { ascending: true }),
+      gamingSupabaseAdmin
+        .from("shop_items")
+        .select(
+          "item_id, category_id, item_key, name, description, price_x_coins, metadata, available, unique_ownership, created_at, updated_at",
+        )
+        .eq("available", true)
+        .order("name", { ascending: true }),
+    ]);
+
+    if (catRes.error) {
+      console.error("shop_categories error:", catRes.error);
+      throw new Error("Unable to load shop categories");
+    }
+    if (itemRes.error) {
+      console.error("shop_items error:", itemRes.error);
+      throw new Error("Unable to load shop items");
+    }
+
+    const categories: ShopCategory[] = (catRes.data ?? []).map((c) => ({
+      category_id: String(c.category_id),
+      name: String(c.name ?? ""),
+      description: c.description == null ? null : String(c.description),
+    }));
+
+    const items: ShopItem[] = (itemRes.data ?? []).map((i) => ({
+      item_id: String(i.item_id),
+      category_id: i.category_id == null ? null : String(i.category_id),
+      item_key: i.item_key == null ? null : String(i.item_key),
+      name: String(i.name ?? ""),
+      description: i.description == null ? null : String(i.description),
+      price_x_coins: Number(i.price_x_coins ?? 0),
+      metadata: i.metadata ?? null,
+      available: Boolean(i.available),
+      unique_ownership: Boolean(i.unique_ownership),
+    }));
+
+    return { success: true, categories, items };
+  });
+
+export type InventoryItem = {
+  inventory_id: string;
+  item_id: string;
+  quantity: number;
+  equipped: boolean;
+  purchased_at: string | null;
+  item_name: string | null;
+  item_description: string | null;
+  item_key: string | null;
+};
+
+export const getUserInventory = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const userId = context.userId;
+
+    const { data, error } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .select(
+        "inventory_id, user_id, item_id, quantity, equipped, purchased_at, metadata",
+      )
+      .eq("user_id", userId)
+      .order("purchased_at", { ascending: false });
+
+    if (error) {
+      console.error("user_inventory error:", error);
+      throw new Error("Unable to load inventory");
+    }
+
+    const rows = data ?? [];
+    const itemIds = Array.from(
+      new Set(rows.map((r) => String(r.item_id)).filter(Boolean)),
+    );
+
+    let itemMap = new Map<
+      string,
+      { name: string; description: string | null; item_key: string | null }
+    >();
+
+    if (itemIds.length > 0) {
+      const { data: items, error: itemErr } = await gamingSupabaseAdmin
+        .from("shop_items")
+        .select("item_id, name, description, item_key")
+        .in("item_id", itemIds);
+
+      if (!itemErr && items) {
+        itemMap = new Map(
+          items.map((i) => [
+            String(i.item_id),
+            {
+              name: String(i.name ?? "Item"),
+              description:
+                i.description == null ? null : String(i.description),
+              item_key: i.item_key == null ? null : String(i.item_key),
+            },
+          ]),
+        );
+      }
+    }
+
+    const inventory: InventoryItem[] = rows.map((r) => {
+      const meta = itemMap.get(String(r.item_id));
+      return {
+        inventory_id: String(r.inventory_id),
+        item_id: String(r.item_id),
+        quantity: Number(r.quantity ?? 0),
+        equipped: Boolean(r.equipped),
+        purchased_at: r.purchased_at == null ? null : String(r.purchased_at),
+        item_name: meta?.name ?? null,
+        item_description: meta?.description ?? null,
+        item_key: meta?.item_key ?? null,
+      };
+    });
+
+    return { success: true, inventory };
+  });
+
+export type CoinTransaction = {
+  transaction_id: string;
+  amount: number;
+  transaction_type: string | null;
+  reason: string | null;
+  match_id: string | null;
+  transfer_id: string | null;
+  purchase_id: string | null;
+  sender_id: string | null;
+  recipient_id: string | null;
+  created_at: string | null;
+};
+
+export const getCoinTransactions = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const userId = context.userId;
+
+    const { data, error } = await gamingSupabaseAdmin
+      .from("coin_transactions")
+      .select(
+        "transaction_id, user_id, amount, transaction_type, reason, match_id, transfer_id, purchase_id, sender_id, recipient_id, metadata, created_at",
+      )
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error("coin_transactions error:", error);
+      throw new Error("Unable to load transactions");
+    }
+
+    const transactions: CoinTransaction[] = (data ?? []).map((t) => ({
+      transaction_id: String(t.transaction_id),
+      amount: Number(t.amount ?? 0),
+      transaction_type:
+        t.transaction_type == null ? null : String(t.transaction_type),
+      reason: t.reason == null ? null : String(t.reason),
+      match_id: t.match_id == null ? null : String(t.match_id),
+      transfer_id: t.transfer_id == null ? null : String(t.transfer_id),
+      purchase_id: t.purchase_id == null ? null : String(t.purchase_id),
+      sender_id: t.sender_id == null ? null : String(t.sender_id),
+      recipient_id: t.recipient_id == null ? null : String(t.recipient_id),
+      created_at: t.created_at == null ? null : String(t.created_at),
+    }));
+
+    return { success: true, transactions };
+  });
+
+export type PublicGamingProfile = {
+  user_id: string;
+  total_xp: number;
+  current_level: number;
+  games_played: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  bot_games: number;
+  real_user_games: number;
+  win_rate: number;
+  current_streak: number;
+  longest_streak: number;
+};
+
+export type GetPublicGamingProfileInput = {
+  userId: string;
+};
+
+export const getPublicGamingProfile = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: GetPublicGamingProfileInput) => {
+    if (!input || typeof input !== "object" || !input.userId) {
+      throw new Error("User ID is required");
+    }
+    return { userId: input.userId };
+  })
+  .handler(async ({ data }) => {
+    const { data: row, error } = await gamingSupabaseAdmin
+      .from("public_gaming_profiles")
+      .select(
+        "user_id, total_xp, current_level, games_played, wins, losses, draws, bot_games, real_user_games, win_rate, current_streak, longest_streak",
+      )
+      .eq("user_id", data.userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("public_gaming_profiles error:", error);
+      throw new Error("Unable to load public gaming profile");
+    }
+
+    if (!row) {
+      return { success: true, profile: null };
+    }
+
+    const profile: PublicGamingProfile = {
+      user_id: String(row.user_id),
+      total_xp: Number(row.total_xp ?? 0),
+      current_level: Number(row.current_level ?? 1),
+      games_played: Number(row.games_played ?? 0),
+      wins: Number(row.wins ?? 0),
+      losses: Number(row.losses ?? 0),
+      draws: Number(row.draws ?? 0),
+      bot_games: Number(row.bot_games ?? 0),
+      real_user_games: Number(row.real_user_games ?? 0),
+      win_rate: Number(row.win_rate ?? 0),
+      current_streak: Number(row.current_streak ?? 0),
+      longest_streak: Number(row.longest_streak ?? 0),
+    };
+
+    return { success: true, profile };
+  });
