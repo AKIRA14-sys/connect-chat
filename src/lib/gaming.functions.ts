@@ -831,3 +831,58 @@ export const getGamingWallet =
         };
       },
     );
+
+
+/**
+ * Recent reward rows for the authenticated user.
+ * Reads public.game_rewards only (columns that already exist).
+ */
+export type GamingRewardHistoryItem = {
+  match_id: string;
+  user_id: string;
+  x_coins: number;
+  xp: number;
+  reward_type: string | null;
+  created_at: string | null;
+};
+
+export const getGamingRewardHistory = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { limit?: number } | undefined) => {
+    const limit =
+      input && typeof input === "object" && typeof input.limit === "number"
+        ? Math.min(Math.max(1, Math.floor(input.limit)), 50)
+        : 20;
+    return { limit };
+  })
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+    const limit = data.limit;
+
+    const { data: rows, error } = await gamingSupabaseAdmin
+      .from("game_rewards")
+      .select("match_id, user_id, x_coins, xp, reward_type, created_at")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error("Failed to load gaming reward history:", error);
+      throw new Error("Unable to load reward history");
+    }
+
+    const items: GamingRewardHistoryItem[] = (rows ?? []).map((row) => ({
+      match_id: String(row.match_id),
+      user_id: String(row.user_id),
+      x_coins: Number(row.x_coins ?? 0),
+      xp: Number(row.xp ?? 0),
+      reward_type:
+        row.reward_type == null ? null : String(row.reward_type),
+      created_at:
+        row.created_at == null ? null : String(row.created_at),
+    }));
+
+    return { success: true, items };
+  });
