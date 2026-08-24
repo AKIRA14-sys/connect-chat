@@ -4198,6 +4198,7 @@ function useGamingMatchSession({
   const matchIdRef = useRef<string | null>(null);
   const startedRef = useRef(false);
   const completedRef = useRef(false);
+  const rewardShownMatchIdsRef = useRef<Set<string>>(new Set());
 
   const [rewardOpen, setRewardOpen] = useState(false);
   const [rewardResult, setRewardResult] = useState<"win" | "draw" | "loss">("win");
@@ -4216,6 +4217,11 @@ function useGamingMatchSession({
       const id = createMatchId();
       matchIdRef.current = id;
 
+      // A new round must never inherit the previous reward modal/state.
+      setRewardOpen(false);
+      setRewardCoins(0);
+      setRewardXp(0);
+
       if (!isBot && peerId) {
         sync.send("gaming_match_started", { matchId: id });
       }
@@ -4228,26 +4234,59 @@ function useGamingMatchSession({
           isBot,
         },
       }).catch((error) => {
+        // If the server failed to create the session, do not leave a
+        // seemingly valid match ID in memory.
+        if (matchIdRef.current === id) {
+          matchIdRef.current = null;
+          completedRef.current = false;
+        }
         console.error("Failed to start gaming match:", error);
       });
 
       return;
     }
 
+    // The non-host receives the match ID from the host. If the original
+    // broadcast was missed, the request/response handshake below recovers it.
     matchIdRef.current = null;
   }, [gameType, isBot, isHost, peerId, sync]);
 
   useEffect(() => {
-    const off = sync.on("gaming_match_started", (data) => {
+    const offStart = sync.on("gaming_match_started", (data) => {
       if (!data?.matchId) return;
+
       matchIdRef.current = data.matchId;
       completedRef.current = false;
     });
 
-    if (enabled && !startedRef.current) start();
+    const offRequest = sync.on("gaming_match_request", () => {
+      // Only the host may create/announce match IDs. Never answer with an
+      // already-completed match because that would cause the database's
+      // duplicate-protection path to fire.
+      if (!isHost || isBot) return;
+      if (!matchIdRef.current || completedRef.current) return;
 
-    return off;
-  }, [enabled, start, sync]);
+      sync.send("gaming_match_started", {
+        matchId: matchIdRef.current,
+      });
+    });
+
+    if (enabled && !startedRef.current) {
+      start();
+    }
+
+    // A non-host can miss the host's first broadcast if the realtime
+    // channel finishes subscribing a moment later. Ask for the active
+    // match after the listener is installed.
+    if (enabled && !isBot && !isHost) {
+      sync.send("gaming_match_request", {});
+    }
+
+    return () => {
+      offStart();
+      offRequest();
+    };
+  }, [enabled, isBot, isHost, start, sync]);
 
   const complete = useCallback(
     async ({
@@ -4260,19 +4299,21 @@ function useGamingMatchSession({
       loserId?: string | null;
     }) => {
       const matchId = matchIdRef.current;
+
       if (!matchId || completedRef.current) return;
 
       completedRef.current = true;
 
       try {
-        // Multiplayer race fix: both clients may call complete at the same time.
-        // The Gaming RPC only returns x_coins_awarded / xp_awarded on the first
-        // successful process; the second gets already_processed with empty amounts.
-        // Stagger so the winner (and draw host) always submits first.
-        // Bot / practice games have only one client — no stagger needed.
+        // Multiplayer completion can race: both clients may submit the
+        // same match. The database now remains authoritative and returns
+        // the original winner reward when the winner's request arrives
+        // after the opponent's request. Keep a small stagger for the
+        // normal path, but do not rely on timing for correctness.
         if (!isBot) {
           const staggerMs =
             result === "win" ? 0 : result === "draw" ? (isHost ? 0 : 150) : 280;
+
           if (staggerMs > 0) {
             await new Promise((resolve) => setTimeout(resolve, staggerMs));
           }
@@ -4291,10 +4332,6 @@ function useGamingMatchSession({
           },
         });
 
-        // Extract reward values from the secure backend response only.
-        // Gaming Supabase RPC complete_game_match_and_reward returns:
-        // { ok, match_id, reward_processed, reward: { x_coins_awarded, xp_awarded, ... } }
-        // Server fn wraps it as: { success: true, result: <rpc data> }
         const rpcPayload =
           response && typeof response === "object" && "result" in response
             ? (response as { result?: unknown }).result
@@ -4317,6 +4354,7 @@ function useGamingMatchSession({
             data.x_coins ??
             0,
         );
+
         const xp = Number(
           rewardObj.xp_awarded ??
             rewardObj.xpAwarded ??
@@ -4325,15 +4363,40 @@ function useGamingMatchSession({
             0,
         );
 
-        setRewardResult(result === "loss" ? "loss" : result);
-        setRewardCoins(Number.isFinite(coins) ? Math.max(0, coins) : 0);
-        setRewardXp(Number.isFinite(xp) ? Math.max(0, xp) : 0);
-        setRewardOpen(true);
+        const safeCoins = Number.isFinite(coins) ? Math.max(0, coins) : 0;
+        const safeXp = Number.isFinite(xp) ? Math.max(0, xp) : 0;
 
-        // Invalidate this matchId after a successful complete so it can never
-        // be submitted again. The next round MUST call start() for a new ID.
+        // Only the user who is actually the winner should display the coin
+        // reward. The database returns the original reward to the winner
+        // even if the opponent's completion request won the race.
+        const isCurrentUserWinner = winnerId === userId;
+        const shouldShowReward =
+          result === "win" &&
+          isCurrentUserWinner &&
+          (safeCoins > 0 || safeXp > 0) &&
+          !rewardShownMatchIdsRef.current.has(matchId);
+
+        if (shouldShowReward) {
+          rewardShownMatchIdsRef.current.add(matchId);
+          setRewardResult("win");
+          setRewardCoins(safeCoins);
+          setRewardXp(safeXp);
+          setRewardOpen(true);
+        } else if (result === "draw" && !rewardShownMatchIdsRef.current.has(matchId)) {
+          // Draws receive XP from Gaming Supabase but no X Coins.
+          rewardShownMatchIdsRef.current.add(matchId);
+          setRewardResult("draw");
+          setRewardCoins(safeCoins);
+          setRewardXp(safeXp);
+          setRewardOpen(true);
+        }
+
+        // This match can never be submitted again from this hook.
         matchIdRef.current = null;
       } catch (error) {
+        // Allow a retry if the network/server request itself failed.
+        // Do not create a new match here; the current match ID is still
+        // valid and the database has not necessarily processed it.
         completedRef.current = false;
         console.error("Failed to submit gaming result:", error);
       }
