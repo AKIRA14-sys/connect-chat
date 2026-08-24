@@ -191,3 +191,95 @@ export const getGamingMatchReward = createServerFn({
         }
       : null;
   });
+
+
+export type GamingWalletData = {
+  user_id: string;
+  x_coins: number;
+  total_xp: number;
+  level: number;
+  games_played: number;
+  wins: number;
+  losses: number;
+  draws: number;
+  current_streak: number;
+  longest_streak: number;
+  bot_games: number;
+  real_user_games: number;
+};
+
+export const getGamingWallet = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const userId = context.userId;
+
+    const { data, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .from("gaming_profiles")
+      .select(
+        [
+          "user_id",
+          "x_coins",
+          "total_xp",
+          "level",
+          "games_played",
+          "wins",
+          "losses",
+          "draws",
+          "current_streak",
+          "longest_streak",
+          "bot_games",
+          "real_user_games",
+        ].join(","),
+      )
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to load gaming wallet:", error);
+      throw new Error("Unable to load gaming wallet");
+    }
+
+    if (!data) {
+      const ensured = await ensureGamingProfile();
+      const profile = ensured?.profile as Record<string, unknown> | null;
+
+      return {
+        success: true,
+        wallet: {
+          user_id: userId,
+          x_coins: Number(profile?.x_coins ?? 0),
+          total_xp: Number(profile?.total_xp ?? 0),
+          level: Number(profile?.current_level ?? profile?.level ?? 1),
+          games_played: 0,
+          wins: 0,
+          losses: 0,
+          draws: 0,
+          current_streak: 0,
+          longest_streak: 0,
+          bot_games: 0,
+          real_user_games: 0,
+        } satisfies GamingWalletData,
+      };
+    }
+
+    return {
+      success: true,
+      wallet: {
+        user_id: String(data.user_id),
+        x_coins: Number(data.x_coins ?? 0),
+        total_xp: Number(data.total_xp ?? 0),
+        level: Number(data.level ?? 1),
+        games_played: Number(data.games_played ?? 0),
+        wins: Number(data.wins ?? 0),
+        losses: Number(data.losses ?? 0),
+        draws: Number(data.draws ?? 0),
+        current_streak: Number(data.current_streak ?? 0),
+        longest_streak: Number(data.longest_streak ?? 0),
+        bot_games: Number(data.bot_games ?? 0),
+        real_user_games: Number(data.real_user_games ?? 0),
+      } satisfies GamingWalletData,
+    };
+  });
