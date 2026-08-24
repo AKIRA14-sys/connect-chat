@@ -1687,6 +1687,13 @@ function RockPaperScissors({
       setScore((c) => ({ ...c, draws: c.draws + 1 }));
       setResult("🤝 Draw!");
     }
+
+    void gamingMatch.complete({
+      result:
+        outcome === "win" ? "win" : outcome === "lose" ? "loss" : "draw",
+      winnerId: outcome === "win" ? userId : null,
+      loserId: outcome === "lose" ? userId : null,
+    });
   };
 
   const reset = () => {
@@ -1908,6 +1915,9 @@ function EmojiGuess({
         result: "win",
         winnerId: userId,
         loserId: peerId ?? null,
+      }).then(() => {
+        // New match for the next question — never reuse the previous matchId
+        gamingMatch.start();
       });
 
       const next = pickQuestion();
@@ -1925,6 +1935,8 @@ function EmojiGuess({
       result: "win",
       winnerId: userId,
       loserId: null,
+    }).then(() => {
+      gamingMatch.start();
     });
 
     const next = pickQuestion();
@@ -2101,6 +2113,9 @@ function ReactionBattle({
   }, [sync, hasPeer]);
 
   const start = () => {
+    // Fresh match session for every new reaction attempt
+    gamingMatch.start();
+
     setState("waiting");
     setReactionTime(null);
     setPeerTime(null);
@@ -4314,6 +4329,10 @@ function useGamingMatchSession({
         setRewardCoins(Number.isFinite(coins) ? Math.max(0, coins) : 0);
         setRewardXp(Number.isFinite(xp) ? Math.max(0, xp) : 0);
         setRewardOpen(true);
+
+        // Invalidate this matchId after a successful complete so it can never
+        // be submitted again. The next round MUST call start() for a new ID.
+        matchIdRef.current = null;
       } catch (error) {
         completedRef.current = false;
         console.error("Failed to submit gaming result:", error);
