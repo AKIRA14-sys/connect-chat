@@ -4250,6 +4250,19 @@ function useGamingMatchSession({
       completedRef.current = true;
 
       try {
+        // Multiplayer race fix: both clients may call complete at the same time.
+        // The Gaming RPC only returns x_coins_awarded / xp_awarded on the first
+        // successful process; the second gets already_processed with empty amounts.
+        // Stagger so the winner (and draw host) always submits first.
+        // Bot / practice games have only one client — no stagger needed.
+        if (!isBot) {
+          const staggerMs =
+            result === "win" ? 0 : result === "draw" ? (isHost ? 0 : 150) : 280;
+          if (staggerMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, staggerMs));
+          }
+        }
+
         const response = await completeGamingMatch({
           data: {
             matchId,
