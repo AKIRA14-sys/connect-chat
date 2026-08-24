@@ -4200,6 +4200,8 @@ function useGamingMatchSession({
   const startedRef = useRef(false);
   const completedRef = useRef(false);
   const rewardShownMatchIdsRef = useRef<Set<string>>(new Set());
+  const startPromiseRef = useRef<Promise<void> | null>(null);
+  const nonHostReadyResolveRef = useRef<(() => void) | null>(null);
 
   const [rewardOpen, setRewardOpen] = useState(false);
   const [rewardResult, setRewardResult] = useState<"win" | "draw" | "loss">("win");
@@ -4210,46 +4212,59 @@ function useGamingMatchSession({
     setRewardOpen(false);
   }, []);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     startedRef.current = true;
     completedRef.current = false;
 
+    // Every call to start() represents a genuinely NEW round.
+    const id = createMatchId();
+    matchIdRef.current = isBot || isHost ? id : null;
+
+    setRewardOpen(false);
+    setRewardCoins(0);
+    setRewardXp(0);
+
     if (isBot || isHost) {
-      const id = createMatchId();
-      matchIdRef.current = id;
+      const promise = (async () => {
+        try {
+          // IMPORTANT: create the server-side match BEFORE telling the peer
+          // that this match exists. This removes the race where the peer can
+          // finish a game before Gaming Supabase has created the session.
+          await startGamingMatch({
+            data: {
+              matchId: id,
+              gameType,
+              player2Id: isBot ? null : peerId,
+              isBot,
+            },
+          });
 
-      // A new round must never inherit the previous reward modal/state.
-      setRewardOpen(false);
-      setRewardCoins(0);
-      setRewardXp(0);
-
-      if (!isBot && peerId) {
-        sync.send("gaming_match_started", { matchId: id });
-      }
-
-      void startGamingMatch({
-        data: {
-          matchId: id,
-          gameType,
-          player2Id: isBot ? null : peerId,
-          isBot,
-        },
-      }).catch((error) => {
-        // If the server failed to create the session, do not leave a
-        // seemingly valid match ID in memory.
-        if (matchIdRef.current === id) {
-          matchIdRef.current = null;
-          completedRef.current = false;
+          if (matchIdRef.current === id && !isBot && peerId) {
+            sync.send("gaming_match_started", { matchId: id });
+          }
+        } catch (error) {
+          if (matchIdRef.current === id) {
+            matchIdRef.current = null;
+            completedRef.current = false;
+          }
+          console.error("Failed to start gaming match:", error);
+          throw error;
         }
-        console.error("Failed to start gaming match:", error);
-      });
+      })();
 
+      startPromiseRef.current = promise;
+      await promise;
       return;
     }
 
-    // The non-host receives the match ID from the host. If the original
-    // broadcast was missed, the request/response handshake below recovers it.
-    matchIdRef.current = null;
+    // Non-host: the host owns creation of the server session. Wait for the
+    // host's NEW match ID instead of allowing completion to race ahead of it.
+    startPromiseRef.current = new Promise<void>((resolve) => {
+      nonHostReadyResolveRef.current = resolve;
+    });
+
+    sync.send("gaming_match_request", {});
+    await startPromiseRef.current;
   }, [gameType, isBot, isHost, peerId, sync]);
 
   useEffect(() => {
@@ -4258,27 +4273,27 @@ function useGamingMatchSession({
 
       matchIdRef.current = data.matchId;
       completedRef.current = false;
+      nonHostReadyResolveRef.current?.();
+      nonHostReadyResolveRef.current = null;
     });
 
     const offRequest = sync.on("gaming_match_request", () => {
-      // Only the host may create/announce match IDs. Never answer with an
-      // already-completed match because that would cause the database's
-      // duplicate-protection path to fire.
       if (!isHost || isBot) return;
       if (!matchIdRef.current || completedRef.current) return;
 
+      // The host only announces a match after startGamingMatch() has
+      // successfully created it in Gaming Supabase.
       sync.send("gaming_match_started", {
         matchId: matchIdRef.current,
       });
     });
 
     if (enabled && !startedRef.current) {
-      start();
+      void start();
     }
 
-    // A non-host can miss the host's first broadcast if the realtime
-    // channel finishes subscribing a moment later. Ask for the active
-    // match after the listener is installed.
+    // Non-hosts request the currently active match after their listener is
+    // installed. This also recovers from a missed initial realtime broadcast.
     if (enabled && !isBot && !isHost) {
       sync.send("gaming_match_request", {});
     }
@@ -4299,18 +4314,36 @@ function useGamingMatchSession({
       winnerId?: string | null;
       loserId?: string | null;
     }) => {
-      const matchId = matchIdRef.current;
+      // A game can finish extremely quickly, before the asynchronous match
+      // creation/broadcast has completed. Always wait for the CURRENT round
+      // to be ready before submitting its result.
+      if (!matchIdRef.current) {
+        try {
+          await start();
+        } catch {
+          completedRef.current = false;
+          return;
+        }
+      } else if (startPromiseRef.current) {
+        try {
+          await startPromiseRef.current;
+        } catch {
+          // If the original start failed, create one fresh match and retry.
+          try {
+            await start();
+          } catch {
+            completedRef.current = false;
+            return;
+          }
+        }
+      }
 
+      const matchId = matchIdRef.current;
       if (!matchId || completedRef.current) return;
 
       completedRef.current = true;
 
       try {
-        // Multiplayer completion can race: both clients may submit the
-        // same match. The database now remains authoritative and returns
-        // the original winner reward when the winner's request arrives
-        // after the opponent's request. Keep a small stagger for the
-        // normal path, but do not rely on timing for correctness.
         if (!isBot) {
           const staggerMs =
             result === "win" ? 0 : result === "draw" ? (isHost ? 0 : 150) : 280;
@@ -4367,17 +4400,13 @@ function useGamingMatchSession({
         let finalCoins = Number.isFinite(coins) ? Math.max(0, coins) : 0;
         let finalXp = Number.isFinite(xp) ? Math.max(0, xp) : 0;
 
-        // The database is authoritative. If the completion response does not
-        // contain the reward (for example, because the other player's
-        // completion request won the race), fetch the reward that was actually
-        // recorded for THIS user and THIS match. This prevents the UI from
-        // depending on which player's request reached the database first.
         const isCurrentUserWinner = winnerId === userId;
 
         if (
           result === "win" &&
           isCurrentUserWinner &&
-          (finalCoins <= 0 && finalXp <= 0)
+          finalCoins <= 0 &&
+          finalXp <= 0
         ) {
           for (let attempt = 0; attempt < 5; attempt += 1) {
             try {
@@ -4426,7 +4455,6 @@ function useGamingMatchSession({
           result === "draw" &&
           !rewardShownMatchIdsRef.current.has(matchId)
         ) {
-          // Draws receive XP from Gaming Supabase but no X Coins.
           rewardShownMatchIdsRef.current.add(matchId);
           setRewardResult("draw");
           setRewardCoins(finalCoins);
@@ -4434,17 +4462,21 @@ function useGamingMatchSession({
           setRewardOpen(true);
         }
 
-        // This match can never be submitted again from this hook.
-        matchIdRef.current = null;
+        // Only clear the current match after successful completion. A later
+        // Play Again call gets its own brand-new UUID.
+        if (matchIdRef.current === matchId) {
+          matchIdRef.current = null;
+        }
       } catch (error) {
-        // Allow a retry if the network/server request itself failed.
-        // Do not create a new match here; the current match ID is still
-        // valid and the database has not necessarily processed it.
-        completedRef.current = false;
+        // Do not poison a NEW round if an older completion request fails.
+        // Only reset the completion guard if this is still the same match.
+        if (matchIdRef.current === matchId) {
+          completedRef.current = false;
+        }
         console.error("Failed to submit gaming result:", error);
       }
     },
-    [gameType, isBot, isHost, peerId, userId],
+    [gameType, isBot, isHost, peerId, start, userId],
   );
 
   const RewardModal = (
