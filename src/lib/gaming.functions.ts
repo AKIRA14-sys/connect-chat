@@ -930,18 +930,25 @@ export const transferXCoins = createServerFn({
       throw new Error("You cannot transfer X Coins to yourself");
     }
 
-    const { data: result, error } = await gamingSupabaseAdmin.rpc(
-      "transfer_x_coins",
-      {
-        p_actor_id: actorId,
+    /*
+     * Use gaming.transfer_x_coins (service_role only).
+     * Do NOT use public.transfer_x_coins — it requires auth.uid() === p_actor_id,
+     * which fails when the backend calls with the service role.
+     *
+     * Params (real schema):
+     *   p_sender_id, p_recipient_id, p_amount, p_idempotency_key
+     */
+    const { data: result, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .rpc("transfer_x_coins", {
+        p_sender_id: actorId,
         p_recipient_id: data.recipientId,
         p_amount: data.amount,
         p_idempotency_key: data.idempotencyKey,
-      },
-    );
+      });
 
     if (error) {
-      console.error("transfer_x_coins failed:", error);
+      console.error("gaming.transfer_x_coins failed:", error);
       throw new Error(error.message || "Transfer failed");
     }
 
