@@ -20,6 +20,10 @@ export type CompleteGamingMatchInput = {
   result: "win" | "loss" | "draw";
 };
 
+export type GamingMatchRewardInput = {
+  matchId: string;
+};
+
 export const ensureGamingProfile = createServerFn({
   method: "POST",
 })
@@ -48,12 +52,15 @@ export const startGamingMatch = createServerFn({
     if (!input || typeof input !== "object") {
       throw new Error("Invalid match input");
     }
+
     if (!input.matchId || !input.gameType) {
       throw new Error("Match ID and game type are required");
     }
+
     if (input.player2Id && input.player2Id === input.matchId) {
       throw new Error("Invalid player ID");
     }
+
     return input;
   })
   .handler(async ({ data, context }) => {
@@ -95,12 +102,15 @@ export const completeGamingMatch = createServerFn({
     if (!input || typeof input !== "object") {
       throw new Error("Invalid match input");
     }
+
     if (!input.matchId || !input.gameType || !input.player1Id) {
       throw new Error("Match information is incomplete");
     }
+
     if (!["win", "loss", "draw"].includes(input.result)) {
       throw new Error("Invalid match result");
     }
+
     return input;
   })
   .handler(async ({ data, context }) => {
@@ -131,4 +141,53 @@ export const completeGamingMatch = createServerFn({
     }
 
     return { success: true, result };
+  });
+
+/**
+ * Returns the reward already recorded for the authenticated user and match.
+ *
+ * This is intentionally a server function. The browser never receives the
+ * Gaming Supabase service-role client, and users can only query their own
+ * reward for a specific match.
+ *
+ * This is used as a recovery path when both players finish a multiplayer
+ * match at nearly the same time and the completion RPC response does not
+ * contain the winner's original reward.
+ */
+export const getGamingMatchReward = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: GamingMatchRewardInput) => {
+    if (!input || typeof input !== "object" || !input.matchId) {
+      throw new Error("Match ID is required");
+    }
+
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const actorId = context.userId;
+
+    const { data: reward, error } = await gamingSupabaseAdmin
+      .from("game_rewards")
+      .select("match_id, user_id, x_coins, xp, reward_type, created_at")
+      .eq("match_id", data.matchId)
+      .eq("user_id", actorId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to read recorded gaming reward:", error);
+      throw new Error("Unable to read game reward");
+    }
+
+    return reward
+      ? {
+          matchId: reward.match_id,
+          userId: reward.user_id,
+          x_coins: Number(reward.x_coins ?? 0),
+          xp: Number(reward.xp ?? 0),
+          rewardType: reward.reward_type,
+          createdAt: reward.created_at,
+        }
+      : null;
   });
