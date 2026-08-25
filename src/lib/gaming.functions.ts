@@ -1879,3 +1879,472 @@ export const getPublicGamingProfile =
         };
       },
     );
+/* =========================================================
+ * SHOP COSMETIC EQUIP / LOAD
+ *
+ * IMPORTANT:
+ * - Purchase system is untouched.
+ * - X Coins system is untouched.
+ * - Game rewards are untouched.
+ * - Transfers are untouched.
+ * - Supabase remains the source of ownership.
+ * - The frontend can then store the selected appearance
+ *   locally in IndexedDB/localStorage.
+ * ========================================================= */
+
+export type ShopCosmeticType =
+  | "theme"
+  | "wallpaper"
+  | "bubble"
+  | "sticker_pack"
+  | "profile_frame"
+  | "badge";
+
+export type EquippedShopCosmetic = {
+  item_id: string;
+  item_key: string | null;
+  name: string;
+  description: string | null;
+  cosmetic_type: ShopCosmeticType;
+  metadata: Record<string, unknown>;
+};
+
+function getCosmeticType(
+  metadata: unknown,
+): ShopCosmeticType | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null;
+  }
+
+  const value = (metadata as Record<string, unknown>)
+    .cosmetic_type;
+
+  if (
+    value === "theme" ||
+    value === "wallpaper" ||
+    value === "bubble" ||
+    value === "sticker_pack" ||
+    value === "profile_frame" ||
+    value === "badge"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+/**
+ * Equip a purchased Shop cosmetic.
+ *
+ * The user can ONLY equip an item that belongs to them.
+ *
+ * We don't require a new Supabase RPC for this.
+ * The authenticated server function uses the existing
+ * service-role client after checking ownership.
+ */
+export type EquipShopItemInput = {
+  itemId: string;
+};
+
+export const equipShopItem = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: EquipShopItemInput) => {
+    if (
+      !input ||
+      typeof input !== "object" ||
+      !input.itemId
+    ) {
+      throw new Error("Item ID is required");
+    }
+
+    return {
+      itemId: String(input.itemId),
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+
+    /*
+     * First get the inventory record.
+     *
+     * This is the ownership check.
+     */
+    const {
+      data: inventoryRow,
+      error: inventoryError,
+    } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .select(
+        "inventory_id, user_id, item_id, equipped, quantity",
+      )
+      .eq("user_id", userId)
+      .eq("item_id", data.itemId)
+      .maybeSingle();
+
+    if (inventoryError) {
+      console.error(
+        "Failed to check cosmetic ownership:",
+        inventoryError,
+      );
+
+      throw new Error(
+        "Unable to check cosmetic ownership",
+      );
+    }
+
+    if (!inventoryRow) {
+      throw new Error(
+        "You do not own this cosmetic",
+      );
+    }
+
+    /*
+     * Get the Shop item and its metadata.
+     */
+    const {
+      data: item,
+      error: itemError,
+    } = await gamingSupabaseAdmin
+      .from("shop_items")
+      .select(
+        "item_id, item_key, name, description, metadata, available",
+      )
+      .eq("item_id", data.itemId)
+      .maybeSingle();
+
+    if (itemError) {
+      console.error(
+        "Failed to load Shop cosmetic:",
+        itemError,
+      );
+
+      throw new Error(
+        "Unable to load cosmetic",
+      );
+    }
+
+    if (!item) {
+      throw new Error("Shop item not found");
+    }
+
+    const cosmeticType =
+      getCosmeticType(item.metadata);
+
+    if (!cosmeticType) {
+      throw new Error(
+        "This Shop item is not a usable cosmetic",
+      );
+    }
+
+    /*
+     * Find all cosmetics owned by this user.
+     *
+     * We only change equipped state for the same
+     * cosmetic type.
+     */
+    const {
+      data: ownedRows,
+      error: ownedError,
+    } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .select(
+        "inventory_id, item_id",
+      )
+      .eq("user_id", userId);
+
+    if (ownedError) {
+      console.error(
+        "Failed to load cosmetic inventory:",
+        ownedError,
+      );
+
+      throw new Error(
+        "Unable to load cosmetic inventory",
+      );
+    }
+
+    const ownedItemIds = Array.from(
+      new Set(
+        (ownedRows ?? [])
+          .map((row) => String(row.item_id))
+          .filter(Boolean),
+      ),
+    );
+
+    /*
+     * Determine which owned items belong to this
+     * cosmetic category.
+     */
+    let sameTypeItemIds: string[] = [];
+
+    if (ownedItemIds.length > 0) {
+      const {
+        data: ownedItems,
+        error: ownedItemsError,
+      } = await gamingSupabaseAdmin
+        .from("shop_items")
+        .select(
+          "item_id, metadata",
+        )
+        .in(
+          "item_id",
+          ownedItemIds,
+        );
+
+      if (ownedItemsError) {
+        console.error(
+          "Failed to load owned cosmetics:",
+          ownedItemsError,
+        );
+
+        throw new Error(
+          "Unable to load owned cosmetics",
+        );
+      }
+
+      sameTypeItemIds = (ownedItems ?? [])
+        .filter(
+          (ownedItem) =>
+            getCosmeticType(
+              ownedItem.metadata,
+            ) === cosmeticType,
+        )
+        .map((ownedItem) =>
+          String(ownedItem.item_id),
+        );
+    }
+
+    /*
+     * Unequip the previous cosmetic of this type.
+     *
+     * Example:
+     *
+     * Equipping a new wallpaper should not affect
+     * bubbles, themes, stickers, etc.
+     */
+    if (sameTypeItemIds.length > 0) {
+      const {
+        error: clearError,
+      } = await gamingSupabaseAdmin
+        .from("user_inventory")
+        .update({
+          equipped: false,
+        })
+        .eq("user_id", userId)
+        .in(
+          "item_id",
+          sameTypeItemIds,
+        );
+
+      if (clearError) {
+        console.error(
+          "Failed to clear previous cosmetic:",
+          clearError,
+        );
+
+        throw new Error(
+          "Unable to equip cosmetic",
+        );
+      }
+    }
+
+    /*
+     * Equip the requested item.
+     */
+    const {
+      error: equipError,
+    } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .update({
+        equipped: true,
+      })
+      .eq("user_id", userId)
+      .eq("item_id", data.itemId);
+
+    if (equipError) {
+      console.error(
+        "Failed to equip cosmetic:",
+        equipError,
+      );
+
+      throw new Error(
+        "Unable to equip cosmetic",
+      );
+    }
+
+    return {
+      success: true,
+
+      equipped: {
+        item_id: String(item.item_id),
+
+        item_key:
+          item.item_key == null
+            ? null
+            : String(item.item_key),
+
+        name:
+          String(
+            item.name ?? "Cosmetic",
+          ),
+
+        description:
+          item.description == null
+            ? null
+            : String(item.description),
+
+        cosmetic_type:
+          cosmeticType,
+
+        metadata:
+          item.metadata &&
+          typeof item.metadata === "object"
+            ? item.metadata as Record<
+                string,
+                unknown
+              >
+            : {},
+      } satisfies EquippedShopCosmetic,
+    };
+  });
+
+/**
+ * Load every equipped Shop cosmetic owned by
+ * the authenticated user.
+ *
+ * The frontend uses this once when the chat/app
+ * loads, then stores the appearance locally.
+ */
+export const getEquippedShopCosmetics =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([requireSupabaseAuth])
+    .handler(async ({ context }) => {
+      const userId = context.userId;
+
+      const {
+        data: inventoryRows,
+        error: inventoryError,
+      } = await gamingSupabaseAdmin
+        .from("user_inventory")
+        .select(
+          "item_id, equipped",
+        )
+        .eq("user_id", userId)
+        .eq("equipped", true);
+
+      if (inventoryError) {
+        console.error(
+          "Failed to load equipped cosmetics:",
+          inventoryError,
+        );
+
+        throw new Error(
+          "Unable to load equipped cosmetics",
+        );
+      }
+
+      const itemIds = Array.from(
+        new Set(
+          (inventoryRows ?? [])
+            .map((row) =>
+              String(row.item_id),
+            )
+            .filter(Boolean),
+        ),
+      );
+
+      if (itemIds.length === 0) {
+        return {
+          success: true,
+          cosmetics: [],
+        };
+      }
+
+      const {
+        data: items,
+        error: itemsError,
+      } = await gamingSupabaseAdmin
+        .from("shop_items")
+        .select(
+          "item_id, item_key, name, description, metadata",
+        )
+        .in(
+          "item_id",
+          itemIds,
+        );
+
+      if (itemsError) {
+        console.error(
+          "Failed to load equipped Shop items:",
+          itemsError,
+        );
+
+        throw new Error(
+          "Unable to load equipped cosmetics",
+        );
+      }
+
+      const cosmetics: EquippedShopCosmetic[] =
+        (items ?? [])
+          .map((item) => {
+            const cosmeticType =
+              getCosmeticType(
+                item.metadata,
+              );
+
+            if (!cosmeticType) {
+              return null;
+            }
+
+            return {
+              item_id:
+                String(item.item_id),
+
+              item_key:
+                item.item_key == null
+                  ? null
+                  : String(item.item_key),
+
+              name:
+                String(
+                  item.name ??
+                    "Cosmetic",
+                ),
+
+              description:
+                item.description == null
+                  ? null
+                  : String(
+                      item.description,
+                    ),
+
+              cosmetic_type:
+                cosmeticType,
+
+              metadata:
+                item.metadata &&
+                typeof item.metadata ===
+                  "object"
+                  ? item.metadata as Record<
+                      string,
+                      unknown
+                    >
+                  : {},
+            };
+          })
+          .filter(
+            (
+              item,
+            ): item is EquippedShopCosmetic =>
+              item !== null,
+          );
+
+      return {
+        success: true,
+        cosmetics,
+      };
+    });
