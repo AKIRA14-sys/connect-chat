@@ -3,17 +3,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import {
   Flame,
   Gamepad2,
-  History,
-  Image as ImageIcon,
   Package,
   RefreshCw,
   Search,
   Send,
-  ShoppingBag,
-  Sparkles,
   Star,
-  Trophy,
-  User,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,7 +38,7 @@ export const Route = createFileRoute("/_authenticated/shop")({
       { title: "Shop — XUPS" },
       {
         name: "description",
-        content: "X Coins, cosmetics, anime, games, movies, cars, stickers and more.",
+        content: "X Coin wallet, shop, transfers, inventory and history.",
       },
     ],
   }),
@@ -80,141 +74,9 @@ function newIdempotencyKey(): string {
   return `xfer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getMetadataString(metadata: unknown, keys: string[]): string | null {
-  if (!metadata || typeof metadata !== "object") return null;
-  const value = metadata as Record<string, unknown>;
-
-  for (const key of keys) {
-    const candidate = value[key];
-    if (typeof candidate === "string" && candidate.trim()) {
-      return candidate.trim();
-    }
-  }
-
-  return null;
-}
-
-function getItemImage(item: ShopItem): string | null {
-  return getMetadataString(item.metadata, [
-    "image_url",
-    "imageUrl",
-    "image",
-    "preview_url",
-    "previewUrl",
-    "hero_url",
-    "heroUrl",
-    "thumbnail_url",
-    "thumbnailUrl",
-    "cover_url",
-    "coverUrl",
-  ]);
-}
-
-function getItemBadge(item: ShopItem): string | null {
-  return getMetadataString(item.metadata, [
-    "badge",
-    "tag",
-    "label",
-  ]);
-}
-
-function getItemTheme(item: ShopItem): string {
-  const key = `${item.item_key ?? ""} ${item.name} ${item.description ?? ""}`.toLowerCase();
-
-  if (key.includes("anime") || key.includes("zenitsu") || key.includes("naruto")) {
-    return "from-purple-950 via-indigo-900 to-blue-950";
-  }
-  if (key.includes("game") || key.includes("gaming") || key.includes("xbox") || key.includes("playstation")) {
-    return "from-emerald-950 via-green-900 to-slate-950";
-  }
-  if (key.includes("movie") || key.includes("spider") || key.includes("marvel")) {
-    return "from-red-950 via-rose-900 to-slate-950";
-  }
-  if (key.includes("car") || key.includes("bmw") || key.includes("lamborghini")) {
-    return "from-cyan-950 via-slate-900 to-blue-950";
-  }
-  if (key.includes("sticker")) {
-    return "from-yellow-950 via-orange-900 to-pink-950";
-  }
-  if (key.includes("gif")) {
-    return "from-fuchsia-950 via-purple-900 to-indigo-950";
-  }
-  if (key.includes("bubble")) {
-    return "from-sky-950 via-blue-900 to-indigo-950";
-  }
-  if (key.includes("theme") || key.includes("cosmetic")) {
-    return "from-pink-950 via-violet-900 to-purple-950";
-  }
-
-  return "from-slate-950 via-slate-900 to-zinc-900";
-}
-
-function getCategoryIcon(categoryName: string) {
-  const name = categoryName.toLowerCase();
-
-  if (name.includes("anime")) return Sparkles;
-  if (name.includes("game")) return Gamepad2;
-  if (name.includes("movie")) return Trophy;
-  if (name.includes("car")) return Sparkles;
-  if (name.includes("sticker")) return Star;
-  if (name.includes("gif")) return ImageIcon;
-  if (name.includes("bubble")) return Send;
-  if (name.includes("theme")) return Sparkles;
-  if (name.includes("cosmetic")) return Star;
-  if (name.includes("badge")) return Trophy;
-
-  return ShoppingBag;
-}
-
-function ShopItemPreview({ item }: { item: ShopItem }) {
-  const image = getItemImage(item);
-  const badge = getItemBadge(item);
-  const Icon = getCategoryIcon(item.name);
-
-  return (
-    <div
-      className={`relative h-40 overflow-hidden rounded-xl bg-gradient-to-br ${getItemTheme(item)}`}
-    >
-      {image ? (
-        <img
-          src={image}
-          alt={item.name}
-          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-          loading="lazy"
-          onError={(event) => {
-            event.currentTarget.style.display = "none";
-          }}
-        />
-      ) : (
-        <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-white/80">
-          <Icon className="h-12 w-12" />
-          <span className="px-4 text-center text-xs font-semibold">
-            {item.name}
-          </span>
-        </div>
-      )}
-
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent" />
-
-      {badge && (
-        <span className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-1 text-[10px] font-bold text-white backdrop-blur">
-          {badge}
-        </span>
-      )}
-
-      <div className="absolute bottom-2 left-2 right-2">
-        <p className="truncate text-sm font-bold text-white drop-shadow">
-          {item.name}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function ShopPage() {
   const { user } = useAuth();
-
-  const [tab, setTab] = useState<Tab>("wallet");
+  const [tab, setTab] = useState<Tab>("shop");
   const [wallet, setWallet] = useState<GamingWalletData>(EMPTY_WALLET);
   const [categories, setCategories] = useState<ShopCategory[]>([]);
   const [items, setItems] = useState<ShopItem[]>([]);
@@ -224,8 +86,7 @@ function ShopPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [shopSearch, setShopSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<
@@ -260,7 +121,6 @@ function ShopPage() {
 
       if (walletRes?.wallet) {
         const data = walletRes.wallet;
-
         setWallet({
           user_id: String(data.user_id ?? ""),
           x_coins: safeNumber(data.x_coins),
@@ -282,13 +142,8 @@ function ShopPage() {
         setItems(catalogRes.items ?? []);
       }
 
-      if (invRes?.inventory) {
-        setInventory(invRes.inventory);
-      }
-
-      if (txRes?.transactions) {
-        setTransactions(txRes.transactions);
-      }
+      if (invRes?.inventory) setInventory(invRes.inventory);
+      if (txRes?.transactions) setTransactions(txRes.transactions);
     } catch (err) {
       console.error(err);
       setError("Unable to load shop data. Try refresh.");
@@ -307,6 +162,7 @@ function ShopPage() {
 
     if (term.length < 2) {
       setSearchResults([]);
+      setSearching(false);
       return;
     }
 
@@ -345,20 +201,9 @@ function ShopPage() {
   );
 
   const filteredItems = useMemo(() => {
-    const term = shopSearch.trim().toLowerCase();
-
-    return items.filter((item) => {
-      const categoryMatch =
-        categoryFilter === "all" || item.category_id === categoryFilter;
-
-      if (!categoryMatch) return false;
-      if (!term) return true;
-
-      return `${item.name} ${item.description ?? ""} ${item.item_key ?? ""}`
-        .toLowerCase()
-        .includes(term);
-    });
-  }, [items, categoryFilter, shopSearch]);
+    if (categoryFilter === "all") return items;
+    return items.filter((i) => i.category_id === categoryFilter);
+  }, [items, categoryFilter]);
 
   const coins = wallet.x_coins;
   const decided = wallet.wins + wallet.losses + wallet.draws;
@@ -391,7 +236,10 @@ function ShopPage() {
       toast.success(`Purchased ${item.name}`);
       await load(true);
     } catch (err) {
-      toast.error((err as Error).message || "Purchase failed");
+      console.error("Shop purchase failed:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Purchase failed",
+      );
     } finally {
       setBusyItemId(null);
     }
@@ -440,25 +288,25 @@ function ShopPage() {
       setSearchTerm("");
       await load(true);
     } catch (err) {
-      toast.error((err as Error).message || "Transfer failed");
+      toast.error(err instanceof Error ? err.message : "Transfer failed");
     } finally {
       setTransferring(false);
     }
   }
 
-  const tabs: { id: Tab; label: string; icon: typeof ShoppingBag }[] = [
-    { id: "wallet", label: "Wallet", icon: XCoinIcon as never },
-    { id: "shop", label: "Shop", icon: ShoppingBag },
-    { id: "transfer", label: "Transfer", icon: Send },
-    { id: "inventory", label: "Inventory", icon: Package },
-    { id: "history", label: "History", icon: History },
+  const tabs: { id: Tab; label: string }[] = [
+    { id: "wallet", label: "Wallet" },
+    { id: "shop", label: "Shop" },
+    { id: "transfer", label: "Transfer" },
+    { id: "inventory", label: "Inventory" },
+    { id: "history", label: "History" },
   ];
 
   return (
     <AppShell>
       <PageHeader
         title="Shop"
-        subtitle="X Coins, cosmetics, anime, games, movies, cars & more"
+        subtitle="X Coins, items & transfers"
         action={
           <Button
             type="button"
@@ -476,8 +324,10 @@ function ShopPage() {
       />
 
       <div className="space-y-4 p-4 pb-8">
-        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
-          <XCoinIcon size={38} />
+        {/* X COIN BALANCE — deliberately unchanged/yellow */}
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3">
+          <XCoinIcon size={36} className="text-yellow-400" />
+
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted-foreground">Your balance</p>
             <p className="text-2xl font-black tabular-nums">
@@ -496,25 +346,20 @@ function ShopPage() {
         )}
 
         <div className="flex gap-1 overflow-x-auto pb-1">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
-                  tab === t.id
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {t.label}
-              </button>
-            );
-          })}
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === t.id
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
         {tab === "wallet" && (
@@ -568,17 +413,7 @@ function ShopPage() {
         )}
 
         {tab === "shop" && (
-          <div className="space-y-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="pl-9"
-                placeholder="Search anime, games, movies, cars, stickers..."
-                value={shopSearch}
-                onChange={(e) => setShopSearch(e.target.value)}
-              />
-            </div>
-
+          <div className="space-y-3">
             <div className="flex gap-1 overflow-x-auto pb-1">
               <FilterChip
                 active={categoryFilter === "all"}
@@ -586,99 +421,100 @@ function ShopPage() {
                 label="All"
               />
 
-              {categories.map((category) => {
-                const Icon = getCategoryIcon(category.name);
-
-                return (
-                  <button
-                    key={category.category_id}
-                    type="button"
-                    onClick={() => setCategoryFilter(category.category_id)}
-                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
-                      categoryFilter === category.category_id
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    <Icon className="h-3 w-3" />
-                    {category.name}
-                  </button>
-                );
-              })}
+              {categories.map((c) => (
+                <FilterChip
+                  key={c.category_id}
+                  active={categoryFilter === c.category_id}
+                  onClick={() => setCategoryFilter(c.category_id)}
+                  label={c.name}
+                />
+              ))}
             </div>
 
             {loading && (
               <p className="text-sm text-muted-foreground">
-                Loading shop items…
+                Loading items…
               </p>
             )}
 
             {!loading && filteredItems.length === 0 && (
-              <div className="rounded-2xl border border-border bg-card p-6 text-center">
-                <ShoppingBag className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
-                <p className="font-semibold">No items found</p>
+              <div className="rounded-2xl border border-border bg-card p-5 text-center">
+                <ShoppingBagIcon />
+                <p className="mt-2 text-sm font-medium">
+                  No items in this category yet.
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Try another category or search.
+                  Add available items to the shop catalog to make them
+                  appear here.
                 </p>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <ul className="space-y-3">
               {filteredItems.map((item) => {
                 const owned =
-                  item.unique_ownership && ownedItemIds.has(item.item_id);
+                  item.unique_ownership &&
+                  ownedItemIds.has(item.item_id);
+
+                const purchasing = busyItemId === item.item_id;
+                const cannotAfford =
+                  coins < item.price_x_coins;
 
                 return (
-                  <article
+                  <li
                     key={item.item_id}
-                    className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+                    className="rounded-2xl border border-border bg-card p-4"
                   >
-                    <ShopItemPreview item={item} />
-
-                    <div className="space-y-3 p-3">
-                      <div className="min-h-12">
-                        <h3 className="line-clamp-2 text-sm font-bold">
-                          {item.name}
-                        </h3>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <ShoppingBagIcon small />
+                          <p className="font-semibold">
+                            {item.name}
+                          </p>
+                        </div>
 
                         {item.description && (
-                          <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
                             {item.description}
                           </p>
                         )}
+
+                        <p className="mt-3 flex items-center gap-1.5 text-sm font-bold text-yellow-500">
+                          <XCoinIcon
+                            size={17}
+                            className="text-yellow-400"
+                          />
+                          {item.price_x_coins.toLocaleString()} X Coins
+                        </p>
                       </div>
 
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex min-w-0 items-center gap-1 text-sm font-black text-yellow-500">
-                          <XCoinIcon size={17} />
-                          <span className="truncate">
-                            {item.price_x_coins.toLocaleString()}
-                          </span>
-                        </div>
-
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="shrink-0"
-                          disabled={
-                            !!busyItemId ||
-                            owned ||
-                            coins < item.price_x_coins
-                          }
-                          onClick={() => void onPurchase(item)}
-                        >
-                          {owned
-                            ? "Owned"
-                            : busyItemId === item.item_id
-                              ? "Buying…"
+                      {/* ACTIVE GREEN BUY BUTTON — only disabled when this
+                          item is being purchased, already owned, or unaffordable. */}
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="shrink-0 bg-green-600 text-white hover:bg-green-700 disabled:bg-green-600/40 disabled:text-white/70"
+                        disabled={
+                          purchasing ||
+                          owned ||
+                          cannotAfford
+                        }
+                        onClick={() => void onPurchase(item)}
+                      >
+                        {owned
+                          ? "Owned"
+                          : purchasing
+                            ? "Buying…"
+                            : cannotAfford
+                              ? "Need X Coins"
                               : "Buy"}
-                        </Button>
-                      </div>
+                      </Button>
                     </div>
-                  </article>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           </div>
         )}
 
@@ -717,39 +553,39 @@ function ShopPage() {
 
                 {searchResults.length > 0 && !recipient && (
                   <ul className="mt-1 max-h-40 overflow-y-auto rounded-xl border border-border">
-                    {searchResults.map((profile) => (
-                      <li key={profile.id}>
+                    {searchResults.map((p) => (
+                      <li key={p.id}>
                         <button
                           type="button"
                           className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
                           onClick={() => {
                             setRecipient({
-                              id: profile.id,
-                              username: profile.username,
-                              display_name: profile.display_name,
+                              id: p.id,
+                              username: p.username,
+                              display_name: p.display_name,
                             });
 
-                            setSearchTerm(profile.username ?? "");
+                            setSearchTerm(p.username ?? "");
                             setSearchResults([]);
                           }}
                         >
                           <UserAvatar
-                            path={profile.avatar_url ?? null}
+                            path={p.avatar_url ?? null}
                             name={
-                              profile.display_name ??
-                              profile.username ??
+                              p.display_name ??
+                              p.username ??
                               "?"
                             }
                             size="sm"
                           />
 
                           <span>
-                            {profile.display_name ?? profile.username}
+                            {p.display_name ?? p.username}
 
-                            {profile.username ? (
+                            {p.username ? (
                               <span className="text-muted-foreground">
                                 {" "}
-                                @{profile.username}
+                                @{p.username}
                               </span>
                             ) : null}
                           </span>
@@ -787,7 +623,7 @@ function ShopPage() {
 
               <Button
                 type="button"
-                className="w-full"
+                className="w-full bg-green-600 text-white hover:bg-green-700"
                 disabled={!recipient || transferring || !amount}
                 onClick={() => void onTransfer()}
               >
@@ -795,8 +631,8 @@ function ShopPage() {
               </Button>
 
               <p className="text-xs text-muted-foreground">
-                Transfers use the secure Gaming Supabase RPC. Balances are
-                never changed in the browser.
+                Transfers use the secure Gaming Supabase RPC. Balances
+                are never changed in the browser.
               </p>
             </section>
           </div>
@@ -810,7 +646,9 @@ function ShopPage() {
             </div>
 
             {loading && (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground">
+                Loading…
+              </p>
             )}
 
             {!loading && inventory.length === 0 && (
@@ -826,7 +664,9 @@ function ShopPage() {
               >
                 <p className="font-medium">
                   {row.item_name ?? "Item"}{" "}
-                  {row.quantity > 1 ? `×${row.quantity}` : ""}
+                  {row.quantity > 1
+                    ? `×${row.quantity}`
+                    : ""}
                 </p>
 
                 {row.item_description && (
@@ -836,7 +676,9 @@ function ShopPage() {
                 )}
 
                 {row.equipped && (
-                  <p className="mt-1 text-xs text-primary">Equipped</p>
+                  <p className="mt-1 text-xs text-primary">
+                    Equipped
+                  </p>
                 )}
               </div>
             ))}
@@ -845,10 +687,14 @@ function ShopPage() {
 
         {tab === "history" && (
           <div className="space-y-2">
-            <h2 className="font-semibold">Coin transactions</h2>
+            <h2 className="font-semibold">
+              Coin transactions
+            </h2>
 
             {loading && (
-              <p className="text-sm text-muted-foreground">Loading…</p>
+              <p className="text-sm text-muted-foreground">
+                Loading…
+              </p>
             )}
 
             {!loading && transactions.length === 0 && (
@@ -870,14 +716,18 @@ function ShopPage() {
                   <p className="text-xs text-muted-foreground">
                     {tx.reason ?? "—"}
                     {tx.created_at
-                      ? ` · ${new Date(tx.created_at).toLocaleString()}`
+                      ? ` · ${new Date(
+                          tx.created_at,
+                        ).toLocaleString()}`
                       : ""}
                   </p>
                 </div>
 
                 <p
                   className={`shrink-0 text-sm font-bold tabular-nums ${
-                    tx.amount >= 0 ? "text-green-500" : "text-red-400"
+                    tx.amount >= 0
+                      ? "text-green-500"
+                      : "text-red-400"
                   }`}
                 >
                   {tx.amount >= 0 ? "+" : ""}
@@ -889,6 +739,25 @@ function ShopPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function ShoppingBagIcon({
+  small = false,
+}: {
+  small?: boolean;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-flex items-center justify-center rounded-lg bg-muted text-muted-foreground ${
+        small ? "h-7 w-7" : "h-10 w-10"
+      }`}
+    >
+      <span className={small ? "text-sm" : "text-lg"}>
+        🛍️
+      </span>
+    </span>
   );
 }
 
