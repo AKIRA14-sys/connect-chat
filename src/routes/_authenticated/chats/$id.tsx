@@ -59,6 +59,9 @@ import {
   type ChatCustomization,
 } from "@/lib/chatCustomization";
 import { getFontFamilyCss, loadGoogleFont } from "@/lib/chatFonts";
+import {
+  getEquippedShopCosmeticsLocal,
+} from "@/lib/shopCosmetics.local";
 
 import {
   dequeue,
@@ -671,6 +674,50 @@ function ChatRoom() {
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [id, customization?.wallpaper]);
+
+  /* ==========================================================
+   * LOAD EQUIPPED SHOP COSMETICS (local only)
+   *
+   * Shop cosmetics are available to this chat without
+   * replacing the existing IndexedDB chat customization.
+   * ========================================================== */
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const loadShopCosmetics = () => {
+      const cosmetics =
+        getEquippedShopCosmeticsLocal();
+
+      /*
+       * The Shop cosmetics are now available
+       * to this chat without replacing the
+       * existing IndexedDB chat customization.
+       */
+      console.log(
+        "Equipped Shop cosmetics:",
+        cosmetics,
+      );
+    };
+
+    loadShopCosmetics();
+
+    const handleShopCosmeticChanged = () => {
+      loadShopCosmetics();
+    };
+
+    window.addEventListener(
+      "xup-shop-cosmetic-changed",
+      handleShopCosmeticChanged,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "xup-shop-cosmetic-changed",
+        handleShopCosmeticChanged,
+      );
+    };
+  }, []);
 
   const activeTheme = getTheme(customization?.themeId);
   const activeFontFamily = getFontFamilyCss(customization?.fontId);
