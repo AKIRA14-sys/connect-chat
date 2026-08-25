@@ -87,6 +87,7 @@ function ShopPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [shopSearch, setShopSearch] = useState("");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<
@@ -201,9 +202,21 @@ function ShopPage() {
   );
 
   const filteredItems = useMemo(() => {
-    if (categoryFilter === "all") return items;
-    return items.filter((i) => i.category_id === categoryFilter);
-  }, [items, categoryFilter]);
+    const term = shopSearch.trim().toLowerCase();
+
+    return items.filter((item) => {
+      const categoryMatch =
+        categoryFilter === "all" || item.category_id === categoryFilter;
+
+      if (!categoryMatch) return false;
+      if (!term) return true;
+
+      return (
+        item.name.toLowerCase().includes(term) ||
+        (item.description ?? "").toLowerCase().includes(term)
+      );
+    });
+  }, [items, categoryFilter, shopSearch]);
 
   const coins = wallet.x_coins;
   const decided = wallet.wins + wallet.losses + wallet.draws;
@@ -413,8 +426,20 @@ function ShopPage() {
         )}
 
         {tab === "shop" && (
-          <div className="space-y-3">
-            <div className="flex gap-1 overflow-x-auto pb-1">
+          <div className="space-y-4">
+            {/* Shop search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-11 rounded-2xl border-border bg-card pl-9"
+                placeholder="Search anime, gaming, movies, cars, stickers…"
+                value={shopSearch}
+                onChange={(e) => setShopSearch(e.target.value)}
+              />
+            </div>
+
+            {/* Categories */}
+            <div className="flex gap-2 overflow-x-auto pb-1">
               <FilterChip
                 active={categoryFilter === "all"}
                 onClick={() => setCategoryFilter("all")}
@@ -433,88 +458,193 @@ function ShopPage() {
 
             {loading && (
               <p className="text-sm text-muted-foreground">
-                Loading items…
+                Loading shop…
               </p>
             )}
 
             {!loading && filteredItems.length === 0 && (
-              <div className="rounded-2xl border border-border bg-card p-5 text-center">
-                <ShoppingBagIcon />
-                <p className="mt-2 text-sm font-medium">
-                  No items in this category yet.
-                </p>
+              <div className="rounded-3xl border border-border bg-card p-8 text-center">
+                <ShoppingBag className="mx-auto h-10 w-10 text-muted-foreground" />
+                <p className="mt-3 font-semibold">Nothing found</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Add available items to the shop catalog to make them
-                  appear here.
+                  Try another search or category.
                 </p>
               </div>
             )}
 
-            <ul className="space-y-3">
-              {filteredItems.map((item) => {
-                const owned =
-                  item.unique_ownership &&
-                  ownedItemIds.has(item.item_id);
+            {/* Large visual product cards */}
+            {!loading && filteredItems.length > 0 && (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {filteredItems.map((item) => {
+                  const owned =
+                    item.unique_ownership &&
+                    ownedItemIds.has(item.item_id);
 
-                const purchasing = busyItemId === item.item_id;
-                const cannotAfford =
-                  coins < item.price_x_coins;
+                  const purchasing = busyItemId === item.item_id;
+                  const cannotAfford =
+                    coins < item.price_x_coins;
 
-                return (
-                  <li
-                    key={item.item_id}
-                    className="rounded-2xl border border-border bg-card p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <ShoppingBagIcon small />
-                          <p className="font-semibold">
-                            {item.name}
-                          </p>
-                        </div>
+                  const meta =
+                    item.metadata &&
+                    typeof item.metadata === "object"
+                      ? (item.metadata as Record<string, unknown>)
+                      : {};
 
-                        {item.description && (
-                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                            {item.description}
-                          </p>
+                  const imageUrl =
+                    typeof meta.image_url === "string" &&
+                    /^https?:\/\//i.test(meta.image_url)
+                      ? meta.image_url
+                      : typeof meta.preview_url === "string" &&
+                          /^https?:\/\//i.test(meta.preview_url)
+                        ? meta.preview_url
+                        : null;
+
+                  const rawCategory =
+                    typeof meta.category === "string"
+                      ? meta.category
+                      : "Shop";
+
+                  const categoryText =
+                    rawCategory.replace(/^X\s+/i, "") || "Shop";
+
+                  const typeText =
+                    typeof meta.type === "string"
+                      ? meta.type
+                      : "collectible";
+
+                  const lower = `${categoryText} ${typeText} ${item.name}`.toLowerCase();
+
+                  let PreviewIcon = Sparkles;
+
+                  if (lower.includes("gaming") || lower.includes("game")) {
+                    PreviewIcon = Gamepad2;
+                  } else if (
+                    lower.includes("movie") ||
+                    lower.includes("film") ||
+                    lower.includes("action")
+                  ) {
+                    PreviewIcon = Film;
+                  } else if (lower.includes("car") || lower.includes("auto")) {
+                    PreviewIcon = Car;
+                  } else if (
+                    lower.includes("sticker") ||
+                    lower.includes("funny") ||
+                    lower.includes("reaction")
+                  ) {
+                    PreviewIcon = Smile;
+                  } else if (
+                    lower.includes("bubble") ||
+                    lower.includes("chat")
+                  ) {
+                    PreviewIcon = MessageCircle;
+                  } else if (
+                    lower.includes("badge") ||
+                    lower.includes("level")
+                  ) {
+                    PreviewIcon = BadgeCheck;
+                  } else if (
+                    lower.includes("theme") ||
+                    lower.includes("color") ||
+                    lower.includes("cosmetic") ||
+                    lower.includes("frame")
+                  ) {
+                    PreviewIcon = Palette;
+                  } else if (
+                    lower.includes("wallpaper") ||
+                    lower.includes("image")
+                  ) {
+                    PreviewIcon = ImageIcon;
+                  } else if (lower.includes("anime")) {
+                    PreviewIcon = Sparkles;
+                  } else if (lower.includes("trophy")) {
+                    PreviewIcon = Trophy;
+                  }
+
+                  return (
+                    <article
+                      key={item.item_id}
+                      className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm"
+                    >
+                      {/* Big visual preview.
+                          If Supabase metadata eventually contains image_url
+                          or preview_url, the real image is displayed here.
+                          Otherwise this remains a polished built-in poster
+                          instead of a tiny emoji/icon. */}
+                      <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-primary/20 via-card to-muted">
+                        {imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={item.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full flex-col items-center justify-center px-5 text-center">
+                            <div className="mb-3 flex h-20 w-20 items-center justify-center rounded-3xl border border-white/10 bg-background/40 shadow-lg backdrop-blur">
+                              <PreviewIcon className="h-10 w-10 text-primary" />
+                            </div>
+
+                            <p className="text-lg font-black tracking-tight">
+                              {item.name}
+                            </p>
+
+                            <p className="mt-1 max-w-[90%] text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                              {categoryText}
+                            </p>
+                          </div>
                         )}
 
-                        <p className="mt-3 flex items-center gap-1.5 text-sm font-bold text-yellow-500">
-                          <XCoinIcon
-                            size={17}
-                            className="text-yellow-400"
-                          />
-                          {item.price_x_coins.toLocaleString()} X Coins
-                        </p>
+                        <div className="absolute left-3 top-3 rounded-full border border-white/10 bg-black/45 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white backdrop-blur">
+                          {categoryText}
+                        </div>
                       </div>
 
-                      {/* ACTIVE GREEN BUY BUTTON — only disabled when this
-                          item is being purchased, already owned, or unaffordable. */}
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="shrink-0 bg-green-600 text-white hover:bg-green-700 disabled:bg-green-600/40 disabled:text-white/70"
-                        disabled={
-                          purchasing ||
-                          owned ||
-                          cannotAfford
-                        }
-                        onClick={() => void onPurchase(item)}
-                      >
-                        {owned
-                          ? "Owned"
-                          : purchasing
-                            ? "Buying…"
-                            : cannotAfford
-                              ? "Need X Coins"
-                              : "Buy"}
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                      <div className="space-y-3 p-4">
+                        <div>
+                          <h3 className="font-bold">{item.name}</h3>
+
+                          {item.description && (
+                            <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                              {item.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-1.5 text-sm font-black text-yellow-500">
+                            <XCoinIcon
+                              size={18}
+                              className="text-yellow-400"
+                            />
+                            {item.price_x_coins.toLocaleString()} X Coins
+                          </div>
+
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="bg-green-600 font-bold text-white shadow-sm hover:bg-green-700 active:bg-green-800 disabled:bg-green-600/40 disabled:text-white/70"
+                            disabled={
+                              purchasing ||
+                              owned ||
+                              cannotAfford
+                            }
+                            onClick={() => void onPurchase(item)}
+                          >
+                            {owned
+                              ? "Owned"
+                              : purchasing
+                                ? "Buying…"
+                                : cannotAfford
+                                  ? "Need X Coins"
+                                  : "Buy"}
+                          </Button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
