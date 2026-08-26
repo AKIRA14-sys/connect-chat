@@ -40,18 +40,24 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  equipShopItem,
   getCoinTransactions,
   getGamingWallet,
   getShopCatalog,
   getUserInventory,
   purchaseShopItem,
   transferXCoins,
+  unequipShopItem,
   type CoinTransaction,
   type GamingWalletData,
   type InventoryItem,
   type ShopCategory,
   type ShopItem,
 } from "@/lib/gaming.functions";
+import {
+  removeEquippedShopCosmeticLocal,
+  saveEquippedShopCosmeticLocal,
+} from "@/lib/shopCosmetics.local";
 
 export const Route = createFileRoute("/_authenticated/shop")({
   head: () => ({
@@ -484,6 +490,9 @@ function ShopPage() {
   const [busyItemId, setBusyItemId] =
     useState<string | null>(null);
 
+  const [equipBusyId, setEquipBusyId] =
+    useState<string | null>(null);
+
   const [categoryFilter, setCategoryFilter] =
     useState<string>("all");
 
@@ -892,6 +901,81 @@ function ShopPage() {
       setBusyItemId(
         null,
       );
+    }
+  }
+
+  async function onEquip(row: InventoryItem) {
+    if (equipBusyId) return;
+
+    setEquipBusyId(row.item_id);
+
+    try {
+      const result = await equipShopItem({
+        data: {
+          itemId: row.item_id,
+        },
+      });
+
+      if (result?.equipped) {
+        saveEquippedShopCosmeticLocal(result.equipped);
+      }
+
+      toast.success(
+        `Equipped ${row.item_name ?? "item"}`,
+      );
+
+      await load(true);
+    } catch (err) {
+      console.error("Equip error:", err);
+
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Could not equip item",
+      );
+    } finally {
+      setEquipBusyId(null);
+    }
+  }
+
+  async function onUnequip(row: InventoryItem) {
+    if (equipBusyId) return;
+
+    setEquipBusyId(row.item_id);
+
+    try {
+      const result = await unequipShopItem({
+        data: {
+          itemId: row.item_id,
+        },
+      });
+
+      if (
+        result?.cosmetic_type === "theme" ||
+        result?.cosmetic_type === "wallpaper" ||
+        result?.cosmetic_type === "bubble" ||
+        result?.cosmetic_type === "sticker_pack" ||
+        result?.cosmetic_type === "profile_frame" ||
+        result?.cosmetic_type === "badge"
+      ) {
+        removeEquippedShopCosmeticLocal(result.cosmetic_type);
+      }
+
+      toast.success(
+        `Unequipped ${row.item_name ?? "item"}`,
+      );
+
+      await load(true);
+    } catch (err) {
+      console.error("Unequip error:", err);
+
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Could not unequip item",
+      );
+    } finally {
+      setEquipBusyId(null);
     }
   }
 
@@ -1701,7 +1785,7 @@ function ShopPage() {
                   className="rounded-xl border border-border bg-card px-4 py-3"
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <div>
+                    <div className="min-w-0 flex-1">
                       <p className="font-medium">
                         {row.item_name ??
                           "Item"}{" "}
@@ -1720,11 +1804,36 @@ function ShopPage() {
                       )}
                     </div>
 
-                    {row.equipped && (
-                      <span className="rounded-full bg-green-500/10 px-2 py-1 text-[10px] font-semibold text-green-500">
-                        Equipped
-                      </span>
-                    )}
+                    <button
+                      type="button"
+                      disabled={
+                        equipBusyId ===
+                        row.item_id
+                      }
+                      onClick={() =>
+                        void (
+                          row.equipped
+                            ? onUnequip(
+                                row,
+                              )
+                            : onEquip(
+                                row,
+                              )
+                        )
+                      }
+                      className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                        row.equipped
+                          ? "bg-green-500/15 text-green-500 hover:bg-green-500/25"
+                          : "bg-primary text-primary-foreground hover:bg-primary/90"
+                      }`}
+                    >
+                      {equipBusyId ===
+                      row.item_id
+                        ? "…"
+                        : row.equipped
+                          ? "Equipped"
+                          : "Equip"}
+                    </button>
                   </div>
                 </div>
               ),
