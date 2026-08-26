@@ -92,7 +92,14 @@ const PAGE_SIZE = 40;
  * MESSAGE REACTIONS
  * ============================================================ */
 
-const REACTIONS = ["❤️", "😂", "😮", "😢", "🔥", "👍"];
+const REACTIONS = [
+  "❤️",
+  "😂",
+  "😮",
+  "😢",
+  "🔥",
+  "👍",
+];
 
 type MessageReaction = {
   id: string;
@@ -147,7 +154,6 @@ const STICKER_PACKS = [
   "Funny",
   "Reactions",
   "Anime",
-  "Shop",
 ] as const;
 
 type StickerPack = (typeof STICKER_PACKS)[number];
@@ -155,72 +161,6 @@ type StickerPack = (typeof STICKER_PACKS)[number];
 function getSticker(id: string | null | undefined) {
   if (!id) return null;
   return STICKERS.find((sticker) => sticker.id === id) ?? null;
-}
-
-/**
- * Shop sticker packs are additive to the existing built-in stickers.
- * The Shop owns the item on Supabase; this reader only interprets the
- * equipped item's metadata that has already been copied to local storage.
- *
- * Supported metadata examples:
- *   { stickers: [{ id, emoji, label, pack }] }
- *   { items:    [{ id, emoji, label, pack }] }
- *   { sticker_list: [...] }
- */
-function getShopStickerList(
-  cosmetic: EquippedShopCosmetic | null,
-): Sticker[] {
-  if (!cosmetic) return [];
-
-  const meta = asRecord(cosmetic.metadata);
-  if (!meta) return [];
-
-  const raw = meta.stickers ?? meta.items ?? meta.sticker_list;
-  if (!Array.isArray(raw)) return [];
-
-  return raw.flatMap((value, index) => {
-    const item = asRecord(value);
-    if (!item) return [];
-
-    const id = strMeta(item, "id", "sticker_id", "key");
-    const emoji = strMeta(item, "emoji", "symbol", "text");
-    const label =
-      strMeta(item, "label", "name", "title") ?? `Sticker ${index + 1}`;
-    const pack = strMeta(item, "pack", "category") ?? "Shop";
-
-    if (!id || !emoji) return [];
-
-    return [{ id, emoji, label, pack }];
-  });
-}
-
-function getAvailableStickers(
-  shopCosmetic: EquippedShopCosmetic | null,
-): Sticker[] {
-  const shopStickers = getShopStickerList(shopCosmetic);
-  const seen = new Set<string>();
-  const result: Sticker[] = [];
-
-  for (const sticker of [...STICKERS, ...shopStickers]) {
-    if (seen.has(sticker.id)) continue;
-    seen.add(sticker.id);
-    result.push(sticker);
-  }
-
-  return result;
-}
-
-function getAvailableSticker(
-  id: string | null | undefined,
-  shopCosmetic: EquippedShopCosmetic | null,
-) {
-  if (!id) return null;
-
-  return (
-    getAvailableStickers(shopCosmetic).find(
-      (sticker) => sticker.id === id,
-    ) ?? null
-  );
 }
 
 /* ============================================================
@@ -243,50 +183,33 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
-
   return null;
 }
 
-function strMeta(
-  obj: Record<string, unknown> | null,
-  ...keys: string[]
-): string | null {
+function strMeta(obj: Record<string, unknown> | null, ...keys: string[]): string | null {
   if (!obj) return null;
-
   for (const key of keys) {
     const v = obj[key];
-
-    if (typeof v === "string" && v.trim()) {
-      return v.trim();
-    }
+    if (typeof v === "string" && v.trim()) return v.trim();
   }
-
   return null;
 }
 
 /** Category A — theme colors from shop metadata */
-function shopThemeBubbleMine(
-  cosmetic: EquippedShopCosmetic | null,
-): string | null {
+function shopThemeBubbleMine(cosmetic: EquippedShopCosmetic | null): string | null {
   if (!cosmetic) return null;
-
   const meta = asRecord(cosmetic.metadata);
   const colors = asRecord(meta?.colors);
-
   return (
     strMeta(colors, "bubbleMine", "bubble_mine", "mine") ||
     strMeta(meta, "bubbleMine", "bubble_css", "css")
   );
 }
 
-function shopThemeBackground(
-  cosmetic: EquippedShopCosmetic | null,
-): string | null {
+function shopThemeBackground(cosmetic: EquippedShopCosmetic | null): string | null {
   if (!cosmetic) return null;
-
   const meta = asRecord(cosmetic.metadata);
   const colors = asRecord(meta?.colors);
-
   return (
     strMeta(colors, "background", "messageAreaBackground") ||
     strMeta(meta, "background", "css")
@@ -303,10 +226,8 @@ function shopBubbleCss(cosmetic: EquippedShopCosmetic | null): {
   if (!cosmetic) {
     return { mine: null, other: null, boxShadow: null, borderRadius: null };
   }
-
   const meta = asRecord(cosmetic.metadata);
   const css = asRecord(meta?.css) ?? meta;
-
   return {
     mine: strMeta(css, "mine", "bubbleMine", "background"),
     other: strMeta(css, "other", "bubbleOther"),
@@ -321,68 +242,44 @@ function shopWallpaperMedia(cosmetic: EquippedShopCosmetic | null): {
   url: string | null;
   css: string | null;
 } {
-  if (!cosmetic) {
-    return { kind: null, url: null, css: null };
-  }
-
+  if (!cosmetic) return { kind: null, url: null, css: null };
   const meta = asRecord(cosmetic.metadata);
   const media = asRecord(meta?.media);
-
   const url =
     strMeta(media, "url", "image_url", "src") ||
     strMeta(meta, "url", "image_url", "wallpaper_url");
-
   const kindRaw = strMeta(media, "kind", "type") || (url ? "image" : null);
-
   const css = strMeta(meta, "css", "background");
-
-  if (css && !url) {
-    return { kind: "css", url: null, css };
-  }
-
-  if (!url) {
-    return { kind: null, url: null, css: null };
-  }
-
+  if (css && !url) return { kind: "css", url: null, css };
+  if (!url) return { kind: null, url: null, css: null };
   const kind =
     kindRaw === "video" || (url && /\.(mp4|webm|mov)(\?|$)/i.test(url))
       ? "video"
       : "image";
-
   return { kind, url, css: null };
 }
 
 /** Category A — profile frame ring styles */
-function shopProfileFrameStyle(
-  cosmetic: EquippedShopCosmetic | null,
-): import("react").CSSProperties | undefined {
+function shopProfileFrameStyle(cosmetic: EquippedShopCosmetic | null): import("react").CSSProperties | undefined {
   if (!cosmetic) return undefined;
-
   const meta = asRecord(cosmetic.metadata);
   const style = asRecord(meta?.style) ?? meta;
-
   const ring = strMeta(style, "ring", "border");
   const shadow = strMeta(style, "shadow", "boxShadow");
-
-  if (!ring && !shadow) {
-    return undefined;
-  }
-
+  if (!ring && !shadow) return undefined;
   const out: import("react").CSSProperties = {};
-
   if (ring) {
-    out.boxShadow = shadow ? `${shadow}, 0 0 0 2px transparent` : undefined;
-
-    out.outline =
-      ring.includes("solid") || ring.includes("px") ? ring : `2px solid ${ring}`;
-
+    out.boxShadow = shadow
+      ? `${shadow}, 0 0 0 2px transparent`
+      : undefined;
+    out.outline = ring.includes("solid") || ring.includes("px") ? ring : `2px solid ${ring}`;
     out.outlineOffset = strMeta(style, "ringOffset", "offset") || "2px";
   } else if (shadow) {
     out.boxShadow = shadow;
   }
-
   return out;
 }
+
 
 /* ============================================================
  * CHAT EFFECTS
@@ -415,20 +312,90 @@ type EffectOption = {
 };
 
 const EFFECTS: EffectOption[] = [
-  { id: "none", name: "Normal", emoji: "💬", description: "Normal message" },
-  { id: "dramatic", name: "Dramatic", emoji: "💥", description: "Big dramatic entrance" },
-  { id: "bounce", name: "Bounce", emoji: "🏀", description: "Bouncy entrance" },
-  { id: "shake", name: "Shake", emoji: "📳", description: "Shakes when it appears" },
-  { id: "pop", name: "Pop", emoji: "🎉", description: "Pops into the chat" },
-  { id: "neon", name: "Neon", emoji: "✨", description: "Glowing neon effect" },
-  { id: "rainbow", name: "Rainbow", emoji: "🌈", description: "Rainbow color effect" },
-  { id: "zoom", name: "Zoom", emoji: "🔎", description: "Zooms into the chat" },
-  { id: "from-top", name: "Drop In", emoji: "⬇️", description: "Drops from the top" },
-  { id: "from-right", name: "Slide Right", emoji: "➡️", description: "Slides in from the right" },
-  { id: "from-left", name: "Slide Left", emoji: "⬅️", description: "Slides in from the left" },
-  { id: "from-bottom", name: "Rise Up", emoji: "⬆️", description: "Rises from the bottom" },
-  { id: "explosion", name: "Explosion", emoji: "💣", description: "Explosive entrance" },
-  { id: "spin", name: "Spin", emoji: "🌀", description: "Spins into the chat" },
+  {
+    id: "none",
+    name: "Normal",
+    emoji: "💬",
+    description: "Normal message",
+  },
+  {
+    id: "dramatic",
+    name: "Dramatic",
+    emoji: "💥",
+    description: "Big dramatic entrance",
+  },
+  {
+    id: "bounce",
+    name: "Bounce",
+    emoji: "🏀",
+    description: "Bouncy entrance",
+  },
+  {
+    id: "shake",
+    name: "Shake",
+    emoji: "📳",
+    description: "Shakes when it appears",
+  },
+  {
+    id: "pop",
+    name: "Pop",
+    emoji: "🎉",
+    description: "Pops into the chat",
+  },
+  {
+    id: "neon",
+    name: "Neon",
+    emoji: "✨",
+    description: "Glowing neon effect",
+  },
+  {
+    id: "rainbow",
+    name: "Rainbow",
+    emoji: "🌈",
+    description: "Rainbow color effect",
+  },
+  {
+    id: "zoom",
+    name: "Zoom",
+    emoji: "🔎",
+    description: "Zooms into the chat",
+  },
+  {
+    id: "from-top",
+    name: "Drop In",
+    emoji: "⬇️",
+    description: "Drops from the top",
+  },
+  {
+    id: "from-right",
+    name: "Slide Right",
+    emoji: "➡️",
+    description: "Slides in from the right",
+  },
+  {
+    id: "from-left",
+    name: "Slide Left",
+    emoji: "⬅️",
+    description: "Slides in from the left",
+  },
+  {
+    id: "from-bottom",
+    name: "Rise Up",
+    emoji: "⬆️",
+    description: "Rises from the bottom",
+  },
+  {
+    id: "explosion",
+    name: "Explosion",
+    emoji: "💣",
+    description: "Explosive entrance",
+  },
+  {
+    id: "spin",
+    name: "Spin",
+    emoji: "🌀",
+    description: "Spins into the chat",
+  },
 ];
 
 /* ============================================================
@@ -442,7 +409,11 @@ const EFFECT_PREFIX = "__XUP_EFFECT__:";
 const SECRET_PREFIX = "__XUP_SECRET__:";
 const SECRET_SEPARATOR = "__XUP_SECRET_SEPARATOR__:";
 
-function encodeSpecialMessage(text: string, effect: ChatEffect, secret: boolean) {
+function encodeSpecialMessage(
+  text: string,
+  effect: ChatEffect,
+  secret: boolean,
+) {
   let result = text;
 
   if (secret) {
@@ -462,7 +433,11 @@ function decodeSpecialMessage(content: string | null | undefined): {
   secret: boolean;
 } {
   if (!content) {
-    return { text: "", effect: "none", secret: false };
+    return {
+      text: "",
+      effect: "none",
+      secret: false,
+    };
   }
 
   let value = content;
@@ -494,7 +469,11 @@ function decodeSpecialMessage(content: string | null | undefined): {
     }
   }
 
-  return { text: value, effect, secret };
+  return {
+    text: value,
+    effect,
+    secret,
+  };
 }
 
 /* ============================================================
@@ -505,36 +484,48 @@ function effectClass(effect: ChatEffect) {
   switch (effect) {
     case "dramatic":
       return "xup-effect-dramatic";
+
     case "bounce":
       return "xup-effect-bounce";
+
     case "shake":
       return "xup-effect-shake";
+
     case "pop":
       return "xup-effect-pop";
+
     case "neon":
       return "xup-effect-neon";
+
     case "rainbow":
       return "xup-effect-rainbow";
+
     case "zoom":
       return "xup-effect-zoom";
+
     case "from-top":
       return "xup-effect-from-top";
+
     case "from-right":
       return "xup-effect-from-right";
+
     case "from-left":
       return "xup-effect-from-left";
+
     case "from-bottom":
       return "xup-effect-from-bottom";
+
     case "explosion":
       return "xup-effect-explosion";
+
     case "spin":
       return "xup-effect-spin";
+
     case "none":
     default:
       return "";
   }
 }
-
 /* ============================================================
  * DELETE MENU
  * ============================================================ */
@@ -581,7 +572,9 @@ function MediaBubble({
   });
 
   if (!url) {
-    return <div className="h-40 w-56 animate-pulse rounded-xl bg-surface-2" />;
+    return (
+      <div className="h-40 w-56 animate-pulse rounded-xl bg-surface-2" />
+    );
   }
 
   if (type === "image") {
@@ -638,7 +631,9 @@ function ChatRoom() {
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [swipingMessageId, setSwipingMessageId] = useState<string | null>(null);
+  const [swipingMessageId, setSwipingMessageId] = useState<string | null>(
+    null,
+  );
 
   /* ==========================================================
    * NEW FUN FEATURES
@@ -646,9 +641,12 @@ function ChatRoom() {
 
   const [plusOpen, setPlusOpen] = useState(false);
   const [effectsOpen, setEffectsOpen] = useState(false);
-  const [selectedEffect, setSelectedEffect] = useState<ChatEffect>("none");
+  const [selectedEffect, setSelectedEffect] =
+    useState<ChatEffect>("none");
   const [secretMode, setSecretMode] = useState(false);
-  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(new Set());
+  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(
+    new Set(),
+  );
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraFacing, setCameraFacing] = useState<"user" | "environment">(
@@ -682,21 +680,22 @@ function ChatRoom() {
    * ========================================================== */
 
   const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [customization, setCustomization] = useState<ChatCustomization | null>(
-    null,
-  );
+  const [customization, setCustomization] =
+    useState<ChatCustomization | null>(null);
   const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
-  const [wallpaperType, setWallpaperType] = useState<"image" | "video" | null>(
-    null,
-  );
+  const [wallpaperType, setWallpaperType] = useState<
+    "image" | "video" | null
+  >(null);
   const [customizationVersion, setCustomizationVersion] = useState(0);
 
   /* Shop cosmetics — global equipped (localStorage), fallback under per-chat */
-  const [shopCosmetics, setShopCosmetics] = useState<LocalShopCosmetics>(
-    EMPTY_SHOP,
-  );
+  const [shopCosmetics, setShopCosmetics] =
+    useState<LocalShopCosmetics>(EMPTY_SHOP);
 
-  const localChatNameKey = useMemo(() => `whatsxup-chat-name:${id}`, [id]);
+  const localChatNameKey = useMemo(
+    () => `whatsxup-chat-name:${id}`,
+    [id],
+  );
 
   const recorder = useRef<MediaRecorder | null>(null);
   const recordingStream = useRef<MediaStream | null>(null);
@@ -705,15 +704,18 @@ function ChatRoom() {
   const bottom = useRef<HTMLDivElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
   const cameraInput = useRef<HTMLInputElement | null>(null);
+
   const cameraVideo = useRef<HTMLVideoElement | null>(null);
   const cameraStream = useRef<MediaStream | null>(null);
   const cameraCanvas = useRef<HTMLCanvasElement | null>(null);
 
-  const roomChannel = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const lastTypingSent = useRef(0);
-  const typingTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(
-    new Map(),
+  const roomChannel = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
   );
+  const lastTypingSent = useRef(0);
+  const typingTimeouts = useRef<
+    Map<string, ReturnType<typeof setTimeout>>
+  >(new Map());
   const touchStartX = useRef<Map<string, number>>(new Map());
 
   const messagesKey = useMemo(
@@ -723,14 +725,22 @@ function ChatRoom() {
 
   /* ==========================================================
    * LOAD CUSTOM CHAT NAME FROM LOCALSTORAGE
+   *
+   * Guarded with typeof window so this is safe if the route
+   * is ever rendered in a non-browser environment.
    * ========================================================== */
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     try {
-      const stored = window.localStorage.getItem(localChatNameKey);
-      setCustomName(stored && stored.trim() ? stored.trim() : null);
+      const stored = window.localStorage.getItem(
+        localChatNameKey,
+      );
+
+      setCustomName(
+        stored && stored.trim() ? stored.trim() : null,
+      );
     } catch {
       setCustomName(null);
     }
@@ -745,7 +755,6 @@ function ChatRoom() {
 
     getChatCustomization(id).then((result) => {
       if (cancelled) return;
-
       setCustomization(result);
       loadGoogleFont(result.fontId);
     });
@@ -756,7 +765,8 @@ function ChatRoom() {
   }, [id, customizationVersion]);
 
   /* ==========================================================
-   * LOAD CUSTOM WALLPAPER MEDIA
+   * LOAD CUSTOM WALLPAPER MEDIA (image/video blob) FROM
+   * INDEXEDDB WHEN THIS CHAT HAS ONE SELECTED
    * ========================================================== */
 
   useEffect(() => {
@@ -774,7 +784,6 @@ function ChatRoom() {
       }
 
       const media = await getChatWallpaperMedia(id);
-
       if (cancelled || !media) return;
 
       objectUrl = URL.createObjectURL(media.blob);
@@ -786,15 +795,15 @@ function ChatRoom() {
 
     return () => {
       cancelled = true;
-
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [id, customization?.wallpaper]);
 
   /* ==========================================================
    * LOAD EQUIPPED SHOP COSMETICS (local only)
+   *
+   * Does NOT replace IndexedDB chat customization.
+   * Shop is applied only as fallback for empty slots.
    * ========================================================== */
 
   useEffect(() => {
@@ -836,7 +845,6 @@ function ChatRoom() {
       : null;
 
   /* ---- Effective visuals: per-chat first, then shop ---- */
-
   const shopBubble = shopBubbleCss(shopCosmetics.bubble);
   const shopThemeMine = shopThemeBubbleMine(shopCosmetics.theme);
   const shopThemeBg = shopThemeBackground(shopCosmetics.theme);
@@ -851,7 +859,8 @@ function ChatRoom() {
 
   const effectiveAreaBackground =
     builtinWallpaperCss ||
-    (activeTheme.messageAreaBackground && activeTheme.messageAreaBackground.trim()
+    (activeTheme.messageAreaBackground &&
+    activeTheme.messageAreaBackground.trim()
       ? activeTheme.messageAreaBackground
       : null) ||
     shopWall.css ||
@@ -861,7 +870,8 @@ function ChatRoom() {
   const shopWallpaperActive =
     !wallpaperUrl &&
     !builtinWallpaperCss &&
-    (!customization || customization.wallpaper.kind === "none") &&
+    (!customization ||
+      customization.wallpaper.kind === "none") &&
     !!shopWall.url;
 
   /* ==========================================================
@@ -878,7 +888,6 @@ function ChatRoom() {
         .single();
 
       if (error) throw error;
-
       return data as Conversation;
     },
   });
@@ -896,14 +905,12 @@ function ChatRoom() {
         .eq("conversation_id", id);
 
       if (error) throw error;
-
       return (data ?? []) as { user_id: string; role: string }[];
     },
   });
 
   const otherMember = useMemo(() => {
     if (!user?.id) return null;
-
     return members.find((member) => member.user_id !== user.id) ?? null;
   }, [members, user?.id]);
 
@@ -924,16 +931,38 @@ function ChatRoom() {
         .maybeSingle();
 
       if (error) throw error;
-
       return (data ?? null) as Profile | null;
     },
   });
 
+  const otherUserId = otherMember?.user_id ?? null;
+  const otherName = otherProfile?.display_name?.trim() || "Unknown";
+  const otherAvatar = otherProfile?.avatar_url ?? null;
+  const canShowOnline = otherProfile?.show_online_status !== false;
+  const isOtherOnline =
+    !!otherUserId && onlineIds.has(otherUserId) && canShowOnline;
+
+  const directSubtitle = loadingProfile
+    ? "Loading…"
+    : isOtherOnline
+      ? "online"
+      : canShowOnline
+        ? lastSeenLabel(otherProfile?.last_seen ?? null)
+        : "offline";
+
+  const title =
+    conv?.type === "group" ? conv.name?.trim() || "Group" : otherName;
+
+  // Only the header display for direct chats uses the local
+  // nickname. `otherName` itself stays the real profile name
+  // everywhere else (calls, add-contact, push previews, etc.).
+  const displayedChatName = customName || otherName;
+
   /* ==========================================================
-   * FETCH MESSAGES
+   * MESSAGES
    * ========================================================== */
 
-  const { data: messages = [], isLoading: loadingMessages } = useQuery({
+  const { data: messages = [], isFetching: fetchingMessages } = useQuery({
     queryKey: messagesKey,
     queryFn: async () => {
       const { data, error } = await supabase
@@ -945,31 +974,31 @@ function ChatRoom() {
 
       if (error) throw error;
 
-      return (data ?? []).reverse().map((row) => row as Message);
+      return ((data ?? []) as Message[]).slice().reverse();
     },
   });
 
   /* ==========================================================
-   * PROFILE DATA
+   * PROFILES
    * ========================================================== */
 
-  const otherUserId = otherMember?.user_id ?? null;
+  const memberIds = useMemo(
+    () => members.map((member) => member.user_id),
+    [members],
+  );
 
   const { data: profiles = [] } = useQuery({
-    queryKey: ["profiles", id, otherUserId],
-    enabled: !!otherUserId,
+    queryKey: ["conversation-profiles", id, memberIds.join(",")],
+    enabled: memberIds.length > 0,
     queryFn: async () => {
-      const ids = [user?.id, otherUserId].filter(Boolean) as string[];
-
-      if (!ids.length) return [];
+      if (!memberIds.length) return [];
 
       const { data, error } = await supabase
         .from("profiles")
         .select("*")
-        .in("id", ids);
+        .in("id", memberIds);
 
       if (error) throw error;
-
       return (data ?? []) as Profile[];
     },
   });
@@ -983,33 +1012,6 @@ function ChatRoom() {
 
     return map;
   }, [profiles]);
-
-  /* ==========================================================
-   * DERIVED HEADER VALUES
-   * RECONSTRUCTED — not present in the pasted source; inferred
-   * from how otherName / otherAvatar / directSubtitle /
-   * fetchingMessages are consumed later in the file.
-   * ========================================================== */
-
-  const isOnline = otherUserId ? onlineIds.includes(otherUserId) : false;
-
-  const otherName =
-    customName ??
-    otherProfile?.display_name ??
-    (otherProfile as any)?.username ??
-    "Unknown";
-
-  const otherAvatar = (otherProfile as any)?.avatar_url ?? null;
-
-  const directSubtitle = loadingProfile
-    ? "..."
-    : isOnline
-      ? "Online"
-      : otherProfile?.last_seen_at
-        ? lastSeenLabel(otherProfile.last_seen_at)
-        : "Offline";
-
-  const fetchingMessages = loadingMessages;
 
   /* ==========================================================
    * READ RECEIPTS
@@ -1080,9 +1082,7 @@ function ChatRoom() {
    * ========================================================== */
 
   useEffect(() => {
-    if (!user?.id || !messages.length) {
-      return;
-    }
+    if (!user?.id || !messages.length) return;
 
     const incoming = messages.filter(
       (message) => message.sender_id !== user.id,
@@ -1130,7 +1130,6 @@ function ChatRoom() {
         .maybeSingle();
 
       if (error) return false;
-
       return !!data;
     },
   });
@@ -1176,7 +1175,10 @@ function ChatRoom() {
     const counts = new Map<string, number>();
 
     for (const reaction of messageReactions) {
-      counts.set(reaction.reaction, (counts.get(reaction.reaction) ?? 0) + 1);
+      counts.set(
+        reaction.reaction,
+        (counts.get(reaction.reaction) ?? 0) + 1,
+      );
     }
 
     return Array.from(counts.entries());
@@ -1188,7 +1190,8 @@ function ChatRoom() {
         .get(messageId)
         ?.some(
           (reaction) =>
-            reaction.user_id === user?.id && reaction.reaction === emoji,
+            reaction.user_id === user?.id &&
+            reaction.reaction === emoji,
         ) ?? false
     );
   }
@@ -1201,7 +1204,9 @@ function ChatRoom() {
     const existing = reactionMap
       .get(message.id)
       ?.find(
-        (reaction) => reaction.user_id === user.id && reaction.reaction === emoji,
+        (reaction) =>
+          reaction.user_id === user.id &&
+          reaction.reaction === emoji,
       );
 
     try {
@@ -1227,7 +1232,9 @@ function ChatRoom() {
       });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not update reaction.",
+        error instanceof Error
+          ? error.message
+          : "Could not update reaction.",
       );
     }
   }
@@ -1239,7 +1246,9 @@ function ChatRoom() {
   const applyMessage = useCallback(
     (row: Message) => {
       qc.setQueryData<Message[]>(messagesKey, (prev = []) => {
-        const without = prev.filter((message) => message.id !== row.id);
+        const without = prev.filter(
+          (message) => message.id !== row.id,
+        );
 
         return [...without, row].sort((a, b) =>
           a.created_at.localeCompare(b.created_at),
@@ -1262,7 +1271,9 @@ function ChatRoom() {
 
     const ch = supabase.channel(`room:${id}`, {
       config: {
-        broadcast: { self: false },
+        broadcast: {
+          self: false,
+        },
       },
     });
 
@@ -1291,23 +1302,31 @@ function ChatRoom() {
       },
     );
 
-    ch.on("broadcast", { event: "message_upsert" }, ({ payload }) => {
-      const row = payload?.message as Message | undefined;
+    ch.on(
+      "broadcast",
+      { event: "message_upsert" },
+      ({ payload }) => {
+        const row = payload?.message as Message | undefined;
 
-      if (!row) return;
+        if (!row) return;
 
-      applyMessage(row);
-    });
+        applyMessage(row);
+      },
+    );
 
-    ch.on("broadcast", { event: "message_delete" }, ({ payload }) => {
-      const messageId = payload?.messageId as string | undefined;
+    ch.on(
+      "broadcast",
+      { event: "message_delete" },
+      ({ payload }) => {
+        const messageId = payload?.messageId as string | undefined;
 
-      if (!messageId) return;
+        if (!messageId) return;
 
-      qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-        prev.filter((message) => message.id !== messageId),
-      );
-    });
+        qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
+          prev.filter((message) => message.id !== messageId),
+        );
+      },
+    );
 
     ch.on(
       "postgres_changes",
@@ -1319,13 +1338,19 @@ function ChatRoom() {
       },
       () => {
         void qc.invalidateQueries({ queryKey: ["reads", id] });
-        void qc.invalidateQueries({ queryKey: ["conv-members", id] });
+        void qc.invalidateQueries({
+          queryKey: ["conv-members", id],
+        });
       },
     );
 
     ch.on(
       "postgres_changes",
-      { event: "*", schema: "public", table: "message_deliveries" },
+      {
+        event: "*",
+        schema: "public",
+        table: "message_deliveries",
+      },
       () => {
         void qc.invalidateQueries({
           queryKey: ["message-deliveries", id],
@@ -1335,7 +1360,11 @@ function ChatRoom() {
 
     ch.on(
       "postgres_changes",
-      { event: "*", schema: "public", table: "message_reactions" },
+      {
+        event: "*",
+        schema: "public",
+        table: "message_reactions",
+      },
       () => {
         void qc.invalidateQueries({
           queryKey: ["message-reactions", id],
@@ -1344,7 +1373,10 @@ function ChatRoom() {
     );
 
     ch.on("broadcast", { event: "typing" }, ({ payload }) => {
-      const p = payload as { userId: string; name: string };
+      const p = payload as {
+        userId: string;
+        name: string;
+      };
 
       if (p.userId === user.id) return;
 
@@ -1357,7 +1389,10 @@ function ChatRoom() {
       if (oldTimer) clearTimeout(oldTimer);
 
       const timer = setTimeout(() => {
-        setTypingUsers((prev) => prev.filter((name) => name !== p.name));
+        setTypingUsers((prev) =>
+          prev.filter((name) => name !== p.name),
+        );
+
         typingTimeouts.current.delete(p.userId);
       }, 3500);
 
@@ -1366,7 +1401,9 @@ function ChatRoom() {
 
     ch.subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        void qc.invalidateQueries({ queryKey: ["messages", id] });
+        void qc.invalidateQueries({
+          queryKey: ["messages", id],
+        });
       }
     });
 
@@ -1393,10 +1430,16 @@ function ChatRoom() {
 
     void supabase
       .from("conversation_members")
-      .update({ last_read_at: new Date().toISOString() })
+      .update({
+        last_read_at: new Date().toISOString(),
+      })
       .eq("conversation_id", id)
       .eq("user_id", user.id)
-      .then(() => qc.invalidateQueries({ queryKey: ["chat-list"] }));
+      .then(() =>
+        qc.invalidateQueries({
+          queryKey: ["chat-list"],
+        }),
+      );
   }, [messages.length, id, user, qc, online]);
 
   /* ==========================================================
@@ -1404,7 +1447,9 @@ function ChatRoom() {
    * ========================================================== */
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth" });
+    bottom.current?.scrollIntoView({
+      behavior: "smooth",
+    });
   }, [messages.length, typingUsers.length, pending.length]);
 
   /* ==========================================================
@@ -1425,13 +1470,18 @@ function ChatRoom() {
    * OUTBOX
    * ========================================================== */
 
-  const refreshOutbox = useCallback(() => setPending(outboxFor(id)), [id]);
+  const refreshOutbox = useCallback(
+    () => setPending(outboxFor(id)),
+    [id],
+  );
 
   const flushOutbox = useCallback(async () => {
     if (!user || !navigator.onLine) return;
 
     for (const item of outboxFor(id)) {
-      updateItem(item.id, { state: "sending" });
+      updateItem(item.id, {
+        state: "sending",
+      });
 
       const { data, error } = await supabase
         .from("messages")
@@ -1446,15 +1496,21 @@ function ChatRoom() {
         .single();
 
       if (error) {
-        updateItem(item.id, { state: "failed", error: error.message });
+        updateItem(item.id, {
+          state: "failed",
+          error: error.message,
+        });
       } else {
         dequeue(item.id);
+
         applyMessage(data as Message);
 
         void roomChannel.current?.send({
           type: "broadcast",
           event: "message_upsert",
-          payload: { message: data },
+          payload: {
+            message: data,
+          },
         });
       }
     }
@@ -1493,12 +1549,16 @@ function ChatRoom() {
     lastTypingSent.current = now;
 
     const meProfile = profileMap.get(user.id);
-    const myName = meProfile?.display_name?.trim() || "Someone";
+    const myName =
+      meProfile?.display_name?.trim() || "Someone";
 
     void roomChannel.current?.send({
       type: "broadcast",
       event: "typing",
-      payload: { userId: user.id, name: myName },
+      payload: {
+        userId: user.id,
+        name: myName,
+      },
     });
   }
 
@@ -1508,7 +1568,9 @@ function ChatRoom() {
 
   async function pushNotify(preview: string) {
     try {
-      const meProfile = user ? profileMap.get(user.id) : null;
+      const meProfile = user
+        ? profileMap.get(user.id)
+        : null;
 
       await notifyNewMessage({
         data: {
@@ -1519,7 +1581,10 @@ function ChatRoom() {
               : meProfile?.display_name ?? "WHATSXUP",
           preview:
             conv?.type === "group"
-              ? `${meProfile?.display_name ?? "Someone"}: ${preview}`.slice(0, 160)
+              ? `${meProfile?.display_name ?? "Someone"}: ${preview}`.slice(
+                  0,
+                  160,
+                )
               : preview.slice(0, 160),
         },
       });
@@ -1532,7 +1597,10 @@ function ChatRoom() {
    * SEND MESSAGE
    * ========================================================== */
 
-  async function sendMessage(payload: Partial<Message>, preview: string) {
+  async function sendMessage(
+    payload: Partial<Message>,
+    preview: string,
+  ) {
     if (!user) return false;
 
     const optimisticId = crypto.randomUUID();
@@ -1571,10 +1639,14 @@ function ChatRoom() {
 
     if (error || !data) {
       qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-        prev.filter((message) => message.id !== optimisticId),
+        prev.filter(
+          (message) => message.id !== optimisticId,
+        ),
       );
 
-      toast.error(error?.message ?? "Could not send message");
+      toast.error(
+        error?.message ?? "Could not send message",
+      );
 
       return false;
     }
@@ -1592,7 +1664,9 @@ function ChatRoom() {
     void roomChannel.current?.send({
       type: "broadcast",
       event: "message_upsert",
-      payload: { message: data },
+      payload: {
+        message: data,
+      },
     });
 
     void pushNotify(preview);
@@ -1615,7 +1689,10 @@ function ChatRoom() {
     setPlusOpen(false);
 
     await sendMessage(
-      { type: "sticker" as any, content: sticker.id },
+      {
+        type: "sticker" as any,
+        content: sticker.id,
+      },
       `${sticker.emoji} Sticker`,
     );
   }
@@ -1632,7 +1709,11 @@ function ChatRoom() {
       return;
     }
 
-    const encoded = encodeSpecialMessage(body, selectedEffect, secretMode);
+    const encoded = encodeSpecialMessage(
+      body,
+      selectedEffect,
+      secretMode,
+    );
 
     setText("");
     setEffectsOpen(false);
@@ -1641,10 +1722,15 @@ function ChatRoom() {
     const effectPreview =
       selectedEffect === "none"
         ? body
-        : `${EFFECTS.find((item) => item.id === selectedEffect)?.emoji ?? "✨"} ${body}`;
+        : `${EFFECTS.find(
+            (item) => item.id === selectedEffect,
+          )?.emoji ?? "✨"} ${body}`;
 
     const ok = await sendMessage(
-      { type: "text", content: encoded },
+      {
+        type: "text",
+        content: encoded,
+      },
       secretMode ? "🔐 Secret message" : effectPreview,
     );
 
@@ -1685,14 +1771,21 @@ function ChatRoom() {
       qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
         prev.map((message) =>
           message.id === target.id
-            ? { ...message, content: body, edited_at: editedAt }
+            ? {
+                ...message,
+                content: body,
+                edited_at: editedAt,
+              }
             : message,
         ),
       );
 
       const { data, error } = await supabase
         .from("messages")
-        .update({ content: body, edited_at: editedAt })
+        .update({
+          content: body,
+          edited_at: editedAt,
+        })
         .eq("id", target.id)
         .select("*")
         .single();
@@ -1703,7 +1796,9 @@ function ChatRoom() {
         void roomChannel.current?.send({
           type: "broadcast",
           event: "message_upsert",
-          payload: { message: data },
+          payload: {
+            message: data,
+          },
         });
       }
 
@@ -1726,7 +1821,13 @@ function ChatRoom() {
       return;
     }
 
-    const ok = await sendMessage({ type: "text", content: body }, body);
+    const ok = await sendMessage(
+      {
+        type: "text",
+        content: body,
+      },
+      body,
+    );
 
     if (!ok) {
       enqueue({
@@ -1746,15 +1847,23 @@ function ChatRoom() {
    * MEDIA
    * ========================================================== */
 
-  async function onFile(event: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.target.files?.[0];
 
     event.target.value = "";
 
     if (!file) return;
 
-    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
-      toast.error("Only images and videos are supported.");
+    if (
+      !file.type.startsWith("image/") &&
+      !file.type.startsWith("video/")
+    ) {
+      toast.error(
+        "Only images and videos are supported.",
+      );
+
       return;
     }
 
@@ -1763,7 +1872,9 @@ function ChatRoom() {
       return;
     }
 
-    const kind = file.type.startsWith("video") ? "video" : "image";
+    const kind = file.type.startsWith("video")
+      ? "video"
+      : "image";
 
     try {
       const path = await uploadChatMedia(
@@ -1773,11 +1884,18 @@ function ChatRoom() {
       );
 
       await sendMessage(
-        { type: kind, media_url: path },
-        kind === "video" ? "🎬 Video" : "📷 Photo",
+        {
+          type: kind,
+          media_url: path,
+        },
+        kind === "video"
+          ? "🎬 Video"
+          : "📷 Photo",
       );
     } catch (error) {
-      toast.error((error as Error).message);
+      toast.error(
+        (error as Error).message,
+      );
     }
   }
 
@@ -1788,7 +1906,9 @@ function ChatRoom() {
    * input. No new backend is required.
    * ========================================================== */
 
-  async function onCameraFile(event: React.ChangeEvent<HTMLInputElement>) {
+  async function onCameraFile(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
     const file = event.target.files?.[0];
 
     event.target.value = "";
@@ -1808,37 +1928,66 @@ function ChatRoom() {
     try {
       setCameraBusy(true);
 
-      const path = await uploadChatMedia(id, file, "jpg");
+      const path = await uploadChatMedia(
+        id,
+        file,
+        "jpg",
+      );
 
       await sendMessage(
-        { type: "image", media_url: path },
+        {
+          type: "image",
+          media_url: path,
+        },
         "📸 Camera photo",
       );
     } catch (error) {
-      toast.error((error as Error).message);
+      toast.error(
+        (error as Error).message,
+      );
     } finally {
       setCameraBusy(false);
     }
   }
 
   /* ==========================================================
-   * CAMERA (single, deduplicated implementation)
+   * OPEN CAMERA
+   * ========================================================== */
+
+  async function openCamera() {
+    setPlusOpen(false);
+    setCameraError(null);
+    setCameraOpen(true);
+    setCameraReady(false);
+
+    await startCamera();
+  }
+
+  /* ==========================================================
+   * START CAMERA
    * ========================================================== */
 
   async function startCamera() {
     try {
       setCameraError(null);
 
-      cameraStream.current?.getTracks().forEach((track) => track.stop());
+      cameraStream.current
+        ?.getTracks()
+        .forEach((track) => track.stop());
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: cameraFacing,
-          width: { ideal: 1280 },
-          height: { ideal: 1280 },
-        },
-        audio: false,
-      });
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: cameraFacing,
+            width: {
+              ideal: 1280,
+            },
+            height: {
+              ideal: 1280,
+            },
+          },
+          audio: false,
+        });
 
       cameraStream.current = stream;
 
@@ -1849,7 +1998,10 @@ function ChatRoom() {
 
       setCameraReady(true);
     } catch (error) {
-      const name = error instanceof DOMException ? error.name : "";
+      const name =
+        error instanceof DOMException
+          ? error.name
+          : "";
 
       setCameraReady(false);
 
@@ -1861,31 +2013,32 @@ function ChatRoom() {
     }
   }
 
-  async function openCamera() {
-    setPlusOpen(false);
-    setCameraError(null);
-    setCameraOpen(true);
-    setCameraReady(false);
-
-    await startCamera();
-  }
+  /* ==========================================================
+   * SWITCH CAMERA
+   * ========================================================== */
 
   async function switchCamera() {
     setCameraFacing((current) =>
-      current === "environment" ? "user" : "environment",
+      current === "environment"
+        ? "user"
+        : "environment",
     );
   }
 
   useEffect(() => {
     if (!cameraOpen) return;
+
     if (!cameraReady) return;
 
     void startCamera();
-
     // The camera is intentionally restarted when the user
     // changes between front and rear cameras.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraFacing]);
+
+  /* ==========================================================
+   * TAKE PHOTO
+   * ========================================================== */
 
   async function takeCameraPhoto() {
     const video = cameraVideo.current;
@@ -1895,10 +2048,12 @@ function ChatRoom() {
       return;
     }
 
-    const canvas = cameraCanvas.current ?? document.createElement("canvas");
-
     const width = video.videoWidth || 1280;
     const height = video.videoHeight || 1280;
+
+    const canvas =
+      cameraCanvas.current ??
+      document.createElement("canvas");
 
     canvas.width = width;
     canvas.height = height;
@@ -1906,62 +2061,90 @@ function ChatRoom() {
     const context = canvas.getContext("2d");
 
     if (!context) {
-      toast.error("Could not capture the photo.");
+      toast.error("Could not capture photo.");
       return;
     }
 
-    context.drawImage(video, 0, 0, width, height);
-
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, "image/jpeg", 0.92),
+    context.drawImage(
+      video,
+      0,
+      0,
+      width,
+      height,
     );
 
-    if (!blob) {
-      toast.error("Could not create the photo.");
-      return;
-    }
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          toast.error("Could not capture photo.");
+          return;
+        }
 
-    try {
-      setCameraBusy(true);
+        try {
+          setCameraBusy(true);
 
-      const file = new File([blob], `camera-${Date.now()}.jpg`, {
-        type: "image/jpeg",
-      });
+          const file = new File(
+            [blob],
+            `camera-${Date.now()}.jpg`,
+            {
+              type: "image/jpeg",
+            },
+          );
 
-      const path = await uploadChatMedia(id, file, "jpg");
+          const path =
+            await uploadChatMedia(
+              id,
+              file,
+              "jpg",
+            );
 
-      await sendMessage(
-        { type: "image", media_url: path },
-        "📸 Camera photo",
-      );
+          await sendMessage(
+            {
+              type: "image",
+              media_url: path,
+            },
+            "📸 Camera photo",
+          );
 
-      closeCamera();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not send photo.",
-      );
-    } finally {
-      setCameraBusy(false);
-    }
+          closeCamera();
+        } catch (error) {
+          toast.error(
+            (error as Error).message,
+          );
+        } finally {
+          setCameraBusy(false);
+        }
+      },
+      "image/jpeg",
+      0.9,
+    );
   }
 
+  /* ==========================================================
+   * CLOSE CAMERA
+   * ========================================================== */
+
   function closeCamera() {
-    cameraStream.current?.getTracks().forEach((track) => track.stop());
+    cameraStream.current
+      ?.getTracks()
+      .forEach((track) => track.stop());
+
     cameraStream.current = null;
 
     if (cameraVideo.current) {
       cameraVideo.current.srcObject = null;
     }
 
-    setCameraReady(false);
     setCameraOpen(false);
+    setCameraReady(false);
     setCameraError(null);
   }
 
   useEffect(() => {
     return () => {
-      cameraStream.current?.getTracks().forEach((track) => track.stop());
-      cameraStream.current = null;
+      cameraStream.current
+        ?.getTracks()
+        .forEach((track) => track.stop());
     };
   }, []);
 
@@ -1971,53 +2154,84 @@ function ChatRoom() {
 
   async function startRecording() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
 
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder =
+        new MediaRecorder(stream);
 
       chunks.current = [];
       cancelRecordingRef.current = false;
 
-      mediaRecorder.ondataavailable = (event) => {
+      mediaRecorder.ondataavailable = (
+        event,
+      ) => {
         if (event.data.size > 0) {
-          chunks.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        recordingStream.current = null;
-
-        const wasCancelled = cancelRecordingRef.current;
-        const seconds = recSecs;
-
-        setRecording(false);
-        setRecSecs(0);
-        recorder.current = null;
-
-        if (wasCancelled) {
-          chunks.current = [];
-          return;
-        }
-
-        const blob = new Blob(chunks.current, { type: "audio/webm" });
-        chunks.current = [];
-
-        if (!blob.size) return;
-
-        try {
-          const path = await uploadChatMedia(id, blob, "webm");
-
-          await sendMessage(
-            { type: "audio", media_url: path, media_duration: seconds },
-            "🎙️ Voice note",
+          chunks.current.push(
+            event.data,
           );
-        } catch (error) {
-          toast.error((error as Error).message);
         }
       };
+
+      mediaRecorder.onstop =
+        async () => {
+          stream
+            .getTracks()
+            .forEach((track) =>
+              track.stop(),
+            );
+
+          recordingStream.current = null;
+
+          const wasCancelled =
+            cancelRecordingRef.current;
+
+          const seconds = recSecs;
+
+          setRecording(false);
+          setRecSecs(0);
+          recorder.current = null;
+
+          if (wasCancelled) {
+            chunks.current = [];
+            return;
+          }
+
+          const blob = new Blob(
+            chunks.current,
+            {
+              type: "audio/webm",
+            },
+          );
+
+          chunks.current = [];
+
+          if (!blob.size) return;
+
+          try {
+            const path =
+              await uploadChatMedia(
+                id,
+                blob,
+                "webm",
+              );
+
+            await sendMessage(
+              {
+                type: "audio",
+                media_url: path,
+                media_duration: seconds,
+              },
+              "🎙️ Voice note",
+            );
+          } catch (error) {
+            toast.error(
+              (error as Error).message,
+            );
+          }
+        };
 
       mediaRecorder.start();
 
@@ -2027,7 +2241,8 @@ function ChatRoom() {
       setRecSecs(0);
       setRecording(true);
     } catch (error) {
-      const name = (error as DOMException)?.name;
+      const name =
+        (error as DOMException)?.name;
 
       toast.error(
         name === "NotAllowedError"
@@ -2040,7 +2255,11 @@ function ChatRoom() {
   function stopRecordingAndSend() {
     cancelRecordingRef.current = false;
 
-    if (recorder.current && recorder.current.state !== "inactive") {
+    if (
+      recorder.current &&
+      recorder.current.state !==
+        "inactive"
+    ) {
       recorder.current.stop();
     }
   }
@@ -2049,10 +2268,19 @@ function ChatRoom() {
     cancelRecordingRef.current = true;
     chunks.current = [];
 
-    if (recorder.current && recorder.current.state !== "inactive") {
+    if (
+      recorder.current &&
+      recorder.current.state !==
+        "inactive"
+    ) {
       recorder.current.stop();
     } else {
-      recordingStream.current?.getTracks().forEach((track) => track.stop());
+      recordingStream.current
+        ?.getTracks()
+        .forEach((track) =>
+          track.stop(),
+        );
+
       recordingStream.current = null;
       recorder.current = null;
 
@@ -2071,22 +2299,36 @@ function ChatRoom() {
     setDeletingId(message.id);
 
     try {
-      const { error } = await (supabase as any)
-        .from("message_deletions")
-        .upsert(
-          { message_id: message.id, user_id: user.id },
-          { onConflict: "message_id,user_id" },
-        );
+      const { error } =
+        await (supabase as any)
+          .from("message_deletions")
+          .upsert(
+            {
+              message_id: message.id,
+              user_id: user.id,
+            },
+            {
+              onConflict:
+                "message_id,user_id",
+            },
+          );
 
       if (error) throw error;
 
-      qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-        prev.filter((item) => item.id !== message.id),
+      qc.setQueryData<Message[]>(
+        messagesKey,
+        (prev = []) =>
+          prev.filter(
+            (item) =>
+              item.id !== message.id,
+          ),
       );
 
       setDeleteMenu(null);
 
-      toast.success("Message deleted for you");
+      toast.success(
+        "Message deleted for you",
+      );
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -2102,40 +2344,60 @@ function ChatRoom() {
    * DELETE FOR EVERYONE
    * ========================================================== */
 
-  async function deleteForEveryone(message: Message) {
-    if (!user || message.sender_id !== user.id) {
-      toast.error("You can only delete your own messages for everyone.");
+  async function deleteForEveryone(
+    message: Message,
+  ) {
+    if (
+      !user ||
+      message.sender_id !== user.id
+    ) {
+      toast.error(
+        "You can only delete your own messages for everyone.",
+      );
+
       return;
     }
 
     setDeletingId(message.id);
 
-    const deletedAt = new Date().toISOString();
+    const deletedAt =
+      new Date().toISOString();
 
     try {
-      const { data, error } = await (supabase as any)
-        .from("messages")
-        .update({ deleted_at: deletedAt, content: null, media_url: null })
-        .eq("id", message.id)
-        .eq("sender_id", user.id)
-        .select("*")
-        .single();
+      const { data, error } =
+        await (supabase as any)
+          .from("messages")
+          .update({
+            deleted_at: deletedAt,
+            content: null,
+            media_url: null,
+          })
+          .eq("id", message.id)
+          .eq("sender_id", user.id)
+          .select("*")
+          .single();
 
       if (error) throw error;
 
       if (data) {
         applyMessage(data as Message);
 
-        void roomChannel.current?.send({
-          type: "broadcast",
-          event: "message_upsert",
-          payload: { message: data },
-        });
+        void roomChannel.current?.send(
+          {
+            type: "broadcast",
+            event: "message_upsert",
+            payload: {
+              message: data,
+            },
+          },
+        );
       }
 
       setDeleteMenu(null);
 
-      toast.success("Message deleted for everyone");
+      toast.success(
+        "Message deleted for everyone",
+      );
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -2143,7 +2405,9 @@ function ChatRoom() {
           : "Could not delete message for everyone.",
       );
 
-      void qc.invalidateQueries({ queryKey: ["messages", id] });
+      void qc.invalidateQueries({
+        queryKey: ["messages", id],
+      });
     } finally {
       setDeletingId(null);
     }
@@ -2153,15 +2417,26 @@ function ChatRoom() {
    * DELETE MENU
    * ========================================================== */
 
-  function openDeleteMenu(event: React.MouseEvent, message: Message) {
+  function openDeleteMenu(
+    event: React.MouseEvent,
+    message: Message,
+  ) {
     event.stopPropagation();
 
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    const rect = (
+      event.currentTarget as HTMLElement
+    ).getBoundingClientRect();
 
     setDeleteMenu({
       message,
-      x: Math.min(rect.left, window.innerWidth - 240),
-      y: Math.min(rect.bottom + 8, window.innerHeight - 150),
+      x: Math.min(
+        rect.left,
+        window.innerWidth - 240,
+      ),
+      y: Math.min(
+        rect.bottom + 8,
+        window.innerHeight - 150,
+      ),
     });
   }
 
@@ -2182,7 +2457,10 @@ function ChatRoom() {
         .querySelector(
           "input[placeholder='Message'], input[placeholder='Message (offline)']",
         )
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
     }, 50);
   }
 
@@ -2190,8 +2468,13 @@ function ChatRoom() {
    * JUMP TO REPLIED MESSAGE
    * ========================================================== */
 
-  function jumpToMessage(messageId: string) {
-    const element = document.getElementById(`message-${messageId}`);
+  function jumpToMessage(
+    messageId: string,
+  ) {
+    const element =
+      document.getElementById(
+        `message-${messageId}`,
+      );
 
     if (!element) {
       toast.info(
@@ -2201,7 +2484,10 @@ function ChatRoom() {
       return;
     }
 
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
 
     element.classList.add(
       "ring-2",
@@ -2224,22 +2510,42 @@ function ChatRoom() {
    * SWIPE RIGHT TO REPLY
    * ========================================================== */
 
-  function handleTouchStart(event: React.TouchEvent, messageId: string) {
-    touchStartX.current.set(messageId, event.touches[0]?.clientX ?? 0);
+  function handleTouchStart(
+    event: React.TouchEvent,
+    messageId: string,
+  ) {
+    touchStartX.current.set(
+      messageId,
+      event.touches[0]?.clientX ?? 0,
+    );
   }
 
-  function handleTouchEnd(event: React.TouchEvent, message: Message) {
-    const start = touchStartX.current.get(message.id);
+  function handleTouchEnd(
+    event: React.TouchEvent,
+    message: Message,
+  ) {
+    const start =
+      touchStartX.current.get(
+        message.id,
+      );
 
-    touchStartX.current.delete(message.id);
+    touchStartX.current.delete(
+      message.id,
+    );
 
     if (start == null) return;
 
-    const end = event.changedTouches[0]?.clientX ?? start;
+    const end =
+      event.changedTouches[0]
+        ?.clientX ?? start;
+
     const distance = end - start;
 
     if (distance > 70) {
-      setSwipingMessageId(message.id);
+      setSwipingMessageId(
+        message.id,
+      );
+
       startReply(message);
 
       setTimeout(() => {
@@ -2254,28 +2560,45 @@ function ChatRoom() {
 
   async function addContact() {
     if (!user?.id || !otherUserId) {
-      toast.error("Could not identify this user.");
+      toast.error(
+        "Could not identify this user.",
+      );
+
       return;
     }
 
-    const { error } = await supabase.from("contacts").insert({
-      owner_id: user.id,
-      contact_id: otherUserId,
-    });
+    const { error } =
+      await supabase
+        .from("contacts")
+        .insert({
+          owner_id: user.id,
+          contact_id: otherUserId,
+        });
 
     if (error) {
       if (error.code === "23505") {
-        toast.info("This person is already in your contacts.");
+        toast.info(
+          "This person is already in your contacts.",
+        );
       } else {
-        toast.error(error.message);
+        toast.error(
+          error.message,
+        );
       }
 
       return;
     }
 
-    toast.success(`${otherName} added to your contacts`);
+    toast.success(
+      `${otherName} added to your contacts`,
+    );
 
-    void qc.invalidateQueries({ queryKey: ["is-contact", otherUserId] });
+    void qc.invalidateQueries({
+      queryKey: [
+        "is-contact",
+        otherUserId,
+      ],
+    });
   }
 
   /* ==========================================================
@@ -2287,29 +2610,53 @@ function ChatRoom() {
 
   function callVoice() {
     if (!otherUserId) {
-      toast.error("Could not identify the person you're calling.");
+      toast.error(
+        "Could not identify the person you're calling.",
+      );
+
       return;
     }
 
-    void startCall({ id: otherUserId, name: otherName, avatar: otherAvatar }, "voice");
+    void startCall(
+      {
+        id: otherUserId,
+        name: otherName,
+        avatar: otherAvatar,
+      },
+      "voice",
+    );
   }
 
   function callVideo() {
     if (!otherUserId) {
-      toast.error("Could not identify the person you're calling.");
+      toast.error(
+        "Could not identify the person you're calling.",
+      );
+
       return;
     }
 
-    void startCall({ id: otherUserId, name: otherName, avatar: otherAvatar }, "video");
+    void startCall(
+      {
+        id: otherUserId,
+        name: otherName,
+        avatar: otherAvatar,
+      },
+      "video",
+    );
   }
 
   /* ==========================================================
    * SECRET MESSAGE REVEAL
    * ========================================================== */
 
-  function toggleSecret(messageId: string) {
+  function toggleSecret(
+    messageId: string,
+  ) {
     setRevealedSecrets((previous) => {
-      const next = new Set(previous);
+      const next = new Set(
+        previous,
+      );
 
       if (next.has(messageId)) {
         next.delete(messageId);
@@ -2331,7 +2678,8 @@ function ChatRoom() {
     setEffectsOpen(false);
   }
 
-  const hasMore = messages.length >= limit;
+  const hasMore =
+    messages.length >= limit;
 
   /* ==========================================================
    * CLOSE DELETE MENU + CHAT MENU ON SCROLL/RESIZE
@@ -2343,12 +2691,28 @@ function ChatRoom() {
       setChatMenuOpen(false);
     }
 
-    window.addEventListener("scroll", closeMenu, true);
-    window.addEventListener("resize", closeMenu);
+    window.addEventListener(
+      "scroll",
+      closeMenu,
+      true,
+    );
+
+    window.addEventListener(
+      "resize",
+      closeMenu,
+    );
 
     return () => {
-      window.removeEventListener("scroll", closeMenu, true);
-      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener(
+        "scroll",
+        closeMenu,
+        true,
+      );
+
+      window.removeEventListener(
+        "resize",
+        closeMenu,
+      );
     };
   }, []);
 
@@ -2372,7 +2736,10 @@ function ChatRoom() {
 
     try {
       if (typeof window !== "undefined") {
-        window.localStorage.setItem(localChatNameKey, trimmed);
+        window.localStorage.setItem(
+          localChatNameKey,
+          trimmed,
+        );
       }
 
       setCustomName(trimmed);
@@ -2380,14 +2747,18 @@ function ChatRoom() {
 
       toast.success("Chat name changed on your device");
     } catch {
-      toast.error("Could not save the name on this device.");
+      toast.error(
+        "Could not save the name on this device.",
+      );
     }
   }
 
   function resetCustomChatName() {
     try {
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem(localChatNameKey);
+        window.localStorage.removeItem(
+          localChatNameKey,
+        );
       }
     } catch {
       // Best effort — nothing else to do if storage is
@@ -2403,7 +2774,9 @@ function ChatRoom() {
   function handleProfilePictureTap() {
     setChatMenuOpen(false);
 
-    toast.info("Profile pictures are controlled by the account owner.");
+    toast.info(
+      "Profile pictures are controlled by the account owner.",
+    );
   }
 
   /* ==========================================================
@@ -2411,9 +2784,13 @@ function ChatRoom() {
    * ========================================================== */
 
   const visibleStickers = useMemo(() => {
-    if (stickerPack === "All") return STICKERS;
+    if (stickerPack === "All")
+      return STICKERS;
 
-    return STICKERS.filter((sticker) => sticker.pack === stickerPack);
+    return STICKERS.filter(
+      (sticker) =>
+        sticker.pack === stickerPack,
+    );
   }, [stickerPack]);
 
   /* ==========================================================
@@ -2431,146 +2808,389 @@ function ChatRoom() {
 
       <style>{`
   @keyframes xup-dramatic {
-    0% { opacity: 0; transform: scale(.45) rotate(-7deg); }
-    55% { opacity: 1; transform: scale(1.08) rotate(2deg); }
-    75% { transform: scale(.97) rotate(-1deg); }
-    100% { opacity: 1; transform: scale(1) rotate(0); }
+    0% {
+      opacity: 0;
+      transform: scale(.45) rotate(-7deg);
+    }
+
+    55% {
+      opacity: 1;
+      transform: scale(1.08) rotate(2deg);
+    }
+
+    75% {
+      transform: scale(.97) rotate(-1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+    }
   }
 
   @keyframes xup-bounce {
-    0% { transform: translateY(22px) scale(.82); opacity: 0; }
-    45% { transform: translateY(-8px) scale(1.04); opacity: 1; }
-    70% { transform: translateY(3px) scale(.98); }
-    100% { transform: translateY(0) scale(1); opacity: 1; }
+    0% {
+      transform: translateY(22px) scale(.82);
+      opacity: 0;
+    }
+
+    45% {
+      transform: translateY(-8px) scale(1.04);
+      opacity: 1;
+    }
+
+    70% {
+      transform: translateY(3px) scale(.98);
+    }
+
+    100% {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
   }
 
   @keyframes xup-shake {
-    0%, 100% { transform: translateX(0) rotate(0); }
-    15% { transform: translateX(-7px) rotate(-1deg); }
-    30% { transform: translateX(7px) rotate(1deg); }
-    45% { transform: translateX(-5px) rotate(-1deg); }
-    60% { transform: translateX(5px) rotate(1deg); }
-    75% { transform: translateX(-2px); }
+    0%,
+    100% {
+      transform: translateX(0) rotate(0);
+    }
+
+    15% {
+      transform: translateX(-7px) rotate(-1deg);
+    }
+
+    30% {
+      transform: translateX(7px) rotate(1deg);
+    }
+
+    45% {
+      transform: translateX(-5px) rotate(-1deg);
+    }
+
+    60% {
+      transform: translateX(5px) rotate(1deg);
+    }
+
+    75% {
+      transform: translateX(-2px);
+    }
   }
 
   @keyframes xup-pop {
-    0% { opacity: 0; transform: scale(.55); }
-    65% { opacity: 1; transform: scale(1.12); }
-    100% { opacity: 1; transform: scale(1); }
+    0% {
+      opacity: 0;
+      transform: scale(.55);
+    }
+
+    65% {
+      opacity: 1;
+      transform: scale(1.12);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
   @keyframes xup-neon {
-    0%, 100% { filter: drop-shadow(0 0 2px currentColor); }
+    0%,
+    100% {
+      filter: drop-shadow(0 0 2px currentColor);
+    }
+
     50% {
-      filter: drop-shadow(0 0 5px currentColor) drop-shadow(0 0 12px currentColor);
+      filter:
+        drop-shadow(0 0 5px currentColor)
+        drop-shadow(0 0 12px currentColor);
     }
   }
 
   @keyframes xup-rainbow {
-    0% { filter: hue-rotate(0deg); }
-    25% { filter: hue-rotate(90deg); }
-    50% { filter: hue-rotate(180deg); }
-    75% { filter: hue-rotate(270deg); }
-    100% { filter: hue-rotate(360deg); }
+    0% {
+      filter: hue-rotate(0deg);
+    }
+
+    25% {
+      filter: hue-rotate(90deg);
+    }
+
+    50% {
+      filter: hue-rotate(180deg);
+    }
+
+    75% {
+      filter: hue-rotate(270deg);
+    }
+
+    100% {
+      filter: hue-rotate(360deg);
+    }
   }
 
   @keyframes xup-zoom {
-    0% { opacity: 0; transform: scale(1.5); }
-    100% { opacity: 1; transform: scale(1); }
+    0% {
+      opacity: 0;
+      transform: scale(1.5);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
   }
 
+  /* ==========================================
+   * NEW DIRECTIONAL EFFECTS
+   * ========================================== */
+
   @keyframes xup-from-top {
-    0% { opacity: 0; transform: translateY(-100vh) scale(.85); }
-    60% { opacity: 1; transform: translateY(18px) scale(1.03); }
-    78% { transform: translateY(-7px) scale(.99); }
-    100% { opacity: 1; transform: translateY(0) scale(1); }
+    0% {
+      opacity: 0;
+      transform: translateY(-100vh) scale(.85);
+    }
+
+    60% {
+      opacity: 1;
+      transform: translateY(18px) scale(1.03);
+    }
+
+    78% {
+      transform: translateY(-7px) scale(.99);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   @keyframes xup-from-right {
-    0% { opacity: 0; transform: translateX(100vw) rotate(5deg); }
-    65% { opacity: 1; transform: translateX(-14px) rotate(-1deg); }
-    100% { opacity: 1; transform: translateX(0) rotate(0); }
+    0% {
+      opacity: 0;
+      transform: translateX(100vw) rotate(5deg);
+    }
+
+    65% {
+      opacity: 1;
+      transform: translateX(-14px) rotate(-1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0) rotate(0);
+    }
   }
 
   @keyframes xup-from-left {
-    0% { opacity: 0; transform: translateX(-100vw) rotate(-5deg); }
-    65% { opacity: 1; transform: translateX(14px) rotate(1deg); }
-    100% { opacity: 1; transform: translateX(0) rotate(0); }
+    0% {
+      opacity: 0;
+      transform: translateX(-100vw) rotate(-5deg);
+    }
+
+    65% {
+      opacity: 1;
+      transform: translateX(14px) rotate(1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateX(0) rotate(0);
+    }
   }
 
-  /* RECONSTRUCTED — missing from pasted source, inferred from
-     effectClass()/EFFECTS naming pattern (from-top/from-right/
-     from-left already covered above). */
-
   @keyframes xup-from-bottom {
-    0% { opacity: 0; transform: translateY(100vh) scale(.85); }
-    60% { opacity: 1; transform: translateY(-18px) scale(1.03); }
-    78% { transform: translateY(7px) scale(.99); }
-    100% { opacity: 1; transform: translateY(0) scale(1); }
+    0% {
+      opacity: 0;
+      transform: translateY(100vh) scale(.9);
+    }
+
+    60% {
+      opacity: 1;
+      transform: translateY(-16px) scale(1.03);
+    }
+
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
 
   @keyframes xup-explosion {
-    0% { opacity: 0; transform: scale(0); }
-    40% { opacity: 1; transform: scale(1.4); filter: brightness(1.5); }
-    60% { transform: scale(.85) rotate(3deg); }
-    80% { transform: scale(1.05) rotate(-2deg); }
-    100% { opacity: 1; transform: scale(1) rotate(0); filter: brightness(1); }
+    0% {
+      opacity: 0;
+      transform: scale(.05) rotate(-20deg);
+      filter: blur(8px);
+    }
+
+    35% {
+      opacity: 1;
+      transform: scale(1.35) rotate(8deg);
+      filter: blur(0);
+    }
+
+    55% {
+      transform: scale(.82) rotate(-3deg);
+    }
+
+    75% {
+      transform: scale(1.08) rotate(1deg);
+    }
+
+    100% {
+      opacity: 1;
+      transform: scale(1) rotate(0);
+      filter: blur(0);
+    }
   }
 
   @keyframes xup-spin {
-    0% { opacity: 0; transform: rotate(-360deg) scale(.4); }
-    70% { opacity: 1; transform: rotate(15deg) scale(1.05); }
-    100% { opacity: 1; transform: rotate(0) scale(1); }
+    0% {
+      opacity: 0;
+      transform: rotate(-180deg) scale(.3);
+    }
+
+    60% {
+      opacity: 1;
+      transform: rotate(20deg) scale(1.08);
+    }
+
+    100% {
+      opacity: 1;
+      transform: rotate(0) scale(1);
+    }
   }
 
-  .xup-effect-dramatic { animation: xup-dramatic .6s ease-out; }
-  .xup-effect-bounce { animation: xup-bounce .55s cubic-bezier(.34,1.56,.64,1); }
-  .xup-effect-shake { animation: xup-shake .5s ease-in-out; }
-  .xup-effect-pop { animation: xup-pop .4s ease-out; }
-  .xup-effect-neon { animation: xup-neon 1.6s ease-in-out infinite; }
-  .xup-effect-rainbow { animation: xup-rainbow 2.5s linear infinite; }
-  .xup-effect-zoom { animation: xup-zoom .4s ease-out; }
-  .xup-effect-from-top { animation: xup-from-top .6s ease-out; }
-  .xup-effect-from-right { animation: xup-from-right .6s ease-out; }
-  .xup-effect-from-left { animation: xup-from-left .6s ease-out; }
-  .xup-effect-from-bottom { animation: xup-from-bottom .6s ease-out; }
-  .xup-effect-explosion { animation: xup-explosion .7s ease-out; }
-  .xup-effect-spin { animation: xup-spin .6s ease-out; }
+  .xup-effect-dramatic {
+    animation: xup-dramatic 650ms cubic-bezier(.2,.8,.2,1);
+    transform-origin: center;
+  }
+
+  .xup-effect-bounce {
+    animation: xup-bounce 650ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-shake {
+    animation: xup-shake 600ms ease-in-out;
+  }
+
+  .xup-effect-pop {
+    animation: xup-pop 450ms cubic-bezier(.2,1.4,.4,1);
+  }
+
+  .xup-effect-neon {
+    animation: xup-neon 1200ms ease-in-out infinite;
+  }
+
+  .xup-effect-rainbow {
+    animation: xup-rainbow 1800ms linear infinite;
+  }
+
+  .xup-effect-zoom {
+    animation: xup-zoom 550ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-from-top {
+    animation: xup-from-top 750ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-right {
+    animation: xup-from-right 650ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-left {
+    animation: xup-from-left 650ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-from-bottom {
+    animation: xup-from-bottom 700ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  .xup-effect-explosion {
+    animation: xup-explosion 750ms cubic-bezier(.2,.8,.2,1);
+  }
+
+  .xup-effect-spin {
+    animation: xup-spin 700ms cubic-bezier(.2,.85,.2,1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .xup-effect-dramatic,
+    .xup-effect-bounce,
+    .xup-effect-shake,
+    .xup-effect-pop,
+    .xup-effect-neon,
+    .xup-effect-rainbow,
+    .xup-effect-zoom,
+    .xup-effect-from-top,
+    .xup-effect-from-right,
+    .xup-effect-from-left,
+    .xup-effect-from-bottom,
+    .xup-effect-explosion,
+    .xup-effect-spin {
+      animation: none !important;
+      filter: none !important;
+      transform: none !important;
+    }
+  }
 `}</style>
 
       {/* ======================================================
        * HEADER
-       * RECONSTRUCTED — back button / avatar / name block was
-       * missing from the pasted source; the "chat menu" (three-dot)
-       * block that follows is original.
        * ====================================================== */}
 
-      <header className="sticky top-0 z-30 flex items-center justify-between gap-2 border-b border-border/60 bg-background/90 px-3 py-2.5 backdrop-blur safe-top">
-        {conv && (
-          <div className="flex min-w-0 items-center gap-2">
-            <Link
-              to="/chats"
-              className="rounded-full p-1.5 hover:bg-muted"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Link>
+      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-background/85 px-2 py-2.5 backdrop-blur safe-top">
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() =>
+            void navigate({
+              to: "/chats",
+            })
+          }
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
 
-            <div className="relative shrink-0">
+        {conv?.type === "group" ? (
+          <Link
+            to="/groups/$id"
+            params={{ id }}
+            className="flex min-w-0 flex-1 items-center gap-3"
+          >
+            <UserAvatar
+              path={conv.avatar_url}
+              name={title}
+              bucket="chat-media"
+              size="sm"
+            />
+
+            <div className="min-w-0">
+              <p className="truncate font-medium leading-tight">
+                {title}
+              </p>
+
+              <p className="truncate text-xs text-muted-foreground">
+                {typingUsers.length
+                  ? `${typingUsers[0]} is typing…`
+                  : `${members.length} members`}
+              </p>
+            </div>
+          </Link>
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div style={shopFrameStyle} className="rounded-full">
               <UserAvatar
-                name={otherName}
-                avatarUrl={otherAvatar}
-                size={40}
-                style={shopFrameStyle}
+                path={otherAvatar}
+                name={displayedChatName}
+                size="sm"
+                online={isOtherOnline}
               />
-
-              {conv.type === "direct" && isOnline && (
-                <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
-              )}
             </div>
 
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">
-                {conv.type === "group" ? conv.name ?? "Group" : otherName}
+              <p className="truncate font-medium leading-tight">
+                {displayedChatName}
               </p>
 
               <p className="truncate text-xs text-muted-foreground">
@@ -2590,17 +3210,27 @@ function ChatRoom() {
                   size="icon"
                   variant="ghost"
                   title={`Add ${otherName} to contacts`}
-                  onClick={() => void addContact()}
+                  onClick={() =>
+                    void addContact()
+                  }
                 >
                   <UserPlus className="h-5 w-5" />
                 </Button>
               )}
 
-              <Button size="icon" variant="ghost" onClick={callVoice}>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={callVoice}
+              >
                 <Phone className="h-5 w-5" />
               </Button>
 
-              <Button size="icon" variant="ghost" onClick={callVideo}>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={callVideo}
+              >
                 <VideoIcon className="h-5 w-5" />
               </Button>
 
@@ -2613,7 +3243,11 @@ function ChatRoom() {
                   size="icon"
                   variant="ghost"
                   title="Chat options"
-                  onClick={() => setChatMenuOpen((value) => !value)}
+                  onClick={() =>
+                    setChatMenuOpen(
+                      (value) => !value,
+                    )
+                  }
                 >
                   <MoreVertical className="h-5 w-5" />
                 </Button>
@@ -2624,13 +3258,17 @@ function ChatRoom() {
                       type="button"
                       aria-label="Close chat menu"
                       className="fixed inset-0 z-40 cursor-default"
-                      onClick={() => setChatMenuOpen(false)}
+                      onClick={() =>
+                        setChatMenuOpen(false)
+                      }
                     />
 
                     <div className="fixed right-2 top-14 z-50 w-64 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
                       <button
                         type="button"
-                        onClick={openCustomizeNameModal}
+                        onClick={
+                          openCustomizeNameModal
+                        }
                         className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm transition hover:bg-muted"
                       >
                         <Pencil className="h-4 w-4 shrink-0" />
@@ -2641,7 +3279,8 @@ function ChatRoom() {
                           </span>
 
                           <span className="block text-[10px] text-muted-foreground">
-                            Change how this chat appears to you
+                            Change how this chat appears
+                            to you
                           </span>
                         </span>
                       </button>
@@ -2662,14 +3301,17 @@ function ChatRoom() {
                           </span>
 
                           <span className="block text-[10px] text-muted-foreground">
-                            Theme, font, and wallpaper for this chat
+                            Theme, font, and wallpaper
+                            for this chat
                           </span>
                         </span>
                       </button>
 
                       <button
                         type="button"
-                        onClick={handleProfilePictureTap}
+                        onClick={
+                          handleProfilePictureTap
+                        }
                         className="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left text-sm transition hover:bg-muted"
                       >
                         <UserRound className="h-4 w-4 shrink-0" />
@@ -2708,7 +3350,9 @@ function ChatRoom() {
           <div className="relative w-full max-w-sm rounded-3xl border border-border bg-background p-5 shadow-2xl">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="text-lg font-bold">Customize name</h3>
+                <h3 className="text-lg font-bold">
+                  Customize name
+                </h3>
 
                 <p className="mt-1 text-xs text-muted-foreground">
                   This changes the name only for you.
@@ -2717,7 +3361,9 @@ function ChatRoom() {
 
               <button
                 type="button"
-                onClick={() => setNameModalOpen(false)}
+                onClick={() =>
+                  setNameModalOpen(false)
+                }
                 className="rounded-full p-1 hover:bg-muted"
               >
                 <X className="h-4 w-4" />
@@ -2727,7 +3373,9 @@ function ChatRoom() {
             <Input
               value={nameInput}
               onChange={(event) =>
-                setNameInput(event.target.value.slice(0, 40))
+                setNameInput(
+                  event.target.value.slice(0, 40),
+                )
               }
               placeholder={otherName}
               maxLength={40}
@@ -2765,15 +3413,12 @@ function ChatRoom() {
 
       <div className="relative flex-1 space-y-2 px-3 py-4">
         {(wallpaperUrl ||
-          builtinWallpaperCss ||
-          activeTheme.messageAreaBackground) && (
+          effectiveAreaBackground ||
+          shopWallpaperActive) && (
           <div
             className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
             style={{
-              background:
-                builtinWallpaperCss ||
-                activeTheme.messageAreaBackground ||
-                undefined,
+              background: effectiveAreaBackground || undefined,
             }}
           >
             {wallpaperUrl && wallpaperType === "image" && (
@@ -2794,6 +3439,26 @@ function ChatRoom() {
                 className="h-full w-full object-cover object-center"
               />
             )}
+
+            {/* Shop wallpaper only when this chat has no local wallpaper */}
+            {shopWallpaperActive && shopWall.kind === "image" && shopWall.url && (
+              <img
+                src={shopWall.url}
+                alt=""
+                className="h-full w-full object-cover object-center"
+              />
+            )}
+
+            {shopWallpaperActive && shopWall.kind === "video" && shopWall.url && (
+              <video
+                src={shopWall.url}
+                autoPlay
+                loop
+                muted
+                playsInline
+                className="h-full w-full object-cover object-center"
+              />
+            )}
           </div>
         )}
 
@@ -2804,64 +3469,129 @@ function ChatRoom() {
               variant="outline"
               disabled={fetchingMessages}
               onClick={() =>
-                setLimit((current) => current + PAGE_SIZE)
+                setLimit(
+                  (current) =>
+                    current + PAGE_SIZE,
+                )
               }
             >
-              {fetchingMessages ? "Loading…" : "Load older messages"}
+              {fetchingMessages
+                ? "Loading…"
+                : "Load older messages"}
             </Button>
           </div>
         )}
 
         {messages.map((message) => {
-          const mine = message.sender_id === user?.id;
-          const sender = profileMap.get(message.sender_id);
+          const mine =
+            message.sender_id ===
+            user?.id;
 
-          const parent = message.reply_to
-            ? messages.find((item) => item.id === message.reply_to)
-            : null;
+          const sender =
+            profileMap.get(
+              message.sender_id,
+            );
+
+          const parent =
+            message.reply_to
+              ? messages.find(
+                  (item) =>
+                    item.id ===
+                    message.reply_to,
+                )
+              : null;
 
           const seen =
-            mine && !!othersReadAt && message.created_at <= othersReadAt;
+            mine &&
+            !!othersReadAt &&
+            message.created_at <=
+              othersReadAt;
 
           const delivered =
             mine &&
             (deliveryMap
               .get(message.id)
-              ?.some((delivery) => delivery.user_id !== user?.id) ?? false);
+              ?.some(
+                (delivery) =>
+                  delivery.user_id !==
+                  user?.id,
+              ) ?? false);
 
-          const counts = reactionCounts(message.id);
-          const pickerOpen = reactionPicker === message.id;
-          const deleted = !!(message as any).deleted_at;
-          const swiping = swipingMessageId === message.id;
+          const counts =
+            reactionCounts(
+              message.id,
+            );
+
+          const pickerOpen =
+            reactionPicker ===
+            message.id;
+
+          const deleted = !!(
+            message as any
+          ).deleted_at;
+
+          const swiping =
+            swipingMessageId ===
+            message.id;
 
           const sticker =
-            (message.type as string) === "sticker"
-              ? getSticker(message.content)
+            (message.type as string) ===
+            "sticker"
+              ? getSticker(
+                  message.content,
+                )
               : null;
 
           const decoded =
             message.type === "text"
-              ? decodeSpecialMessage(message.content)
+              ? decodeSpecialMessage(
+                  message.content,
+                )
               : {
-                  text: message.content ?? "",
-                  effect: "none" as ChatEffect,
+                  text:
+                    message.content ??
+                    "",
+                  effect:
+                    "none" as ChatEffect,
                   secret: false,
                 };
 
-          const secretRevealed = revealedSecrets.has(message.id);
-          const hasSpecialEffect = decoded.effect !== "none";
+          const secretRevealed =
+            revealedSecrets.has(
+              message.id,
+            );
+
+          const hasSpecialEffect =
+            decoded.effect !==
+            "none";
 
           return (
             <div
               id={`message-${message.id}`}
               key={message.id}
-              className={`group flex ${mine ? "justify-end" : "justify-start"}`}
-              onTouchStart={(event) => handleTouchStart(event, message.id)}
-              onTouchEnd={(event) => handleTouchEnd(event, message)}
+              className={`group flex ${
+                mine
+                  ? "justify-end"
+                  : "justify-start"
+              }`}
+              onTouchStart={(event) =>
+                handleTouchStart(
+                  event,
+                  message.id,
+                )
+              }
+              onTouchEnd={(event) =>
+                handleTouchEnd(
+                  event,
+                  message,
+                )
+              }
             >
               <div
                 className={`relative max-w-[82%] transition-transform ${
-                  swiping ? "translate-x-3" : ""
+                  swiping
+                    ? "translate-x-3"
+                    : ""
                 }`}
               >
                 {swiping && (
@@ -2878,40 +3608,66 @@ function ChatRoom() {
                         ? "text-primary-foreground"
                         : "bg-surface"
                   } ${
-                    hasSpecialEffect && !sticker
-                      ? effectClass(decoded.effect)
+                    hasSpecialEffect &&
+                    !sticker
+                      ? effectClass(
+                          decoded.effect,
+                        )
                       : ""
                   } ${
-                    mine && !sticker && !activeTheme.bubbleMine
+                    mine && !sticker && !effectiveBubbleMine
                       ? "bg-primary"
                       : ""
                   }`}
                   style={
-                    mine && !sticker && activeTheme.bubbleMine
-                      ? { background: activeTheme.bubbleMine }
-                      : undefined
+                    mine && !sticker && effectiveBubbleMine
+                      ? {
+                          background: effectiveBubbleMine,
+                          boxShadow: shopBubble.boxShadow || undefined,
+                          borderRadius: shopBubble.borderRadius || undefined,
+                        }
+                      : !mine && !sticker && shopBubble.other
+                        ? { background: shopBubble.other }
+                        : undefined
                   }
                 >
-                  {conv?.type === "group" && !mine && !sticker && (
-                    <p className="mb-1 text-[11px] font-semibold text-primary">
-                      {sender?.display_name || "Unknown"}
-                    </p>
-                  )}
+                  {conv?.type ===
+                    "group" &&
+                    !mine &&
+                    !sticker && (
+                      <p className="mb-1 text-[11px] font-semibold text-primary">
+                        {sender?.display_name ||
+                          "Unknown"}
+                      </p>
+                    )}
 
                   {parent && (
                     <button
                       type="button"
-                      onClick={() => jumpToMessage(parent.id)}
+                      onClick={() =>
+                        jumpToMessage(
+                          parent.id,
+                        )
+                      }
                       className="mb-2 w-full rounded-lg border-l-2 border-current/40 bg-black/10 px-2 py-1 text-left text-[11px] opacity-80 transition hover:bg-black/20"
                     >
-                      <span className="block font-semibold">Reply</span>
+                      <span className="block font-semibold">
+                        Reply
+                      </span>
 
                       <span className="line-clamp-2">
-                        {(parent as any).deleted_at
+                        {(parent as any)
+                          .deleted_at
                           ? "Deleted message"
-                          : parent.type === ("sticker" as any)
-                            ? getSticker(parent.content)?.emoji ?? "Sticker"
-                            : decodeSpecialMessage(parent.content).text ||
+                          : parent.type ===
+                              ("sticker" as any)
+                            ? getSticker(
+                                parent.content,
+                              )?.emoji ??
+                              "Sticker"
+                            : decodeSpecialMessage(
+                                parent.content,
+                              ).text ||
                               "Attachment"}
                       </span>
                     </button>
@@ -2925,17 +3681,25 @@ function ChatRoom() {
                     <div className="flex flex-col items-center justify-center">
                       <span
                         className="select-none text-7xl leading-none drop-shadow-sm"
-                        title={sticker.label}
+                        title={
+                          sticker.label
+                        }
                       >
                         {sticker.emoji}
                       </span>
                     </div>
-                  ) : message.type === "text" ? (
+                  ) : message.type ===
+                    "text" ? (
                     <div className="relative">
-                      {decoded.secret && !secretRevealed ? (
+                      {decoded.secret &&
+                      !secretRevealed ? (
                         <button
                           type="button"
-                          onClick={() => toggleSecret(message.id)}
+                          onClick={() =>
+                            toggleSecret(
+                              message.id,
+                            )
+                          }
                           className="flex min-h-16 w-full min-w-[150px] items-center justify-center rounded-xl border border-white/20 bg-black/10 px-4 py-3 transition hover:bg-black/20 active:scale-[.98]"
                         >
                           <span className="flex items-center gap-2 font-medium">
@@ -2949,45 +3713,71 @@ function ChatRoom() {
                         </p>
                       )}
 
-                      {decoded.secret && secretRevealed && (
-                        <button
-                          type="button"
-                          onClick={() => toggleSecret(message.id)}
-                          className="mt-2 flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100"
-                        >
-                          <EyeOff className="h-3 w-3" />
-                          Hide secret
-                        </button>
-                      )}
+                      {decoded.secret &&
+                        secretRevealed && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              toggleSecret(
+                                message.id,
+                              )
+                            }
+                            className="mt-2 flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100"
+                          >
+                            <EyeOff className="h-3 w-3" />
+                            Hide secret
+                          </button>
+                        )}
 
-                      {decoded.secret && !secretRevealed && (
-                        <div className="mt-1 flex items-center gap-1 text-[9px] opacity-60">
-                          🔐 Secret message
-                        </div>
-                      )}
+                      {decoded.secret &&
+                        !secretRevealed && (
+                          <div className="mt-1 flex items-center gap-1 text-[9px] opacity-60">
+                            🔐 Secret message
+                          </div>
+                        )}
                     </div>
                   ) : (
                     <div className="space-y-1">
                       {message.media_url && (
                         <MediaBubble
-                          path={message.media_url}
-                          type={message.type as "image" | "video" | "audio"}
+                          path={
+                            message.media_url
+                          }
+                          type={
+                            message.type as
+                              | "image"
+                              | "video"
+                              | "audio"
+                          }
                         />
                       )}
 
-                      {message.type === "audio" &&
-                        message.media_duration != null && (
+                      {message.type ===
+                        "audio" &&
+                        message.media_duration !=
+                          null && (
                           <p className="text-[11px] opacity-70">
-                            {durationLabel(message.media_duration)}
+                            {durationLabel(
+                              message.media_duration,
+                            )}
                           </p>
                         )}
                     </div>
                   )}
 
                   <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
-                    {message.edited_at && !deleted && <span>edited</span>}
+                    {message.edited_at &&
+                      !deleted && (
+                        <span>
+                          edited
+                        </span>
+                      )}
 
-                    <span>{timeLabel(message.created_at)}</span>
+                    <span>
+                      {timeLabel(
+                        message.created_at,
+                      )}
+                    </span>
 
                     {mine &&
                       !deleted &&
@@ -3001,28 +3791,45 @@ function ChatRoom() {
                   </div>
                 </div>
 
-                {counts.length > 0 && !deleted && (
-                  <div
-                    className={`-mt-2 flex flex-wrap gap-1 ${
-                      mine ? "justify-end" : "justify-start"
-                    }`}
-                  >
-                    {counts.map(([emoji, count]) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        onClick={() => void toggleReaction(message, emoji)}
-                        className={`rounded-full border px-2 py-0.5 text-[11px] shadow-sm ${
-                          hasReacted(message.id, emoji)
-                            ? "border-primary bg-primary/20"
-                            : "border-border bg-surface"
-                        }`}
-                      >
-                        {emoji} {count}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {counts.length > 0 &&
+                  !deleted && (
+                    <div
+                      className={`-mt-2 flex flex-wrap gap-1 ${
+                        mine
+                          ? "justify-end"
+                          : "justify-start"
+                      }`}
+                    >
+                      {counts.map(
+                        ([
+                          emoji,
+                          count,
+                        ]) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() =>
+                              void toggleReaction(
+                                message,
+                                emoji,
+                              )
+                            }
+                            className={`rounded-full border px-2 py-0.5 text-[11px] shadow-sm ${
+                              hasReacted(
+                                message.id,
+                                emoji,
+                              )
+                                ? "border-primary bg-primary/20"
+                                : "border-border bg-surface"
+                            }`}
+                          >
+                            {emoji}{" "}
+                            {count}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  )}
 
                 {!deleted && (
                   <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -3031,7 +3838,11 @@ function ChatRoom() {
                         type="button"
                         className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
                         onClick={() =>
-                          setReactionPicker(pickerOpen ? null : message.id)
+                          setReactionPicker(
+                            pickerOpen
+                              ? null
+                              : message.id,
+                          )
                         }
                       >
                         ❤️
@@ -3040,25 +3851,35 @@ function ChatRoom() {
                       {pickerOpen && (
                         <div
                           className={`absolute bottom-full z-30 mb-2 flex gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl ${
-                            mine ? "right-0" : "left-0"
+                            mine
+                              ? "right-0"
+                              : "left-0"
                           }`}
                         >
-                          {REACTIONS.map((emoji) => (
-                            <button
-                              key={emoji}
-                              type="button"
-                              className={`rounded-full p-1.5 text-lg transition hover:scale-125 ${
-                                hasReacted(message.id, emoji)
-                                  ? "bg-primary/20"
-                                  : ""
-                              }`}
-                              onClick={() =>
-                                void toggleReaction(message, emoji)
-                              }
-                            >
-                              {emoji}
-                            </button>
-                          ))}
+                          {REACTIONS.map(
+                            (emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                className={`rounded-full p-1.5 text-lg transition hover:scale-125 ${
+                                  hasReacted(
+                                    message.id,
+                                    emoji,
+                                  )
+                                    ? "bg-primary/20"
+                                    : ""
+                                }`}
+                                onClick={() =>
+                                  void toggleReaction(
+                                    message,
+                                    emoji,
+                                  )
+                                }
+                              >
+                                {emoji}
+                              </button>
+                            ),
+                          )}
                         </div>
                       )}
                     </div>
@@ -3066,37 +3887,61 @@ function ChatRoom() {
                     <button
                       type="button"
                       className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
-                      onClick={() => startReply(message)}
+                      onClick={() =>
+                        startReply(
+                          message,
+                        )
+                      }
                     >
                       <Reply className="mr-1 inline h-3 w-3" />
                       Reply
                     </button>
 
-                    {mine && message.type === "text" && (
-                      <button
-                        type="button"
-                        className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
-                        onClick={() => {
-                          const decodedMessage = decodeSpecialMessage(
-                            message.content,
-                          );
+                    {mine &&
+                      message.type ===
+                        "text" && (
+                        <button
+                          type="button"
+                          className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
+                          onClick={() => {
+                            const decodedMessage =
+                              decodeSpecialMessage(
+                                message.content,
+                              );
 
-                          setEditing(message);
-                          setReplyTo(null);
-                          setSelectedEffect(decodedMessage.effect);
-                          setSecretMode(decodedMessage.secret);
-                          setText(decodedMessage.text);
-                        }}
-                      >
-                        <Pencil className="mr-1 inline h-3 w-3" />
-                        Edit
-                      </button>
-                    )}
+                            setEditing(
+                              message,
+                            );
+                            setReplyTo(
+                              null,
+                            );
+                            setSelectedEffect(
+                              decodedMessage.effect,
+                            );
+                            setSecretMode(
+                              decodedMessage.secret,
+                            );
+                            setText(
+                              decodedMessage.text,
+                            );
+                          }}
+                        >
+                          <Pencil className="mr-1 inline h-3 w-3" />
+                          Edit
+                        </button>
+                      )}
 
                     <button
                       type="button"
                       className="rounded-full bg-background/80 px-2 py-1 text-[11px] text-destructive shadow-sm hover:bg-background"
-                      onClick={(event) => openDeleteMenu(event, message)}
+                      onClick={(
+                        event,
+                      ) =>
+                        openDeleteMenu(
+                          event,
+                          message,
+                        )
+                      }
                     >
                       <Trash2 className="mr-1 inline h-3 w-3" />
                       Delete
@@ -3108,41 +3953,59 @@ function ChatRoom() {
           );
         })}
 
-        {sendingIds.map((sendingId) => (
-          <div key={sendingId} className="flex justify-end">
-            <div className="max-w-[80%] rounded-2xl bg-primary/60 px-3 py-2 text-sm text-primary-foreground">
-              <span className="inline-flex items-center gap-1 text-[11px] opacity-80">
-                <Clock className="h-3 w-3" />
-                Sending…
-              </span>
+        {sendingIds.map(
+          (sendingId) => (
+            <div
+              key={sendingId}
+              className="flex justify-end"
+            >
+              <div className="max-w-[80%] rounded-2xl bg-primary/60 px-3 py-2 text-sm text-primary-foreground">
+                <span className="inline-flex items-center gap-1 text-[11px] opacity-80">
+                  <Clock className="h-3 w-3" />
+                  Sending…
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
 
         {pending.map((item) => (
-          <div key={item.id} className="flex justify-end">
+          <div
+            key={item.id}
+            className="flex justify-end"
+          >
             <div className="max-w-[80%] rounded-2xl border border-dashed border-primary/50 bg-primary/20 px-3 py-2 text-sm">
               <p className="whitespace-pre-wrap break-words">
-                {decodeSpecialMessage(item.content).text}
+                {decodeSpecialMessage(
+                  item.content,
+                ).text}
               </p>
 
               <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
-                {item.state === "failed" ? (
+                {item.state ===
+                "failed" ? (
                   <>
                     <AlertCircle className="h-3 w-3" />
                     Failed
+
                     <button
                       type="button"
                       className="underline"
-                      onClick={() => void flushOutbox()}
+                      onClick={() =>
+                        void flushOutbox()
+                      }
                     >
                       Retry
                     </button>
+
                     <button
                       type="button"
                       className="underline"
                       onClick={() => {
-                        dequeue(item.id);
+                        dequeue(
+                          item.id,
+                        );
+
                         refreshOutbox();
                       }}
                     >
@@ -3160,17 +4023,26 @@ function ChatRoom() {
           </div>
         ))}
 
-        {typingUsers.length > 0 && (
+        {typingUsers.length >
+          0 && (
           <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
             <span className="flex gap-1">
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" />
+
               <span
                 className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
-                style={{ animationDelay: "120ms" }}
+                style={{
+                  animationDelay:
+                    "120ms",
+                }}
               />
+
               <span
                 className="h-1.5 w-1.5 animate-bounce rounded-full bg-current"
-                style={{ animationDelay: "240ms" }}
+                style={{
+                  animationDelay:
+                    "240ms",
+                }}
               />
             </span>
 
@@ -3193,15 +4065,22 @@ function ChatRoom() {
             type="button"
             aria-label="Close delete menu"
             className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setDeleteMenu(null)}
+            onClick={() =>
+              setDeleteMenu(null)
+            }
           />
 
           <div
             className="fixed z-50 w-56 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
-            style={{ left: deleteMenu.x, top: deleteMenu.y }}
+            style={{
+              left: deleteMenu.x,
+              top: deleteMenu.y,
+            }}
           >
             <div className="border-b border-border px-3 py-2">
-              <p className="text-xs font-semibold">Delete message</p>
+              <p className="text-xs font-semibold">
+                Delete message
+              </p>
 
               <p className="mt-0.5 text-[10px] text-muted-foreground">
                 Choose how to delete it
@@ -3210,14 +4089,23 @@ function ChatRoom() {
 
             <button
               type="button"
-              disabled={deletingId === deleteMenu.message.id}
+              disabled={
+                deletingId ===
+                deleteMenu.message.id
+              }
               className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted disabled:opacity-50"
-              onClick={() => void deleteForMe(deleteMenu.message)}
+              onClick={() =>
+                void deleteForMe(
+                  deleteMenu.message,
+                )
+              }
             >
               <Trash2 className="h-4 w-4" />
 
               <span>
-                <span className="block font-medium">Delete for me</span>
+                <span className="block font-medium">
+                  Delete for me
+                </span>
 
                 <span className="block text-[10px] text-muted-foreground">
                   Removes it only from your chat
@@ -3225,12 +4113,21 @@ function ChatRoom() {
               </span>
             </button>
 
-            {deleteMenu.message.sender_id === user?.id && (
+            {deleteMenu.message
+              .sender_id ===
+              user?.id && (
               <button
                 type="button"
-                disabled={deletingId === deleteMenu.message.id}
+                disabled={
+                  deletingId ===
+                  deleteMenu.message.id
+                }
                 className="flex w-full items-center gap-3 border-t border-border px-3 py-3 text-left text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
-                onClick={() => void deleteForEveryone(deleteMenu.message)}
+                onClick={() =>
+                  void deleteForEveryone(
+                    deleteMenu.message,
+                  )
+                }
               >
                 <Trash2 className="h-4 w-4" />
 
@@ -3264,11 +4161,15 @@ function ChatRoom() {
               <X className="h-5 w-5" />
             </button>
 
-            <span className="font-medium text-white">Camera</span>
+            <span className="font-medium text-white">
+              Camera
+            </span>
 
             <button
               type="button"
-              onClick={() => void switchCamera()}
+              onClick={() =>
+                void switchCamera()
+              }
               className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur"
             >
               <Camera className="h-5 w-5" />
@@ -3283,26 +4184,34 @@ function ChatRoom() {
               className="h-full w-full object-cover"
             />
 
-            <canvas ref={cameraCanvas} className="hidden" />
+            <canvas
+              ref={cameraCanvas}
+              className="hidden"
+            />
 
-            {!cameraReady && !cameraError && (
-              <div className="absolute inset-0 flex items-center justify-center text-white">
-                <div className="text-center">
-                  <Camera className="mx-auto mb-3 h-10 w-10 animate-pulse" />
-                  <p>Opening camera…</p>
+            {!cameraReady &&
+              !cameraError && (
+                <div className="absolute inset-0 flex items-center justify-center text-white">
+                  <div className="text-center">
+                    <Camera className="mx-auto mb-3 h-10 w-10 animate-pulse" />
+                    <p>Opening camera…</p>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {cameraError && (
               <div className="absolute inset-x-5 top-1/2 -translate-y-1/2 rounded-2xl bg-black/70 p-5 text-center text-white backdrop-blur">
                 <AlertCircle className="mx-auto mb-3 h-8 w-8" />
 
-                <p className="text-sm">{cameraError}</p>
+                <p className="text-sm">
+                  {cameraError}
+                </p>
 
                 <button
                   type="button"
-                  onClick={() => void startCamera()}
+                  onClick={() =>
+                    void startCamera()
+                  }
                   className="mt-4 rounded-full bg-white px-4 py-2 text-sm font-medium text-black"
                 >
                   Try again
@@ -3314,8 +4223,13 @@ function ChatRoom() {
           <div className="flex items-center justify-center px-4 py-6 safe-bottom">
             <button
               type="button"
-              disabled={!cameraReady || cameraBusy}
-              onClick={() => void takeCameraPhoto()}
+              disabled={
+                !cameraReady ||
+                cameraBusy
+              }
+              onClick={() =>
+                void takeCameraPhoto()
+              }
               className="flex h-20 w-20 items-center justify-center rounded-full border-4 border-white bg-white/20 transition active:scale-90 disabled:opacity-40"
             >
               <span className="h-14 w-14 rounded-full bg-white" />
@@ -3332,23 +4246,34 @@ function ChatRoom() {
         onSubmit={submit}
         className="sticky bottom-0 z-20 space-y-2 border-t border-border/60 bg-background/90 px-3 py-2.5 backdrop-blur safe-bottom"
       >
-        {(replyTo || editing) && (
+        {(replyTo ||
+          editing) && (
           <div className="flex items-center justify-between rounded-xl bg-surface px-3 py-2 text-xs">
             <div className="min-w-0 flex-1">
               <p className="font-semibold">
-                {editing ? "Editing message" : "Replying to message"}
+                {editing
+                  ? "Editing message"
+                  : "Replying to message"}
               </p>
 
-              {!editing && replyTo && (
-                <p className="truncate text-muted-foreground">
-                  {(replyTo as any).deleted_at
-                    ? "Deleted message"
-                    : replyTo.type === ("sticker" as any)
-                      ? getSticker(replyTo.content)?.emoji ?? "Sticker"
-                      : decodeSpecialMessage(replyTo.content).text ||
-                        "Attachment"}
-                </p>
-              )}
+              {!editing &&
+                replyTo && (
+                  <p className="truncate text-muted-foreground">
+                    {(replyTo as any)
+                      .deleted_at
+                      ? "Deleted message"
+                      : replyTo.type ===
+                          ("sticker" as any)
+                        ? getSticker(
+                            replyTo.content,
+                          )?.emoji ??
+                          "Sticker"
+                        : decodeSpecialMessage(
+                            replyTo.content,
+                          ).text ||
+                          "Attachment"}
+                  </p>
+                )}
             </div>
 
             <button
@@ -3357,7 +4282,9 @@ function ChatRoom() {
                 setReplyTo(null);
                 setEditing(null);
                 setText("");
-                setSelectedEffect("none");
+                setSelectedEffect(
+                  "none",
+                );
                 setSecretMode(false);
               }}
               className="rounded-full p-1 hover:bg-background"
@@ -3372,10 +4299,14 @@ function ChatRoom() {
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
 
-              <span className="text-sm font-medium">Recording</span>
+              <span className="text-sm font-medium">
+                Recording
+              </span>
 
               <span className="text-xs text-muted-foreground">
-                {durationLabel(recSecs)}
+                {durationLabel(
+                  recSecs,
+                )}
               </span>
             </div>
 
@@ -3383,7 +4314,9 @@ function ChatRoom() {
               <button
                 type="button"
                 className="rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
-                onClick={cancelRecording}
+                onClick={
+                  cancelRecording
+                }
               >
                 <X className="mr-1 inline h-3.5 w-3.5" />
                 Cancel
@@ -3392,7 +4325,9 @@ function ChatRoom() {
               <button
                 type="button"
                 className="rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-                onClick={stopRecordingAndSend}
+                onClick={
+                  stopRecordingAndSend
+                }
               >
                 <Send className="mr-1 inline h-3.5 w-3.5" />
                 Send
@@ -3405,14 +4340,24 @@ function ChatRoom() {
          * EFFECT PREVIEW
          * ==================================================== */}
 
-        {(selectedEffect !== "none" || secretMode) && (
+        {(selectedEffect !==
+          "none" ||
+          secretMode) && (
           <div className="flex items-center justify-between rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2">
             <div className="flex min-w-0 items-center gap-2">
               {secretMode ? (
-                <span className="text-lg">🔐</span>
+                <span className="text-lg">
+                  🔐
+                </span>
               ) : (
                 <span className="text-lg">
-                  {EFFECTS.find((item) => item.id === selectedEffect)?.emoji}
+                  {
+                    EFFECTS.find(
+                      (item) =>
+                        item.id ===
+                        selectedEffect,
+                    )?.emoji
+                  }
                 </span>
               )}
 
@@ -3421,8 +4366,11 @@ function ChatRoom() {
                   {secretMode
                     ? "Secret message"
                     : `${
-                        EFFECTS.find((item) => item.id === selectedEffect)
-                          ?.name
+                        EFFECTS.find(
+                          (item) =>
+                            item.id ===
+                            selectedEffect,
+                        )?.name
                       } effect`}
                 </p>
 
@@ -3437,7 +4385,9 @@ function ChatRoom() {
             <button
               type="button"
               onClick={() => {
-                setSelectedEffect("none");
+                setSelectedEffect(
+                  "none",
+                );
                 setSecretMode(false);
               }}
               className="rounded-full p-1 hover:bg-muted"
@@ -3453,7 +4403,9 @@ function ChatRoom() {
             type="file"
             accept="image/*,video/*"
             hidden
-            onChange={(event) => void onFile(event)}
+            onChange={(event) =>
+              void onFile(event)
+            }
           />
 
           <input
@@ -3462,7 +4414,9 @@ function ChatRoom() {
             accept="image/*"
             capture="environment"
             hidden
-            onChange={(event) => void onCameraFile(event)}
+            onChange={(event) =>
+              void onCameraFile(event)
+            }
           />
 
           {/* ==================================================
@@ -3473,18 +4427,32 @@ function ChatRoom() {
             <Button
               type="button"
               size="icon"
-              variant={plusOpen ? "default" : "ghost"}
+              variant={
+                plusOpen
+                  ? "default"
+                  : "ghost"
+              }
               disabled={recording}
               title="More"
               onClick={() => {
-                setPlusOpen((value) => !value);
-                setStickerPickerOpen(false);
-                setEffectsOpen(false);
+                setPlusOpen(
+                  (value) => !value,
+                );
+
+                setStickerPickerOpen(
+                  false,
+                );
+
+                setEffectsOpen(
+                  false,
+                );
               }}
             >
               <Plus
                 className={`h-5 w-5 transition-transform ${
-                  plusOpen ? "rotate-45" : ""
+                  plusOpen
+                    ? "rotate-45"
+                    : ""
                 }`}
               />
             </Button>
@@ -3493,7 +4461,9 @@ function ChatRoom() {
               <div className="absolute bottom-full left-0 z-50 mb-2 w-[min(330px,calc(100vw-24px))] overflow-hidden rounded-3xl border border-border bg-background p-3 shadow-2xl">
                 <div className="mb-2 flex items-center justify-between px-1">
                   <div>
-                    <p className="text-sm font-semibold">WHATSXUP+</p>
+                    <p className="text-sm font-semibold">
+                      WHATSXUP+
+                    </p>
 
                     <p className="text-[10px] text-muted-foreground">
                       More ways to have fun in chat
@@ -3502,7 +4472,11 @@ function ChatRoom() {
 
                   <button
                     type="button"
-                    onClick={() => setPlusOpen(false)}
+                    onClick={() =>
+                      setPlusOpen(
+                        false,
+                      )
+                    }
                     className="rounded-full p-1 hover:bg-muted"
                   >
                     <X className="h-4 w-4" />
@@ -3514,14 +4488,18 @@ function ChatRoom() {
                   <button
                     type="button"
                     disabled={!online}
-                    onClick={() => void openCamera()}
+                    onClick={() =>
+                      void openCamera()
+                    }
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
                   >
                     <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       <Camera className="h-5 w-5" />
                     </span>
 
-                    <span className="text-[11px] font-medium">Camera</span>
+                    <span className="text-[11px] font-medium">
+                      Camera
+                    </span>
                   </button>
 
                   {/* GALLERY */}
@@ -3529,7 +4507,10 @@ function ChatRoom() {
                     type="button"
                     disabled={!online}
                     onClick={() => {
-                      setPlusOpen(false);
+                      setPlusOpen(
+                        false,
+                      );
+
                       fileInput.current?.click();
                     }}
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
@@ -3538,7 +4519,9 @@ function ChatRoom() {
                       <ImagePlus className="h-5 w-5" />
                     </span>
 
-                    <span className="text-[11px] font-medium">Gallery</span>
+                    <span className="text-[11px] font-medium">
+                      Gallery
+                    </span>
                   </button>
 
                   {/* STICKERS */}
@@ -3546,8 +4529,13 @@ function ChatRoom() {
                     type="button"
                     disabled={!online}
                     onClick={() => {
-                      setPlusOpen(false);
-                      setStickerPickerOpen(true);
+                      setPlusOpen(
+                        false,
+                      );
+
+                      setStickerPickerOpen(
+                        true,
+                      );
                     }}
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
                   >
@@ -3555,15 +4543,22 @@ function ChatRoom() {
                       😎
                     </span>
 
-                    <span className="text-[11px] font-medium">Stickers</span>
+                    <span className="text-[11px] font-medium">
+                      Stickers
+                    </span>
                   </button>
 
                   {/* EFFECTS */}
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
-                      setEffectsOpen(true);
+                      setPlusOpen(
+                        false,
+                      );
+
+                      setEffectsOpen(
+                        true,
+                      );
                     }}
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95"
                   >
@@ -3571,16 +4566,27 @@ function ChatRoom() {
                       <Sparkles className="h-5 w-5" />
                     </span>
 
-                    <span className="text-[11px] font-medium">Effects</span>
+                    <span className="text-[11px] font-medium">
+                      Effects
+                    </span>
                   </button>
 
                   {/* SECRET */}
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
-                      setSecretMode((value) => !value);
-                      setSelectedEffect("none");
+                      setPlusOpen(
+                        false,
+                      );
+
+                      setSecretMode(
+                        (value) =>
+                          !value,
+                      );
+
+                      setSelectedEffect(
+                        "none",
+                      );
                     }}
                     className={`flex flex-col items-center gap-1 rounded-2xl p-3 text-center transition active:scale-95 ${
                       secretMode
@@ -3592,7 +4598,9 @@ function ChatRoom() {
                       🔐
                     </span>
 
-                    <span className="text-[11px] font-medium">Secret</span>
+                    <span className="text-[11px] font-medium">
+                      Secret
+                    </span>
                   </button>
 
                   {/* GAMES */}
@@ -3600,8 +4608,13 @@ function ChatRoom() {
                     type="button"
                     disabled={!online}
                     onClick={() => {
-                      setPlusOpen(false);
-                      setGamesOpen(true);
+                      setPlusOpen(
+                        false,
+                      );
+
+                      setGamesOpen(
+                        true,
+                      );
                     }}
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
                   >
@@ -3609,7 +4622,9 @@ function ChatRoom() {
                       🎮
                     </span>
 
-                    <span className="text-[11px] font-medium">Games</span>
+                    <span className="text-[11px] font-medium">
+                      Games
+                    </span>
                   </button>
                 </div>
               </div>
@@ -3626,7 +4641,9 @@ function ChatRoom() {
             variant="ghost"
             disabled={!online || recording}
             title="Camera"
-            onClick={() => void openCamera()}
+            onClick={() =>
+              void openCamera()
+            }
           >
             <Camera className="h-5 w-5" />
           </Button>
@@ -3640,13 +4657,25 @@ function ChatRoom() {
               type="button"
               size="icon"
               variant="ghost"
-              disabled={!online || recording}
+              disabled={
+                !online ||
+                recording
+              }
               title="Stickers"
               onClick={() => {
-                setStickerPickerOpen((value) => !value);
-                setReactionPicker(null);
+                setStickerPickerOpen(
+                  (value) =>
+                    !value,
+                );
+
+                setReactionPicker(
+                  null,
+                );
+
                 setPlusOpen(false);
-                setEffectsOpen(false);
+                setEffectsOpen(
+                  false,
+                );
               }}
             >
               <SmilePlus className="h-5 w-5" />
@@ -3658,12 +4687,18 @@ function ChatRoom() {
                   <div className="flex items-center gap-2">
                     <SmilePlus className="h-4 w-4 text-primary" />
 
-                    <span className="text-sm font-semibold">Stickers</span>
+                    <span className="text-sm font-semibold">
+                      Stickers
+                    </span>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => setStickerPickerOpen(false)}
+                    onClick={() =>
+                      setStickerPickerOpen(
+                        false,
+                      )
+                    }
                     className="rounded-full p-1 hover:bg-muted"
                   >
                     <X className="h-4 w-4" />
@@ -3671,34 +4706,51 @@ function ChatRoom() {
                 </div>
 
                 <div className="flex gap-1 overflow-x-auto border-b border-border px-2 py-2">
-                  {STICKER_PACKS.map((pack) => (
-                    <button
-                      key={pack}
-                      type="button"
-                      onClick={() => setStickerPack(pack)}
-                      className={`whitespace-nowrap rounded-full px-3 py-1 text-xs ${
-                        stickerPack === pack
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {pack}
-                    </button>
-                  ))}
+                  {STICKER_PACKS.map(
+                    (pack) => (
+                      <button
+                        key={pack}
+                        type="button"
+                        onClick={() =>
+                          setStickerPack(
+                            pack,
+                          )
+                        }
+                        className={`whitespace-nowrap rounded-full px-3 py-1 text-xs ${
+                          stickerPack ===
+                          pack
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {pack}
+                      </button>
+                    ),
+                  )}
                 </div>
 
                 <div className="grid max-h-64 grid-cols-4 gap-2 overflow-y-auto p-3">
-                  {visibleStickers.map((sticker) => (
-                    <button
-                      key={sticker.id}
-                      type="button"
-                      title={sticker.label}
-                      onClick={() => void sendSticker(sticker.id)}
-                      className="flex aspect-square items-center justify-center rounded-xl text-4xl transition hover:scale-110 hover:bg-muted active:scale-95"
-                    >
-                      {sticker.emoji}
-                    </button>
-                  ))}
+                  {visibleStickers.map(
+                    (sticker) => (
+                      <button
+                        key={
+                          sticker.id
+                        }
+                        type="button"
+                        title={
+                          sticker.label
+                        }
+                        onClick={() =>
+                          void sendSticker(
+                            sticker.id,
+                          )
+                        }
+                        className="flex aspect-square items-center justify-center rounded-xl text-4xl transition hover:scale-110 hover:bg-muted active:scale-95"
+                      >
+                        {sticker.emoji}
+                      </button>
+                    ),
+                  )}
                 </div>
               </div>
             )}
@@ -3711,12 +4763,17 @@ function ChatRoom() {
           <Input
             value={text}
             onChange={(event) => {
-              setText(event.target.value);
+              setText(
+                event.target.value,
+              );
+
               broadcastTyping();
             }}
             placeholder={
               recording
-                ? `Recording ${durationLabel(recSecs)}`
+                ? `Recording ${durationLabel(
+                    recSecs,
+                  )}`
                 : online
                   ? "Message"
                   : "Message (offline)"
@@ -3729,12 +4786,16 @@ function ChatRoom() {
               type="submit"
               size="icon"
               title={
-                selectedEffect !== "none" || secretMode
+                selectedEffect !==
+                  "none" ||
+                secretMode
                   ? "Send special message"
                   : "Send"
               }
             >
-              {selectedEffect !== "none" || secretMode ? (
+              {selectedEffect !==
+                "none" ||
+              secretMode ? (
                 <Sparkles className="h-5 w-5" />
               ) : (
                 <Send className="h-5 w-5" />
@@ -3744,8 +4805,15 @@ function ChatRoom() {
             <Button
               type="button"
               size="icon"
-              variant={recording ? "destructive" : "default"}
-              disabled={!online && !recording}
+              variant={
+                recording
+                  ? "destructive"
+                  : "default"
+              }
+              disabled={
+                !online &&
+                !recording
+              }
               onClick={() => {
                 if (recording) {
                   stopRecordingAndSend();
@@ -3783,7 +4851,11 @@ function ChatRoom() {
 
               <button
                 type="button"
-                onClick={() => setEffectsOpen(false)}
+                onClick={() =>
+                  setEffectsOpen(
+                    false,
+                  )
+                }
                 className="rounded-full p-1 hover:bg-muted"
               >
                 <X className="h-4 w-4" />
@@ -3791,43 +4863,69 @@ function ChatRoom() {
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              {EFFECTS.map((effect) => {
-                const active = selectedEffect === effect.id;
+              {EFFECTS.map(
+                (effect) => {
+                  const active =
+                    selectedEffect ===
+                    effect.id;
 
-                return (
-                  <button
-                    key={effect.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedEffect(effect.id);
-                      setSecretMode(false);
-                    }}
-                    className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition active:scale-[.98] ${
-                      active
-                        ? "border-primary bg-primary/10"
-                        : "border-border bg-muted/30 hover:bg-muted"
-                    }`}
-                  >
-                    <span className="text-2xl">{effect.emoji}</span>
+                  return (
+                    <button
+                      key={
+                        effect.id
+                      }
+                      type="button"
+                      onClick={() => {
+                        setSelectedEffect(
+                          effect.id,
+                        );
 
-                    <span className="min-w-0">
-                      <span className="block text-xs font-semibold">
-                        {effect.name}
+                        setSecretMode(
+                          false,
+                        );
+                      }}
+                      className={`flex items-center gap-3 rounded-2xl border p-3 text-left transition active:scale-[.98] ${
+                        active
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-muted/30 hover:bg-muted"
+                      }`}
+                    >
+                      <span className="text-2xl">
+                        {
+                          effect.emoji
+                        }
                       </span>
 
-                      <span className="block truncate text-[10px] text-muted-foreground">
-                        {effect.description}
+                      <span className="min-w-0">
+                        <span className="block text-xs font-semibold">
+                          {
+                            effect.name
+                          }
+                        </span>
+
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {
+                            effect.description
+                          }
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                );
-              })}
+                    </button>
+                  );
+                },
+              )}
             </div>
 
-            {selectedEffect !== "none" && (
+            {selectedEffect !==
+              "none" && (
               <div className="mt-3 rounded-xl bg-primary/10 px-3 py-2 text-[11px] text-primary">
                 ✨{" "}
-                {EFFECTS.find((effect) => effect.id === selectedEffect)?.name}{" "}
+                {
+                  EFFECTS.find(
+                    (effect) =>
+                      effect.id ===
+                      selectedEffect,
+                  )?.name
+                }{" "}
                 is selected. Type your message and tap send.
               </div>
             )}
@@ -3845,7 +4943,9 @@ function ChatRoom() {
             <button
               type="button"
               aria-label="Close XUP Games"
-              onClick={() => setGamesOpen(false)}
+              onClick={() =>
+                setGamesOpen(false)
+              }
               className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-muted text-muted-foreground transition hover:bg-muted/80 active:scale-90"
             >
               <X className="h-5 w-5" />
@@ -3853,14 +4953,27 @@ function ChatRoom() {
 
             <div className="pr-8">
               <XupGames
-                onClose={() => setGamesOpen(false)}
-                conversationId={id}
-                userId={user?.id ?? ""}
-                peerId={otherUserId}
-                peerName={otherName}
+                onClose={() =>
+                  setGamesOpen(false)
+                }
+                conversationId={
+                  id
+                }
+                userId={
+                  user?.id ?? ""
+                }
+                peerId={
+                  otherUserId
+                }
+                peerName={
+                  otherName
+                }
                 messages={messages}
                 onSendChatMessage={(text) =>
-                  sendMessage({ type: "text", content: text }, text)
+                  sendMessage(
+                    { type: "text", content: text },
+                    text,
+                  )
                 }
               />
             </div>
@@ -3876,7 +4989,9 @@ function ChatRoom() {
         chatId={id}
         open={customizeOpen}
         onClose={() => setCustomizeOpen(false)}
-        onChanged={() => setCustomizationVersion((value) => value + 1)}
+        onChanged={() =>
+          setCustomizationVersion((value) => value + 1)
+        }
       />
     </div>
   );
