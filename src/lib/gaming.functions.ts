@@ -2463,10 +2463,12 @@ export const getEquippedShopCosmetics =
       };
     });
 
+
 /* =========================================================
    GIFTS & COLLECTIBLES
-   Frontend bridge to existing gaming.* gift RPCs/tables.
-   Does not create gifts, fees, or coin balances client-side.
+   Bridge to existing gift tables / RPCs on the gaming DB.
+   Uses the same client pattern as shop_items (no schema() prefix),
+   because shop/inventory already work that way on this project.
 ========================================================= */
 
 export type GiftDefinition = {
@@ -2529,7 +2531,10 @@ function mapGiftDefinition(row: Record<string, unknown>): GiftDefinition {
 }
 
 function mapCollectible(row: Record<string, unknown>): GiftCollectible {
-  const gift = row.gift_definitions as Record<string, unknown> | undefined;
+  const gift =
+    (row.gift_definitions as Record<string, unknown> | undefined) ||
+    (row.gift as Record<string, unknown> | undefined);
+
   return {
     collectible_id: String(row.collectible_id ?? ""),
     gift_id: String(row.gift_id ?? ""),
@@ -2582,68 +2587,125 @@ function friendlyGiftError(error: { message?: string } | null): string {
   if (raw.includes("duplicate") || raw.includes("idempoten")) {
     return "This gift was already sent";
   }
+  if (raw.includes("does not exist") || raw.includes("schema cache")) {
+    return "Gift tables are not available on the gaming database yet";
+  }
   return error?.message || "Gift request failed";
 }
 
-/** Catalog from gaming.gift_definitions — never hardcode gifts. */
-export const getGiftCatalog = createServerFn({
-  method: "GET",
-})
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
+/**
+ * Load gift catalog.
+ * Tries public tables first (same as shop_items), then gaming schema.
+ */
+async function fetchGiftDefinitions(): Promise<GiftDefinition[]> {
+  const selectCols =
+    "gift_id, gift_key, name, value_x_coins, convertible, conversion_bps, limited, max_supply, metadata, available";
+
+  // 1) Same pattern as shop_items / user_inventory
+  {
+    const { data, error } = await gamingSupabaseAdmin
+      .from("gift_definitions")
+      .select(selectCols)
+      .order("value_x_coins", { ascending: true });
+
+    if (!error) {
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const mapped = rows.map(mapGiftDefinition);
+      const available = mapped.filter((g) => g.available !== false);
+      return available.length > 0 ? available : mapped;
+    }
+
+    console.warn("gift_definitions (public):", error.message);
+  }
+
+  // 2) Explicit gaming schema (if tables live there only)
+  {
     const { data, error } = await gamingSupabaseAdmin
       .schema("gaming")
       .from("gift_definitions")
-      .select(
-        "gift_id, gift_key, name, value_x_coins, convertible, conversion_bps, limited, max_supply, metadata, available",
-      )
-      .eq("available", true)
+      .select(selectCols)
       .order("value_x_coins", { ascending: true });
 
-    if (error) {
-      console.error("getGiftCatalog:", error);
-      throw new Error("Unable to load gifts");
+    if (!error) {
+      const rows = (data ?? []) as Record<string, unknown>[];
+      const mapped = rows.map(mapGiftDefinition);
+      const available = mapped.filter((g) => g.available !== false);
+      return available.length > 0 ? available : mapped;
     }
 
-    return {
-      gifts: (data ?? []).map((row) =>
-        mapGiftDefinition(row as Record<string, unknown>),
-      ),
-    };
+    console.error("gift_definitions (gaming schema):", error);
+    throw new Error(friendlyGiftError(error));
+  }
+}
+
+export const getGiftCatalog = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const gifts = await fetchGiftDefinitions();
+    return { gifts };
   });
 
-/** Collectibles owned by the authenticated user. */
 export const getMyCollectibles = createServerFn({
-  method: "GET",
+  method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const userId = context.userId;
 
-    const { data, error } = await gamingSupabaseAdmin
-      .schema("gaming")
-      .from("gift_collectibles")
-      .select(
-        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata, gift_definitions ( name, gift_key, value_x_coins, limited )",
-      )
-      .eq("owner_id", userId)
-      .order("received_at", { ascending: false });
+    const selectCols =
+      "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata";
 
-    if (error) {
-      console.error("getMyCollectibles:", error);
-      throw new Error("Unable to load collectibles");
+    async function load(withJoin: boolean) {
+      const base = gamingSupabaseAdmin.from("gift_collectibles");
+      const q = withJoin
+        ? base.select(
+            `${selectCols}, gift_definitions ( name, gift_key, value_x_coins, limited )`,
+          )
+        : base.select(selectCols);
+
+      return q.eq("owner_id", userId).order("received_at", {
+        ascending: false,
+      });
+    }
+
+    let result = await load(true);
+    if (result.error) {
+      console.warn("collectibles join failed, retry plain:", result.error.message);
+      result = await load(false);
+    }
+
+    if (result.error) {
+      // try gaming schema
+      const schemaResult = await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("gift_collectibles")
+        .select(selectCols)
+        .eq("owner_id", userId)
+        .order("received_at", { ascending: false });
+
+      if (schemaResult.error) {
+        console.error("getMyCollectibles:", schemaResult.error);
+        throw new Error(friendlyGiftError(schemaResult.error));
+      }
+
+      return {
+        collectibles: (schemaResult.data ?? []).map((row) =>
+          mapCollectible(row as Record<string, unknown>),
+        ),
+      };
     }
 
     return {
-      collectibles: (data ?? []).map((row) =>
+      collectibles: (result.data ?? []).map((row) =>
         mapCollectible(row as Record<string, unknown>),
       ),
     };
   });
 
-/** Public featured collectible for a profile. */
 export const getFeaturedCollectible = createServerFn({
-  method: "GET",
+  method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: { userId: string }) => {
@@ -2651,46 +2713,56 @@ export const getFeaturedCollectible = createServerFn({
     return { userId: String(input.userId) };
   })
   .handler(async ({ data }) => {
-    const { data: settings, error: settingsError } =
-      await gamingSupabaseAdmin
-        .schema("gaming")
+    const trySettings = async (useSchema: boolean) => {
+      const client = useSchema
+        ? gamingSupabaseAdmin.schema("gaming")
+        : gamingSupabaseAdmin;
+      return client
         .from("user_gift_settings")
         .select("featured_collectible_id")
         .eq("user_id", data.userId)
         .maybeSingle();
+    };
 
-    if (settingsError) {
-      console.error("getFeaturedCollectible settings:", settingsError);
+    let settingsRes = await trySettings(false);
+    if (settingsRes.error) {
+      settingsRes = await trySettings(true);
+    }
+
+    if (settingsRes.error || !settingsRes.data?.featured_collectible_id) {
       return { featured: null as GiftCollectible | null };
     }
 
-    const featuredId = settings?.featured_collectible_id;
-    if (!featuredId) {
-      return { featured: null as GiftCollectible | null };
-    }
+    const featuredId = settingsRes.data.featured_collectible_id;
 
-    const { data: row, error } = await gamingSupabaseAdmin
-      .schema("gaming")
+    let rowRes = await gamingSupabaseAdmin
       .from("gift_collectibles")
       .select(
-        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata, gift_definitions ( name, gift_key, value_x_coins, limited )",
+        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
       )
       .eq("collectible_id", featuredId)
       .maybeSingle();
 
-    if (error || !row) {
+    if (rowRes.error) {
+      rowRes = await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("gift_collectibles")
+        .select(
+          "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
+        )
+        .eq("collectible_id", featuredId)
+        .maybeSingle();
+    }
+
+    if (rowRes.error || !rowRes.data) {
       return { featured: null as GiftCollectible | null };
     }
 
     return {
-      featured: mapCollectible(row as Record<string, unknown>),
+      featured: mapCollectible(rowRes.data as Record<string, unknown>),
     };
   });
 
-/**
- * Send a gift via gaming.send_gift RPC.
- * Never deducts coins on the client.
- */
 export const sendGift = createServerFn({
   method: "POST",
 })
@@ -2716,28 +2788,31 @@ export const sendGift = createServerFn({
       throw new Error("You cannot gift yourself");
     }
 
-    const { data: result, error } = await gamingSupabaseAdmin
-      .schema("gaming")
-      .rpc("send_gift", {
-        p_recipient_id: data.recipientId,
-        p_gift_id: data.giftId,
-        p_message: data.message,
-        p_chat_message_id: data.chatMessageId,
-        p_idempotency_key: data.idempotencyKey,
-      });
+    const args = {
+      p_recipient_id: data.recipientId,
+      p_gift_id: data.giftId,
+      p_message: data.message,
+      p_chat_message_id: data.chatMessageId,
+      p_idempotency_key: data.idempotencyKey,
+    };
 
-    if (error) {
-      console.error("send_gift:", error);
-      throw new Error(friendlyGiftError(error));
+    let result = await gamingSupabaseAdmin.rpc("send_gift", args);
+
+    if (result.error) {
+      result = await gamingSupabaseAdmin.schema("gaming").rpc("send_gift", args);
+    }
+
+    if (result.error) {
+      console.error("send_gift:", result.error);
+      throw new Error(friendlyGiftError(result.error));
     }
 
     return {
       success: true,
-      result,
+      result: result.data,
     };
   });
 
-/** Convert collectible → X Coins via gaming.convert_gift (80/20 server-side). */
 export const convertGift = createServerFn({
   method: "POST",
 })
@@ -2749,21 +2824,23 @@ export const convertGift = createServerFn({
     return { collectibleId: String(input.collectibleId) };
   })
   .handler(async ({ data }) => {
-    const { data: result, error } = await gamingSupabaseAdmin
-      .schema("gaming")
-      .rpc("convert_gift", {
-        p_collectible_id: data.collectibleId,
-      });
+    const args = { p_collectible_id: data.collectibleId };
 
-    if (error) {
-      console.error("convert_gift:", error);
-      throw new Error(friendlyGiftError(error));
+    let result = await gamingSupabaseAdmin.rpc("convert_gift", args);
+    if (result.error) {
+      result = await gamingSupabaseAdmin
+        .schema("gaming")
+        .rpc("convert_gift", args);
     }
 
-    return { success: true, result };
+    if (result.error) {
+      console.error("convert_gift:", result.error);
+      throw new Error(friendlyGiftError(result.error));
+    }
+
+    return { success: true, result: result.data };
   });
 
-/** Feature a collectible on the caller's profile. */
 export const setFeaturedGift = createServerFn({
   method: "POST",
 })
@@ -2777,16 +2854,19 @@ export const setFeaturedGift = createServerFn({
     };
   })
   .handler(async ({ data }) => {
-    const { data: result, error } = await gamingSupabaseAdmin
-      .schema("gaming")
-      .rpc("set_featured_gift", {
-        p_collectible_id: data.collectibleId,
-      });
+    const args = { p_collectible_id: data.collectibleId };
 
-    if (error) {
-      console.error("set_featured_gift:", error);
-      throw new Error(friendlyGiftError(error));
+    let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
+    if (result.error) {
+      result = await gamingSupabaseAdmin
+        .schema("gaming")
+        .rpc("set_featured_gift", args);
     }
 
-    return { success: true, result };
+    if (result.error) {
+      console.error("set_featured_gift:", result.error);
+      throw new Error(friendlyGiftError(result.error));
+    }
+
+    return { success: true, result: result.data };
   });
