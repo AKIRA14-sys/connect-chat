@@ -61,7 +61,9 @@ import {
 import { getFontFamilyCss, loadGoogleFont } from "@/lib/chatFonts";
 import {
   getEquippedShopCosmeticsLocal,
+  type LocalShopCosmetics,
 } from "@/lib/shopCosmetics.local";
+import type { EquippedShopCosmetic } from "@/lib/gaming.functions";
 
 import {
   dequeue,
@@ -152,6 +154,7 @@ const STICKER_PACKS = [
   "Funny",
   "Reactions",
   "Anime",
+  "Shop",
 ] as const;
 
 type StickerPack = (typeof STICKER_PACKS)[number];
@@ -159,6 +162,387 @@ type StickerPack = (typeof STICKER_PACKS)[number];
 function getSticker(id: string | null | undefined) {
   if (!id) return null;
   return STICKERS.find((sticker) => sticker.id === id) ?? null;
+}
+
+/**
+ * Shop sticker packs are additive to the existing built-in stickers.
+ * The Shop owns the item on Supabase; this reader only interprets the
+ * equipped item's metadata that has already been copied to local storage.
+ *
+ * Supported metadata examples:
+ *   { stickers: [{ id, emoji, label, pack }] }
+ *   { items:    [{ id, emoji, label, pack }] }
+ *   { sticker_list: [...] }
+ */
+function getShopStickerList(
+  cosmetic: EquippedShopCosmetic | null,
+): Sticker[] {
+  if (!cosmetic) return [];
+
+  const meta = asRecord(cosmetic.metadata);
+  if (!meta) return [];
+
+  const raw = meta.stickers ?? meta.items ?? meta.sticker_list;
+  if (!Array.isArray(raw)) return [];
+
+  return raw.flatMap((value, index) => {
+    const item = asRecord(value);
+    if (!item) return [];
+
+    const id = strMeta(item, "id", "sticker_id", "key");
+    const emoji = strMeta(item, "emoji", "symbol", "text");
+    const label =
+      strMeta(item, "label", "name", "title") ??
+      `Sticker ${index + 1}`;
+    const pack =
+      strMeta(item, "pack", "category") ??
+      "Shop";
+
+    if (!id || !emoji) return [];
+
+    return [
+      {
+        id,
+        emoji,
+        label,
+        pack,
+      },
+    ];
+  });
+}
+
+function getAvailableStickers(
+  shopCosmetic: EquippedShopCosmetic | null,
+): Sticker[] {
+  const shopStickers = getShopStickerList(shopCosmetic);
+  const seen = new Set<string>();
+  const result: Sticker[] = [];
+
+  for (const sticker of [
+    ...STICKERS,
+    ...shopStickers,
+  ]) {
+    if (seen.has(sticker.id)) continue;
+    seen.add(sticker.id);
+    result.push(sticker);
+  }
+
+  return result;
+}
+
+function getAvailableSticker(
+  id: string | null | undefined,
+  shopCosmetic: EquippedShopCosmetic | null,
+) {
+  if (!id) return null;
+
+  return (
+    getAvailableStickers(shopCosmetic).find(
+      (sticker) => sticker.id === id,
+    ) ?? null
+  );
+}
+
+/* ============================================================
+ * SHOP COSMETICS — metadata readers (Category A CSS / B media)
+ *
+ * Per-chat IndexedDB customization always wins over shop.
+ * Shop is a global fallback for empty/default slots only.
+ * ============================================================ */
+
+const EMPTY_SHOP: LocalShopCosmetics = {
+  theme: null,
+  wallpaper: null,
+  bubble: null,
+  sticker_pack: null,
+  profile_frame: null,
+  badge: null,
+};
+
+function asRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    return value as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function strMeta(
+  obj: Record<string, unknown> | null,
+  ...keys: string[]
+): string | null {
+  if (!obj) return null;
+
+  for (const key of keys) {
+    const v = obj[key];
+
+    if (
+      typeof v === "string" &&
+      v.trim()
+    ) {
+      return v.trim();
+    }
+  }
+
+  return null;
+}
+
+/** Category A — theme colors from shop metadata */
+function shopThemeBubbleMine(
+  cosmetic: EquippedShopCosmetic | null,
+): string | null {
+  if (!cosmetic) return null;
+
+  const meta = asRecord(
+    cosmetic.metadata,
+  );
+
+  const colors = asRecord(
+    meta?.colors,
+  );
+
+  return (
+    strMeta(
+      colors,
+      "bubbleMine",
+      "bubble_mine",
+      "mine",
+    ) ||
+    strMeta(
+      meta,
+      "bubbleMine",
+      "bubble_css",
+      "css",
+    )
+  );
+}
+
+function shopThemeBackground(
+  cosmetic: EquippedShopCosmetic | null,
+): string | null {
+  if (!cosmetic) return null;
+
+  const meta = asRecord(
+    cosmetic.metadata,
+  );
+
+  const colors = asRecord(
+    meta?.colors,
+  );
+
+  return (
+    strMeta(
+      colors,
+      "background",
+      "messageAreaBackground",
+    ) ||
+    strMeta(
+      meta,
+      "background",
+      "css",
+    )
+  );
+}
+
+/** Category A — bubble css object */
+function shopBubbleCss(
+  cosmetic: EquippedShopCosmetic | null,
+): {
+  mine: string | null;
+  other: string | null;
+  boxShadow: string | null;
+  borderRadius: string | null;
+} {
+  if (!cosmetic) {
+    return {
+      mine: null,
+      other: null,
+      boxShadow: null,
+      borderRadius: null,
+    };
+  }
+
+  const meta = asRecord(
+    cosmetic.metadata,
+  );
+
+  const css =
+    asRecord(meta?.css) ??
+    meta;
+
+  return {
+    mine: strMeta(
+      css,
+      "mine",
+      "bubbleMine",
+      "background",
+    ),
+    other: strMeta(
+      css,
+      "other",
+      "bubbleOther",
+    ),
+    boxShadow: strMeta(
+      css,
+      "boxShadow",
+      "shadow",
+    ),
+    borderRadius: strMeta(
+      css,
+      "borderRadius",
+      "radius",
+    ),
+  };
+}
+
+/** Category B — wallpaper media url */
+function shopWallpaperMedia(
+  cosmetic: EquippedShopCosmetic | null,
+): {
+  kind:
+    | "image"
+    | "video"
+    | "css"
+    | null;
+  url: string | null;
+  css: string | null;
+} {
+  if (!cosmetic) {
+    return {
+      kind: null,
+      url: null,
+      css: null,
+    };
+  }
+
+  const meta = asRecord(
+    cosmetic.metadata,
+  );
+
+  const media = asRecord(
+    meta?.media,
+  );
+
+  const url =
+    strMeta(
+      media,
+      "url",
+      "image_url",
+      "src",
+    ) ||
+    strMeta(
+      meta,
+      "url",
+      "image_url",
+      "wallpaper_url",
+    );
+
+  const kindRaw =
+    strMeta(
+      media,
+      "kind",
+      "type",
+    ) ||
+    (url ? "image" : null);
+
+  const css = strMeta(
+    meta,
+    "css",
+    "background",
+  );
+
+  if (css && !url) {
+    return {
+      kind: "css",
+      url: null,
+      css,
+    };
+  }
+
+  if (!url) {
+    return {
+      kind: null,
+      url: null,
+      css: null,
+    };
+  }
+
+  const kind =
+    kindRaw === "video" ||
+    (url &&
+      /\.(mp4|webm|mov)(\?|$)/i.test(
+        url,
+      ))
+      ? "video"
+      : "image";
+
+  return {
+    kind,
+    url,
+    css: null,
+  };
+}
+
+/** Category A — profile frame ring styles */
+function shopProfileFrameStyle(
+  cosmetic: EquippedShopCosmetic | null,
+): import("react").CSSProperties | undefined {
+  if (!cosmetic) return undefined;
+
+  const meta = asRecord(
+    cosmetic.metadata,
+  );
+
+  const style =
+    asRecord(meta?.style) ??
+    meta;
+
+  const ring = strMeta(
+    style,
+    "ring",
+    "border",
+  );
+
+  const shadow = strMeta(
+    style,
+    "shadow",
+    "boxShadow",
+  );
+
+  if (!ring && !shadow) {
+    return undefined;
+  }
+
+  const out: import("react").CSSProperties = {};
+
+  if (ring) {
+    out.boxShadow = shadow
+      ? `${shadow}, 0 0 0 2px transparent`
+      : undefined;
+
+    out.outline =
+      ring.includes("solid") ||
+      ring.includes("px")
+        ? ring
+        : `2px solid ${ring}`;
+
+    out.outlineOffset =
+      strMeta(
+        style,
+        "ringOffset",
+        "offset",
+      ) || "2px";
+  } else if (shadow) {
+    out.boxShadow = shadow;
+  }
+
+  return out;
 }
 
 /* ============================================================
@@ -285,9 +669,14 @@ const EFFECTS: EffectOption[] = [
  * messages table without requiring new database columns.
  * ============================================================ */
 
-const EFFECT_PREFIX = "__XUP_EFFECT__:";
-const SECRET_PREFIX = "__XUP_SECRET__:";
-const SECRET_SEPARATOR = "__XUP_SECRET_SEPARATOR__:";
+const EFFECT_PREFIX =
+  "__XUP_EFFECT__:";
+
+const SECRET_PREFIX =
+  "__XUP_SECRET__:";
+
+const SECRET_SEPARATOR =
+  "__XUP_SECRET_SEPARATOR__:";
 
 function encodeSpecialMessage(
   text: string,
@@ -307,7 +696,12 @@ function encodeSpecialMessage(
   return result;
 }
 
-function decodeSpecialMessage(content: string | null | undefined): {
+function decodeSpecialMessage(
+  content:
+    | string
+    | null
+    | undefined,
+): {
   text: string;
   effect: ChatEffect;
   secret: boolean;
@@ -324,28 +718,70 @@ function decodeSpecialMessage(content: string | null | undefined): {
   let effect: ChatEffect = "none";
   let secret = false;
 
-  if (value.startsWith(EFFECT_PREFIX)) {
-    const rest = value.slice(EFFECT_PREFIX.length);
-    const separator = rest.indexOf(":");
+  if (
+    value.startsWith(
+      EFFECT_PREFIX,
+    )
+  ) {
+    const rest =
+      value.slice(
+        EFFECT_PREFIX.length,
+      );
+
+    const separator =
+      rest.indexOf(":");
 
     if (separator !== -1) {
-      const possibleEffect = rest.slice(0, separator) as ChatEffect;
+      const possibleEffect =
+        rest.slice(
+          0,
+          separator,
+        ) as ChatEffect;
 
-      if (EFFECTS.some((item) => item.id === possibleEffect)) {
-        effect = possibleEffect;
-        value = rest.slice(separator + 1);
+      if (
+        EFFECTS.some(
+          (item) =>
+            item.id ===
+            possibleEffect,
+        )
+      ) {
+        effect =
+          possibleEffect;
+
+        value =
+          rest.slice(
+            separator + 1,
+          );
       }
     }
   }
 
-  if (value.startsWith(SECRET_PREFIX)) {
+  if (
+    value.startsWith(
+      SECRET_PREFIX,
+    )
+  ) {
     secret = true;
-    value = value.slice(SECRET_PREFIX.length);
 
-    const separatorIndex = value.indexOf(SECRET_SEPARATOR);
+    value =
+      value.slice(
+        SECRET_PREFIX.length,
+      );
 
-    if (separatorIndex !== -1) {
-      value = value.slice(0, separatorIndex);
+    const separatorIndex =
+      value.indexOf(
+        SECRET_SEPARATOR,
+      );
+
+    if (
+      separatorIndex !==
+      -1
+    ) {
+      value =
+        value.slice(
+          0,
+          separatorIndex,
+        );
     }
   }
 
@@ -360,7 +796,9 @@ function decodeSpecialMessage(content: string | null | undefined): {
  * EFFECT CLASS
  * ============================================================ */
 
-function effectClass(effect: ChatEffect) {
+function effectClass(
+  effect: ChatEffect,
+) {
   switch (effect) {
     case "dramatic":
       return "xup-effect-dramatic";
@@ -406,6 +844,7 @@ function effectClass(effect: ChatEffect) {
       return "";
   }
 }
+
 /* ============================================================
  * DELETE MENU
  * ============================================================ */
@@ -420,19 +859,25 @@ type DeleteMenuState = {
  * ROUTE
  * ============================================================ */
 
-export const Route = createFileRoute("/_authenticated/chats/$id")({
-  head: () => ({
-    meta: [
-      { title: "Conversation — WHATSXUP" },
-      {
-        name: "description",
-        content:
-          "A private real-time WHATSXUP conversation with text, media, stickers, voice notes and calls.",
-      },
-    ],
-  }),
-  component: ChatRoom,
-});
+export const Route =
+  createFileRoute(
+    "/_authenticated/chats/$id",
+  )({
+    head: () => ({
+      meta: [
+        {
+          title:
+            "Conversation — WHATSXUP",
+        },
+        {
+          name: "description",
+          content:
+            "A private real-time WHATSXUP conversation with text, media, stickers, voice notes and calls.",
+        },
+      ],
+    }),
+    component: ChatRoom,
+  });
 
 /* ============================================================
  * MEDIA BUBBLE
@@ -443,13 +888,26 @@ function MediaBubble({
   type,
 }: {
   path: string;
-  type: "image" | "video" | "audio";
+  type:
+    | "image"
+    | "video"
+    | "audio";
 }) {
-  const { data: url } = useQuery({
-    queryKey: ["signed", "chat-media", path],
-    queryFn: () => signedUrl("chat-media", path),
-    staleTime: 50 * 60 * 1000,
-  });
+  const { data: url } =
+    useQuery({
+      queryKey: [
+        "signed",
+        "chat-media",
+        path,
+      ],
+      queryFn: () =>
+        signedUrl(
+          "chat-media",
+          path,
+        ),
+      staleTime:
+        50 * 60 * 1000,
+    });
 
   if (!url) {
     return (
@@ -481,7 +939,14 @@ function MediaBubble({
     );
   }
 
-  return <audio src={url} controls preload="none" className="w-56" />;
+  return (
+    <audio
+      src={url}
+      controls
+      preload="none"
+      className="w-56"
+    />
+  );
 }
 
 /* ============================================================
@@ -489,51 +954,127 @@ function MediaBubble({
  * ============================================================ */
 
 function ChatRoom() {
-  const { id } = Route.useParams();
-  const { user } = useAuth();
-  const { onlineIds, startCall } = useRealtime();
-  const qc = useQueryClient();
-  const navigate = useNavigate();
-  const online = useOnlineStatus();
+  const { id } =
+    Route.useParams();
 
-  const [text, setText] = useState("");
-  const [gamesOpen, setGamesOpen] = useState(false);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [editing, setEditing] = useState<Message | null>(null);
-  const [typingUsers, setTypingUsers] = useState<string[]>([]);
-  const [recording, setRecording] = useState(false);
-  const [recSecs, setRecSecs] = useState(0);
-  const [pending, setPending] = useState<OutboxItem[]>([]);
-  const [sendingIds, setSendingIds] = useState<string[]>([]);
-  const [reactionPicker, setReactionPicker] = useState<string | null>(null);
-  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
-  const [stickerPack, setStickerPack] = useState<StickerPack>("All");
-  const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [swipingMessageId, setSwipingMessageId] = useState<string | null>(
-    null,
-  );
+  const { user } =
+    useAuth();
+
+  const {
+    onlineIds,
+    startCall,
+  } = useRealtime();
+
+  const qc =
+    useQueryClient();
+
+  const navigate =
+    useNavigate();
+
+  const online =
+    useOnlineStatus();
+
+  const [text, setText] =
+    useState("");
+
+  const [gamesOpen, setGamesOpen] =
+    useState(false);
+
+  const [limit, setLimit] =
+    useState(PAGE_SIZE);
+
+  const [replyTo, setReplyTo] =
+    useState<Message | null>(
+      null,
+    );
+
+  const [editing, setEditing] =
+    useState<Message | null>(
+      null,
+    );
+
+  const [typingUsers, setTypingUsers] =
+    useState<string[]>([]);
+
+  const [recording, setRecording] =
+    useState(false);
+
+  const [recSecs, setRecSecs] =
+    useState(0);
+
+  const [pending, setPending] =
+    useState<OutboxItem[]>([]);
+
+  const [sendingIds, setSendingIds] =
+    useState<string[]>([]);
+
+  const [reactionPicker, setReactionPicker] =
+    useState<string | null>(
+      null,
+    );
+
+  const [stickerPickerOpen, setStickerPickerOpen] =
+    useState(false);
+
+  const [stickerPack, setStickerPack] =
+    useState<StickerPack>("All");
+
+  const [deleteMenu, setDeleteMenu] =
+    useState<DeleteMenuState>(
+      null,
+    );
+
+  const [deletingId, setDeletingId] =
+    useState<string | null>(
+      null,
+    );
+
+  const [swipingMessageId, setSwipingMessageId] =
+    useState<string | null>(
+      null,
+    );
 
   /* ==========================================================
    * NEW FUN FEATURES
    * ========================================================== */
 
-  const [plusOpen, setPlusOpen] = useState(false);
-  const [effectsOpen, setEffectsOpen] = useState(false);
+  const [plusOpen, setPlusOpen] =
+    useState(false);
+
+  const [effectsOpen, setEffectsOpen] =
+    useState(false);
+
   const [selectedEffect, setSelectedEffect] =
-    useState<ChatEffect>("none");
-  const [secretMode, setSecretMode] = useState(false);
-  const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(
-    new Set(),
-  );
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [cameraReady, setCameraReady] = useState(false);
-  const [cameraFacing, setCameraFacing] = useState<"user" | "environment">(
-    "environment",
-  );
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [cameraBusy, setCameraBusy] = useState(false);
+    useState<ChatEffect>(
+      "none",
+    );
+
+  const [secretMode, setSecretMode] =
+    useState(false);
+
+  const [revealedSecrets, setRevealedSecrets] =
+    useState<Set<string>>(
+      new Set(),
+    );
+
+  const [cameraOpen, setCameraOpen] =
+    useState(false);
+
+  const [cameraReady, setCameraReady] =
+    useState(false);
+
+  const [cameraFacing, setCameraFacing] =
+    useState<
+      "user" | "environment"
+    >("environment");
+
+  const [cameraError, setCameraError] =
+    useState<string | null>(
+      null,
+    );
+
+  const [cameraBusy, setCameraBusy] =
+    useState(false);
 
   /* ==========================================================
    * CHAT MENU (three-dot) + CUSTOM CHAT NAME
@@ -546,10 +1087,19 @@ function ChatRoom() {
    * add-contact, etc.) is untouched.
    * ========================================================== */
 
-  const [chatMenuOpen, setChatMenuOpen] = useState(false);
-  const [nameModalOpen, setNameModalOpen] = useState(false);
-  const [customName, setCustomName] = useState<string | null>(null);
-  const [nameInput, setNameInput] = useState("");
+  const [chatMenuOpen, setChatMenuOpen] =
+    useState(false);
+
+  const [nameModalOpen, setNameModalOpen] =
+    useState(false);
+
+  const [customName, setCustomName] =
+    useState<string | null>(
+      null,
+    );
+
+  const [nameInput, setNameInput] =
+    useState("");
 
   /* ==========================================================
    * CHAT CUSTOMIZATION (theme / font / wallpaper)
@@ -559,68 +1109,151 @@ function ChatRoom() {
    * never affects other chats or other devices.
    * ========================================================== */
 
-  const [customizeOpen, setCustomizeOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] =
+    useState(false);
+
   const [customization, setCustomization] =
-    useState<ChatCustomization | null>(null);
-  const [wallpaperUrl, setWallpaperUrl] = useState<string | null>(null);
-  const [wallpaperType, setWallpaperType] = useState<
-    "image" | "video" | null
-  >(null);
-  const [customizationVersion, setCustomizationVersion] = useState(0);
+    useState<ChatCustomization | null>(
+      null,
+    );
 
-  const localChatNameKey = useMemo(
-    () => `whatsxup-chat-name:${id}`,
-    [id],
-  );
+  const [wallpaperUrl, setWallpaperUrl] =
+    useState<string | null>(
+      null,
+    );
 
-  const recorder = useRef<MediaRecorder | null>(null);
-  const recordingStream = useRef<MediaStream | null>(null);
-  const chunks = useRef<Blob[]>([]);
-  const cancelRecordingRef = useRef(false);
-  const bottom = useRef<HTMLDivElement | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
-  const cameraInput = useRef<HTMLInputElement | null>(null);
+  const [wallpaperType, setWallpaperType] =
+    useState<
+      "image" | "video" | null
+    >(null);
 
-  const cameraVideo = useRef<HTMLVideoElement | null>(null);
-  const cameraStream = useRef<MediaStream | null>(null);
-  const cameraCanvas = useRef<HTMLCanvasElement | null>(null);
+  const [customizationVersion, setCustomizationVersion] =
+    useState(0);
 
-  const roomChannel = useRef<ReturnType<typeof supabase.channel> | null>(
-    null,
-  );
-  const lastTypingSent = useRef(0);
-  const typingTimeouts = useRef<
-    Map<string, ReturnType<typeof setTimeout>>
-  >(new Map());
-  const touchStartX = useRef<Map<string, number>>(new Map());
+  /* Shop cosmetics — global equipped (localStorage), fallback under per-chat */
+  const [shopCosmetics, setShopCosmetics] =
+    useState<LocalShopCosmetics>(
+      EMPTY_SHOP,
+    );
 
-  const messagesKey = useMemo(
-    () => ["messages", id, limit] as const,
-    [id, limit],
-  );
+  const localChatNameKey =
+    useMemo(
+      () =>
+        `whatsxup-chat-name:${id}`,
+      [id],
+    );
+
+  const recorder =
+    useRef<MediaRecorder | null>(
+      null,
+    );
+
+  const recordingStream =
+    useRef<MediaStream | null>(
+      null,
+    );
+
+  const chunks =
+    useRef<Blob[]>([]);
+
+  const cancelRecordingRef =
+    useRef(false);
+
+  const bottom =
+    useRef<HTMLDivElement | null>(
+      null,
+    );
+
+  const fileInput =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+
+  const cameraInput =
+    useRef<HTMLInputElement | null>(
+      null,
+    );
+
+  const cameraVideo =
+    useRef<HTMLVideoElement | null>(
+      null,
+    );
+
+  const cameraStream =
+    useRef<MediaStream | null>(
+      null,
+    );
+
+  const cameraCanvas =
+    useRef<HTMLCanvasElement | null>(
+      null,
+    );
+
+  const roomChannel =
+    useRef<
+      ReturnType<
+        typeof supabase.channel
+      > | null
+    >(null);
+
+  const lastTypingSent =
+    useRef(0);
+
+  const typingTimeouts =
+    useRef<
+      Map<
+        string,
+        ReturnType<
+          typeof setTimeout
+        >
+      >
+    >(new Map());
+
+  const touchStartX =
+    useRef<
+      Map<string, number>
+    >(new Map());
+
+  const messagesKey =
+    useMemo(
+      () =>
+        [
+          "messages",
+          id,
+          limit,
+        ] as const,
+      [id, limit],
+    );
 
   /* ==========================================================
    * LOAD CUSTOM CHAT NAME FROM LOCALSTORAGE
-   *
-   * Guarded with typeof window so this is safe if the route
-   * is ever rendered in a non-browser environment.
    * ========================================================== */
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (
+      typeof window ===
+      "undefined"
+    )
+      return;
 
     try {
-      const stored = window.localStorage.getItem(
-        localChatNameKey,
-      );
+      const stored =
+        window.localStorage.getItem(
+          localChatNameKey,
+        );
 
       setCustomName(
-        stored && stored.trim() ? stored.trim() : null,
+        stored &&
+          stored.trim()
+          ? stored.trim()
+          : null,
       );
     } catch {
       setCustomName(null);
     }
-  }, [localChatNameKey]);
+  }, [
+    localChatNameKey,
+  ]);
 
   /* ==========================================================
    * LOAD CHAT CUSTOMIZATION (theme / font) FROM INDEXEDDB
@@ -629,82 +1262,128 @@ function ChatRoom() {
   useEffect(() => {
     let cancelled = false;
 
-    getChatCustomization(id).then((result) => {
+    getChatCustomization(
+      id,
+    ).then((result) => {
       if (cancelled) return;
-      setCustomization(result);
-      loadGoogleFont(result.fontId);
+
+      setCustomization(
+        result,
+      );
+
+      loadGoogleFont(
+        result.fontId,
+      );
     });
 
     return () => {
       cancelled = true;
     };
-  }, [id, customizationVersion]);
+  }, [
+    id,
+    customizationVersion,
+  ]);
 
   /* ==========================================================
-   * LOAD CUSTOM WALLPAPER MEDIA (image/video blob) FROM
-   * INDEXEDDB WHEN THIS CHAT HAS ONE SELECTED
+   * LOAD CUSTOM WALLPAPER MEDIA
    * ========================================================== */
 
   useEffect(() => {
     let cancelled = false;
-    let objectUrl: string | null = null;
+    let objectUrl: string | null =
+      null;
 
     async function loadWallpaperMedia() {
       if (
-        customization?.wallpaper.kind !== "custom-image" &&
-        customization?.wallpaper.kind !== "custom-video"
+        customization?.wallpaper
+          .kind !==
+          "custom-image" &&
+        customization?.wallpaper
+          .kind !==
+          "custom-video"
       ) {
-        setWallpaperUrl(null);
-        setWallpaperType(null);
+        setWallpaperUrl(
+          null,
+        );
+
+        setWallpaperType(
+          null,
+        );
+
         return;
       }
 
-      const media = await getChatWallpaperMedia(id);
-      if (cancelled || !media) return;
+      const media =
+        await getChatWallpaperMedia(
+          id,
+        );
 
-      objectUrl = URL.createObjectURL(media.blob);
-      setWallpaperUrl(objectUrl);
-      setWallpaperType(media.mediaType);
+      if (
+        cancelled ||
+        !media
+      )
+        return;
+
+      objectUrl =
+        URL.createObjectURL(
+          media.blob,
+        );
+
+      setWallpaperUrl(
+        objectUrl,
+      );
+
+      setWallpaperType(
+        media.mediaType,
+      );
     }
 
     void loadWallpaperMedia();
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+
+      if (objectUrl) {
+        URL.revokeObjectURL(
+          objectUrl,
+        );
+      }
     };
-  }, [id, customization?.wallpaper]);
+  }, [
+    id,
+    customization?.wallpaper,
+  ]);
 
   /* ==========================================================
    * LOAD EQUIPPED SHOP COSMETICS (local only)
-   *
-   * Shop cosmetics are available to this chat without
-   * replacing the existing IndexedDB chat customization.
    * ========================================================== */
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (
+      typeof window ===
+      "undefined"
+    )
+      return;
 
-    const loadShopCosmetics = () => {
-      const cosmetics =
-        getEquippedShopCosmeticsLocal();
-
-      /*
-       * The Shop cosmetics are now available
-       * to this chat without replacing the
-       * existing IndexedDB chat customization.
-       */
-      console.log(
-        "Equipped Shop cosmetics:",
-        cosmetics,
-      );
-    };
+    const loadShopCosmetics =
+      () => {
+        try {
+          setShopCosmetics(
+            getEquippedShopCosmeticsLocal(),
+          );
+        } catch {
+          setShopCosmetics(
+            EMPTY_SHOP,
+          );
+        }
+      };
 
     loadShopCosmetics();
 
-    const handleShopCosmeticChanged = () => {
-      loadShopCosmetics();
-    };
+    const handleShopCosmeticChanged =
+      () => {
+        loadShopCosmetics();
+      };
 
     window.addEventListener(
       "xup-shop-cosmetic-changed",
@@ -719,28 +1398,110 @@ function ChatRoom() {
     };
   }, []);
 
-  const activeTheme = getTheme(customization?.themeId);
-  const activeFontFamily = getFontFamilyCss(customization?.fontId);
+  const activeTheme =
+    getTheme(
+      customization?.themeId,
+    );
+
+  const activeFontFamily =
+    getFontFamilyCss(
+      customization?.fontId,
+    );
 
   const builtinWallpaperCss =
-    customization?.wallpaper.kind === "builtin"
-      ? getBuiltinWallpaper(customization.wallpaper.builtinId)?.css
+    customization?.wallpaper
+      .kind === "builtin"
+      ? getBuiltinWallpaper(
+          customization.wallpaper
+            .builtinId,
+        )?.css
       : null;
+
+  /* ---- Effective visuals: per-chat first, then shop ---- */
+
+  const shopBubble =
+    shopBubbleCss(
+      shopCosmetics.bubble,
+    );
+
+  const shopThemeMine =
+    shopThemeBubbleMine(
+      shopCosmetics.theme,
+    );
+
+  const shopThemeBg =
+    shopThemeBackground(
+      shopCosmetics.theme,
+    );
+
+  const shopWall =
+    shopWallpaperMedia(
+      shopCosmetics.wallpaper,
+    );
+
+  const shopFrameStyle =
+    shopProfileFrameStyle(
+      shopCosmetics.profile_frame,
+    );
+
+  const effectiveBubbleMine =
+    (
+      activeTheme.bubbleMine &&
+      activeTheme.bubbleMine.trim()
+    ) ||
+    shopBubble.mine ||
+    shopThemeMine ||
+    null;
+
+  const effectiveAreaBackground =
+    builtinWallpaperCss ||
+    (
+      activeTheme.messageAreaBackground &&
+      activeTheme.messageAreaBackground.trim()
+        ? activeTheme.messageAreaBackground
+        : null
+    ) ||
+    shopWall.css ||
+    shopThemeBg ||
+    null;
+
+  const shopWallpaperActive =
+    !wallpaperUrl &&
+    !builtinWallpaperCss &&
+    (
+      !customization ||
+      customization.wallpaper.kind ===
+        "none"
+    ) &&
+    !!shopWall.url;
 
   /* ==========================================================
    * CONVERSATION
    * ========================================================== */
 
-  const { data: conv } = useQuery({
-    queryKey: ["conversation", id],
+  const {
+    data: conv,
+  } = useQuery({
+    queryKey: [
+      "conversation",
+      id,
+    ],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("id", id)
-        .single();
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            "conversations",
+          )
+          .select("*")
+          .eq("id", id)
+          .single();
 
-      if (error) throw error;
+      if (error)
+        throw error;
+
       return data as Conversation;
     },
   });
@@ -749,340 +1510,853 @@ function ChatRoom() {
    * MEMBERS
    * ========================================================== */
 
-  const { data: members = [] } = useQuery({
-    queryKey: ["conv-members", id],
+  const {
+    data: members = [],
+  } = useQuery({
+    queryKey: [
+      "conv-members",
+      id,
+    ],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("conversation_members")
-        .select("user_id, role")
-        .eq("conversation_id", id);
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            "conversation_members",
+          )
+          .select(
+            "user_id, role",
+          )
+          .eq(
+            "conversation_id",
+            id,
+          );
 
-      if (error) throw error;
-      return (data ?? []) as { user_id: string; role: string }[];
+      if (error)
+        throw error;
+
+      return (
+        data ?? []
+      ) as {
+        user_id: string;
+        role: string;
+      }[];
     },
   });
 
-  const otherMember = useMemo(() => {
-    if (!user?.id) return null;
-    return members.find((member) => member.user_id !== user.id) ?? null;
-  }, [members, user?.id]);
+  const otherMember =
+    useMemo(() => {
+      if (!user?.id)
+        return null;
+
+      return (
+        members.find(
+          (member) =>
+            member.user_id !==
+            user.id,
+        ) ?? null
+      );
+    }, [
+      members,
+      user?.id,
+    ]);
 
   /* ==========================================================
    * OTHER PROFILE
    * ========================================================== */
 
-  const { data: otherProfile, isLoading: loadingProfile } = useQuery({
-    queryKey: ["chat-profile", otherMember?.user_id],
-    enabled: !!otherMember?.user_id,
+  const {
+    data: otherProfile,
+    isLoading:
+      loadingProfile,
+  } = useQuery({
+    queryKey: [
+      "chat-profile",
+      otherMember?.user_id,
+    ],
+    enabled:
+      !!otherMember?.user_id,
     queryFn: async () => {
-      if (!otherMember?.user_id) return null;
+      if (
+        !otherMember?.user_id
+      )
+        return null;
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", otherMember.user_id)
-        .maybeSingle();
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from(
+            "profiles",
+          )
+          .select("*")
+          .eq(
+            "id",
+            otherMember.user_id,
+          )
+          .maybeSingle();
 
-      if (error) throw error;
-      return (data ?? null) as Profile | null;
+      if (error)
+        throw error;
+
+      return (
+        data ?? null
+      ) as Profile | null;
     },
   });
+    } catch (error) {
+      const name =
+        error instanceof DOMException
+          ? error.name
+          : "";
 
-  const otherUserId = otherMember?.user_id ?? null;
-  const otherName = otherProfile?.display_name?.trim() || "Unknown";
-  const otherAvatar = otherProfile?.avatar_url ?? null;
-  const canShowOnline = otherProfile?.show_online_status !== false;
-  const isOtherOnline =
-    !!otherUserId && onlineIds.has(otherUserId) && canShowOnline;
+      setCameraReady(false);
 
-  const directSubtitle = loadingProfile
-    ? "Loading…"
-    : isOtherOnline
-      ? "online"
-      : canShowOnline
-        ? lastSeenLabel(otherProfile?.last_seen ?? null)
-        : "offline";
-
-  const title =
-    conv?.type === "group" ? conv.name?.trim() || "Group" : otherName;
-
-  // Only the header display for direct chats uses the local
-  // nickname. `otherName` itself stays the real profile name
-  // everywhere else (calls, add-contact, push previews, etc.).
-  const displayedChatName = customName || otherName;
+      setCameraError(
+        name === "NotAllowedError"
+          ? "Camera permission was denied. Allow camera access in your browser settings."
+          : "Could not open the camera on this device.",
+      );
+    }
+  }
 
   /* ==========================================================
-   * MESSAGES
+   * SWITCH CAMERA
    * ========================================================== */
 
-  const { data: messages = [], isFetching: fetchingMessages } = useQuery({
-    queryKey: messagesKey,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", id)
-        .order("created_at", { ascending: false })
-        .limit(limit);
+  async function switchCamera() {
+    setCameraFacing((current) =>
+      current === "environment"
+        ? "user"
+        : "environment",
+    );
+  }
 
-      if (error) throw error;
+  useEffect(() => {
+    if (!cameraOpen) return;
 
-      return ((data ?? []) as Message[]).slice().reverse();
-    },
-  });
+    if (!cameraReady) return;
+
+    void startCamera();
+
+    // The camera is intentionally restarted when the user
+    // changes between front and rear cameras.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraFacing]);
 
   /* ==========================================================
-   * PROFILES
+   * TAKE PHOTO
    * ========================================================== */
 
-  const memberIds = useMemo(
-    () => members.map((member) => member.user_id),
-    [members],
-  );
+  async function takeCameraPhoto() {
+    const video = cameraVideo.current;
 
-  const { data: profiles = [] } = useQuery({
-    queryKey: ["conversation-profiles", id, memberIds.join(",")],
-    enabled: memberIds.length > 0,
-    queryFn: async () => {
-      if (!memberIds.length) return [];
-
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .in("id", memberIds);
-
-      if (error) throw error;
-      return (data ?? []) as Profile[];
-    },
-  });
-
-  const profileMap = useMemo(() => {
-    const map = new Map<string, Profile>();
-
-    for (const profile of profiles) {
-      map.set(profile.id, profile);
+    if (!video || !cameraStream.current) {
+      toast.error("Camera is not ready.");
+      return;
     }
 
-    return map;
-  }, [profiles]);
+    const canvas =
+      cameraCanvas.current ??
+      document.createElement("canvas");
+
+    const width =
+      video.videoWidth || 1280;
+
+    const height =
+      video.videoHeight || 1280;
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const context =
+      canvas.getContext("2d");
+
+    if (!context) {
+      toast.error(
+        "Could not capture the photo.",
+      );
+      return;
+    }
+
+    context.drawImage(
+      video,
+      0,
+      0,
+      width,
+      height,
+    );
+
+    const blob =
+      await new Promise<Blob | null>(
+        (resolve) =>
+          canvas.toBlob(
+            resolve,
+            "image/jpeg",
+            0.92,
+          ),
+      );
+
+    if (!blob) {
+      toast.error(
+        "Could not create the photo.",
+      );
+      return;
+    }
+
+    try {
+      setCameraBusy(true);
+
+      const file =
+        new File(
+          [blob],
+          `camera-${Date.now()}.jpg`,
+          {
+            type: "image/jpeg",
+          },
+        );
+
+      const path =
+        await uploadChatMedia(
+          id,
+          file,
+          "jpg",
+        );
+
+      await sendMessage(
+        {
+          type: "image",
+          media_url: path,
+        },
+        "📸 Camera photo",
+      );
+
+      closeCamera();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not send photo.",
+      );
+    } finally {
+      setCameraBusy(false);
+    }
+  }
+
+  /* ==========================================================
+   * CLOSE CAMERA
+   * ========================================================== */
+
+  function closeCamera() {
+    cameraStream.current
+      ?.getTracks()
+      .forEach((track) =>
+        track.stop(),
+      );
+
+    cameraStream.current = null;
+
+    if (cameraVideo.current) {
+      cameraVideo.current.srcObject =
+        null;
+    }
+
+    setCameraReady(false);
+    setCameraOpen(false);
+    setCameraError(null);
+  }
+
+  /* ==========================================================
+   * CLEAN CAMERA WHEN COMPONENT UNMOUNTS
+   * ========================================================== */
+
+  useEffect(() => {
+    return () => {
+      cameraStream.current
+        ?.getTracks()
+        .forEach((track) =>
+          track.stop(),
+        );
+
+      cameraStream.current =
+        null;
+    };
+  }, []);
+
+  /* ==========================================================
+   * FETCH MESSAGES
+   * ========================================================== */
+
+  const {
+    data: messages = [],
+    isLoading: loadingMessages,
+  } = useQuery({
+    queryKey: messagesKey,
+    queryFn: async () => {
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("messages")
+        .select("*")
+        .eq(
+          "conversation_id",
+          id,
+        )
+        .order(
+          "created_at",
+          {
+            ascending: false,
+          },
+        )
+        .limit(limit);
+
+      if (error)
+        throw error;
+
+      return (
+        (data ?? [])
+          .reverse()
+          .map(
+            (row) =>
+              row as Message,
+          )
+      );
+    },
+  });
+
+  /* ==========================================================
+   * PROFILE DATA
+   * ========================================================== */
+
+  const otherUserId =
+    otherMember?.user_id ??
+    null;
+
+  const {
+    data: profiles = [],
+  } = useQuery({
+    queryKey: [
+      "profiles",
+      id,
+      otherUserId,
+    ],
+    enabled:
+      !!otherUserId,
+    queryFn: async () => {
+      const ids = [
+        user?.id,
+        otherUserId,
+      ].filter(
+        Boolean,
+      ) as string[];
+
+      if (!ids.length)
+        return [];
+
+      const {
+        data,
+        error,
+      } = await supabase
+        .from("profiles")
+        .select("*")
+        .in(
+          "id",
+          ids,
+        );
+
+      if (error)
+        throw error;
+
+      return (
+        data ?? []
+      ) as Profile[];
+    },
+  });
+
+  const profileMap =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          Profile
+        >();
+
+      for (const profile of profiles) {
+        map.set(
+          profile.id,
+          profile,
+        );
+      }
+
+      return map;
+    }, [profiles]);
 
   /* ==========================================================
    * READ RECEIPTS
    * ========================================================== */
 
-  const readsQuery = useQuery({
-    queryKey: ["reads", id],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("conversation_members")
-        .select("user_id, last_read_at")
-        .eq("conversation_id", id);
+  const readsQuery =
+    useQuery({
+      queryKey: [
+        "reads",
+        id,
+      ],
+      queryFn:
+        async () => {
+          const {
+            data,
+          } =
+            await supabase
+              .from(
+                "conversation_members",
+              )
+              .select(
+                "user_id, last_read_at",
+              )
+              .eq(
+                "conversation_id",
+                id,
+              );
 
-      return data ?? [];
-    },
-  });
+          return data ?? [];
+        },
+    });
 
-  const othersReadAt = useMemo(() => {
-    const rows = (readsQuery.data ?? []).filter(
-      (row) => row.user_id !== user?.id,
-    );
+  const othersReadAt =
+    useMemo(() => {
+      const rows =
+        (
+          readsQuery.data ??
+          []
+        ).filter(
+          (row) =>
+            row.user_id !==
+            user?.id,
+        );
 
-    if (!rows.length) return null;
+      if (!rows.length)
+        return null;
 
-    return rows.map((row) => row.last_read_at).sort().at(-1) ?? null;
-  }, [readsQuery.data, user?.id]);
+      return (
+        rows
+          .map(
+            (row) =>
+              row.last_read_at,
+          )
+          .sort()
+          .at(-1) ??
+        null
+      );
+    }, [
+      readsQuery.data,
+      user?.id,
+    ]);
 
   /* ==========================================================
    * DELIVERY RECEIPTS
    * ========================================================== */
 
-  const { data: deliveries = [] } = useQuery({
-    queryKey: ["message-deliveries", id],
-    queryFn: async () => {
-      const messageIds = messages.map((message) => message.id);
+  const {
+    data: deliveries = [],
+  } = useQuery({
+    queryKey: [
+      "message-deliveries",
+      id,
+    ],
+    queryFn:
+      async () => {
+        const messageIds =
+          messages.map(
+            (message) =>
+              message.id,
+          );
 
-      if (!messageIds.length) return [];
+        if (
+          !messageIds.length
+        )
+          return [];
 
-      const { data, error } = await (supabase as any)
-        .from("message_deliveries")
-        .select("*")
-        .in("message_id", messageIds);
+        const {
+          data,
+          error,
+        } =
+          await (supabase as any)
+            .from(
+              "message_deliveries",
+            )
+            .select("*")
+            .in(
+              "message_id",
+              messageIds,
+            );
 
-      if (error) {
-        console.error("Delivery receipt query:", error);
-        return [];
-      }
+        if (error) {
+          console.error(
+            "Delivery receipt query:",
+            error,
+          );
 
-      return (data ?? []) as DeliveryReceipt[];
-    },
-    enabled: messages.length > 0,
+          return [];
+        }
+
+        return (
+          (data ??
+            []) as DeliveryReceipt[]
+        );
+      },
+    enabled:
+      messages.length >
+      0,
   });
 
-  const deliveryMap = useMemo(() => {
-    const map = new Map<string, DeliveryReceipt[]>();
+  const deliveryMap =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          DeliveryReceipt[]
+        >();
 
-    for (const delivery of deliveries) {
-      const current = map.get(delivery.message_id) ?? [];
-      current.push(delivery);
-      map.set(delivery.message_id, current);
-    }
+      for (
+        const delivery of deliveries
+      ) {
+        const current =
+          map.get(
+            delivery.message_id,
+          ) ?? [];
 
-    return map;
-  }, [deliveries]);
+        current.push(
+          delivery,
+        );
+
+        map.set(
+          delivery.message_id,
+          current,
+        );
+      }
+
+      return map;
+    }, [deliveries]);
 
   /* ==========================================================
    * MARK INCOMING MESSAGES DELIVERED
    * ========================================================== */
 
   useEffect(() => {
-    if (!user?.id || !messages.length) return;
+    if (
+      !user?.id ||
+      !messages.length
+    ) {
+      return;
+    }
 
-    const incoming = messages.filter(
-      (message) => message.sender_id !== user.id,
-    );
+    const incoming =
+      messages.filter(
+        (message) =>
+          message.sender_id !==
+          user.id,
+      );
 
-    if (!incoming.length) return;
+    if (!incoming.length)
+      return;
 
     void (async () => {
-      const rows = incoming.map((message) => ({
-        message_id: message.id,
-        user_id: user.id,
-      }));
+      const rows =
+        incoming.map(
+          (message) => ({
+            message_id:
+              message.id,
+            user_id:
+              user.id,
+          }),
+        );
 
-      const { error } = await (supabase as any)
-        .from("message_deliveries")
-        .upsert(rows, {
-          onConflict: "message_id,user_id",
-          ignoreDuplicates: true,
-        });
+      const {
+        error,
+      } =
+        await (supabase as any)
+          .from(
+            "message_deliveries",
+          )
+          .upsert(
+            rows,
+            {
+              onConflict:
+                "message_id,user_id",
+              ignoreDuplicates:
+                true,
+            },
+          );
 
       if (error) {
-        console.error("Could not mark delivered:", error);
+        console.error(
+          "Could not mark delivered:",
+          error,
+        );
+
         return;
       }
 
-      void qc.invalidateQueries({
-        queryKey: ["message-deliveries", id],
-      });
+      void qc.invalidateQueries(
+        {
+          queryKey: [
+            "message-deliveries",
+            id,
+          ],
+        },
+      );
     })();
-  }, [messages, user?.id, id, qc]);
+  }, [
+    messages,
+    user?.id,
+    id,
+    qc,
+  ]);
 
   /* ==========================================================
    * CONTACT CHECK
    * ========================================================== */
 
-  const isContact = useQuery({
-    queryKey: ["is-contact", otherUserId],
-    enabled: !!otherUserId && !!user?.id,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("contacts")
-        .select("id")
-        .eq("owner_id", user!.id)
-        .eq("contact_id", otherUserId!)
-        .maybeSingle();
+  const isContact =
+    useQuery({
+      queryKey: [
+        "is-contact",
+        otherUserId,
+      ],
+      enabled:
+        !!otherUserId &&
+        !!user?.id,
+      queryFn:
+        async () => {
+          const {
+            data,
+            error,
+          } =
+            await supabase
+              .from(
+                "contacts",
+              )
+              .select("id")
+              .eq(
+                "owner_id",
+                user!.id,
+              )
+              .eq(
+                "contact_id",
+                otherUserId!,
+              )
+              .maybeSingle();
 
-      if (error) return false;
-      return !!data;
-    },
-  });
+          if (error)
+            return false;
+
+          return !!data;
+        },
+    });
 
   /* ==========================================================
    * REACTIONS
    * ========================================================== */
 
-  const reactionsTable = (supabase as any).from("message_reactions");
+  const reactionsTable =
+    (supabase as any).from(
+      "message_reactions",
+    );
 
-  const { data: reactions = [] } = useQuery({
-    queryKey: ["message-reactions", id],
-    enabled: messages.length > 0,
-    queryFn: async (): Promise<MessageReaction[]> => {
-      const messageIds = messages.map((message) => message.id);
+  const {
+    data: reactions = [],
+  } = useQuery({
+    queryKey: [
+      "message-reactions",
+      id,
+    ],
+    enabled:
+      messages.length >
+      0,
+    queryFn:
+      async (): Promise<
+        MessageReaction[]
+      > => {
+        const messageIds =
+          messages.map(
+            (message) =>
+              message.id,
+          );
 
-      if (!messageIds.length) return [];
+        if (
+          !messageIds.length
+        )
+          return [];
 
-      const { data, error } = await reactionsTable
-        .select("*")
-        .in("message_id", messageIds);
+        const {
+          data,
+          error,
+        } =
+          await reactionsTable
+            .select("*")
+            .in(
+              "message_id",
+              messageIds,
+            );
 
-      if (error) throw error;
+        if (error)
+          throw error;
 
-      return (data ?? []) as MessageReaction[];
-    },
+        return (
+          (data ??
+            []) as MessageReaction[]
+        );
+      },
   });
 
-  const reactionMap = useMemo(() => {
-    const map = new Map<string, MessageReaction[]>();
+  const reactionMap =
+    useMemo(() => {
+      const map =
+        new Map<
+          string,
+          MessageReaction[]
+        >();
 
-    for (const reaction of reactions) {
-      const current = map.get(reaction.message_id) ?? [];
-      current.push(reaction);
-      map.set(reaction.message_id, current);
-    }
+      for (
+        const reaction of reactions
+      ) {
+        const current =
+          map.get(
+            reaction.message_id,
+          ) ?? [];
 
-    return map;
-  }, [reactions]);
+        current.push(
+          reaction,
+        );
 
-  function reactionCounts(messageId: string) {
-    const messageReactions = reactionMap.get(messageId) ?? [];
-    const counts = new Map<string, number>();
+        map.set(
+          reaction.message_id,
+          current,
+        );
+      }
 
-    for (const reaction of messageReactions) {
+      return map;
+    }, [reactions]);
+
+  function reactionCounts(
+    messageId: string,
+  ) {
+    const messageReactions =
+      reactionMap.get(
+        messageId,
+      ) ?? [];
+
+    const counts =
+      new Map<
+        string,
+        number
+      >();
+
+    for (
+      const reaction of
+        messageReactions
+    ) {
       counts.set(
         reaction.reaction,
-        (counts.get(reaction.reaction) ?? 0) + 1,
+        (
+          counts.get(
+            reaction.reaction,
+          ) ?? 0
+        ) + 1,
       );
     }
 
-    return Array.from(counts.entries());
+    return Array.from(
+      counts.entries(),
+    );
   }
 
-  function hasReacted(messageId: string, emoji: string) {
+  function hasReacted(
+    messageId: string,
+    emoji: string,
+  ) {
     return (
       reactionMap
         .get(messageId)
         ?.some(
           (reaction) =>
-            reaction.user_id === user?.id &&
-            reaction.reaction === emoji,
+            reaction.user_id ===
+              user?.id &&
+            reaction.reaction ===
+              emoji,
         ) ?? false
     );
   }
 
-  async function toggleReaction(message: Message, emoji: string) {
+  async function toggleReaction(
+    message: Message,
+    emoji: string,
+  ) {
     if (!user) return;
 
-    setReactionPicker(null);
+    setReactionPicker(
+      null,
+    );
 
-    const existing = reactionMap
-      .get(message.id)
-      ?.find(
-        (reaction) =>
-          reaction.user_id === user.id &&
-          reaction.reaction === emoji,
-      );
+    const existing =
+      reactionMap
+        .get(message.id)
+        ?.find(
+          (reaction) =>
+            reaction.user_id ===
+              user.id &&
+            reaction.reaction ===
+              emoji,
+        );
 
     try {
       if (existing) {
-        const { error } = await reactionsTable
-          .delete()
-          .eq("id", existing.id)
-          .eq("user_id", user.id);
+        const {
+          error,
+        } =
+          await reactionsTable
+            .delete()
+            .eq(
+              "id",
+              existing.id,
+            )
+            .eq(
+              "user_id",
+              user.id,
+            );
 
-        if (error) throw error;
+        if (error)
+          throw error;
       } else {
-        const { error } = await reactionsTable.insert({
-          message_id: message.id,
-          user_id: user.id,
-          reaction: emoji,
-        });
+        const {
+          error,
+        } =
+          await reactionsTable
+            .insert({
+              message_id:
+                message.id,
+              user_id:
+                user.id,
+              reaction:
+                emoji,
+            });
 
-        if (error) throw error;
+        if (error)
+          throw error;
       }
 
-      await qc.invalidateQueries({
-        queryKey: ["message-reactions", id],
-      });
+      await qc.invalidateQueries(
+        {
+          queryKey: [
+            "message-reactions",
+            id,
+          ],
+        },
+      );
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1096,24 +2370,46 @@ function ChatRoom() {
    * MESSAGE CACHE
    * ========================================================== */
 
-  const applyMessage = useCallback(
-    (row: Message) => {
-      qc.setQueryData<Message[]>(messagesKey, (prev = []) => {
-        const without = prev.filter(
-          (message) => message.id !== row.id,
+  const applyMessage =
+    useCallback(
+      (row: Message) => {
+        qc.setQueryData<
+          Message[]
+        >(
+          messagesKey,
+          (prev = []) => {
+            const without =
+              prev.filter(
+                (message) =>
+                  message.id !==
+                  row.id,
+              );
+
+            return [
+              ...without,
+              row,
+            ].sort(
+              (a, b) =>
+                a.created_at.localeCompare(
+                  b.created_at,
+                ),
+            );
+          },
         );
 
-        return [...without, row].sort((a, b) =>
-          a.created_at.localeCompare(b.created_at),
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "chat-list",
+            ],
+          },
         );
-      });
-
-      void qc.invalidateQueries({
-        queryKey: ["chat-list"],
-      });
-    },
-    [qc, messagesKey],
-  );
+      },
+      [
+        qc,
+        messagesKey,
+      ],
+    );
 
   /* ==========================================================
    * REALTIME
@@ -1122,13 +2418,17 @@ function ChatRoom() {
   useEffect(() => {
     if (!user) return;
 
-    const ch = supabase.channel(`room:${id}`, {
-      config: {
-        broadcast: {
-          self: false,
+    const ch =
+      supabase.channel(
+        `room:${id}`,
+        {
+          config: {
+            broadcast: {
+              self: false,
+            },
+          },
         },
-      },
-    });
+      );
 
     ch.on(
       "postgres_changes",
@@ -1139,13 +2439,28 @@ function ChatRoom() {
         filter: `conversation_id=eq.${id}`,
       },
       (payload) => {
-        const row = (payload.new ?? payload.old) as Message | undefined;
+        const row =
+          (payload.new ??
+            payload.old) as
+            | Message
+            | undefined;
 
         if (!row) return;
 
-        if (payload.eventType === "DELETE") {
-          qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-            prev.filter((message) => message.id !== row.id),
+        if (
+          payload.eventType ===
+          "DELETE"
+        ) {
+          qc.setQueryData<
+            Message[]
+          >(
+            messagesKey,
+            (prev = []) =>
+              prev.filter(
+                (message) =>
+                  message.id !==
+                  row.id,
+              ),
           );
 
           return;
@@ -1157,9 +2472,15 @@ function ChatRoom() {
 
     ch.on(
       "broadcast",
-      { event: "message_upsert" },
+      {
+        event:
+          "message_upsert",
+      },
       ({ payload }) => {
-        const row = payload?.message as Message | undefined;
+        const row =
+          payload?.message as
+            | Message
+            | undefined;
 
         if (!row) return;
 
@@ -1169,14 +2490,29 @@ function ChatRoom() {
 
     ch.on(
       "broadcast",
-      { event: "message_delete" },
+      {
+        event:
+          "message_delete",
+      },
       ({ payload }) => {
-        const messageId = payload?.messageId as string | undefined;
+        const messageId =
+          payload?.messageId as
+            | string
+            | undefined;
 
-        if (!messageId) return;
+        if (!messageId)
+          return;
 
-        qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-          prev.filter((message) => message.id !== messageId),
+        qc.setQueryData<
+          Message[]
+        >(
+          messagesKey,
+          (prev = []) =>
+            prev.filter(
+              (message) =>
+                message.id !==
+                messageId,
+            ),
         );
       },
     );
@@ -1186,207 +2522,404 @@ function ChatRoom() {
       {
         event: "*",
         schema: "public",
-        table: "conversation_members",
+        table:
+          "conversation_members",
         filter: `conversation_id=eq.${id}`,
       },
       () => {
-        void qc.invalidateQueries({ queryKey: ["reads", id] });
-        void qc.invalidateQueries({
-          queryKey: ["conv-members", id],
-        });
-      },
-    );
-
-    ch.on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "message_deliveries",
-      },
-      () => {
-        void qc.invalidateQueries({
-          queryKey: ["message-deliveries", id],
-        });
-      },
-    );
-
-    ch.on(
-      "postgres_changes",
-      {
-        event: "*",
-        schema: "public",
-        table: "message_reactions",
-      },
-      () => {
-        void qc.invalidateQueries({
-          queryKey: ["message-reactions", id],
-        });
-      },
-    );
-
-    ch.on("broadcast", { event: "typing" }, ({ payload }) => {
-      const p = payload as {
-        userId: string;
-        name: string;
-      };
-
-      if (p.userId === user.id) return;
-
-      setTypingUsers((prev) =>
-        prev.includes(p.name) ? prev : [...prev, p.name],
-      );
-
-      const oldTimer = typingTimeouts.current.get(p.userId);
-
-      if (oldTimer) clearTimeout(oldTimer);
-
-      const timer = setTimeout(() => {
-        setTypingUsers((prev) =>
-          prev.filter((name) => name !== p.name),
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "reads",
+              id,
+            ],
+          },
         );
 
-        typingTimeouts.current.delete(p.userId);
-      }, 3500);
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "conv-members",
+              id,
+            ],
+          },
+        );
+      },
+    );
 
-      typingTimeouts.current.set(p.userId, timer);
-    });
+    ch.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table:
+          "message_deliveries",
+      },
+      () => {
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "message-deliveries",
+              id,
+            ],
+          },
+        );
+      },
+    );
 
-    ch.subscribe((status) => {
-      if (status === "SUBSCRIBED") {
-        void qc.invalidateQueries({
-          queryKey: ["messages", id],
-        });
-      }
-    });
+    ch.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table:
+          "message_reactions",
+      },
+      () => {
+        void qc.invalidateQueries(
+          {
+            queryKey: [
+              "message-reactions",
+              id,
+            ],
+          },
+        );
+      },
+    );
 
-    roomChannel.current = ch;
+    ch.on(
+      "broadcast",
+      {
+        event: "typing",
+      },
+      ({ payload }) => {
+        const p =
+          payload as {
+            userId: string;
+            name: string;
+          };
+
+        if (
+          p.userId ===
+          user.id
+        )
+          return;
+
+        setTypingUsers(
+          (prev) =>
+            prev.includes(
+              p.name,
+            )
+              ? prev
+              : [
+                  ...prev,
+                  p.name,
+                ],
+        );
+
+        const oldTimer =
+          typingTimeouts.current.get(
+            p.userId,
+          );
+
+        if (oldTimer)
+          clearTimeout(
+            oldTimer,
+          );
+
+        const timer =
+          setTimeout(
+            () => {
+              setTypingUsers(
+                (prev) =>
+                  prev.filter(
+                    (name) =>
+                      name !==
+                      p.name,
+                  ),
+              );
+
+              typingTimeouts.current.delete(
+                p.userId,
+              );
+            },
+            3500,
+          );
+
+        typingTimeouts.current.set(
+          p.userId,
+          timer,
+        );
+      },
+    );
+
+    ch.subscribe(
+      (status) => {
+        if (
+          status ===
+          "SUBSCRIBED"
+        ) {
+          void qc.invalidateQueries(
+            {
+              queryKey: [
+                "messages",
+                id,
+              ],
+            },
+          );
+        }
+      },
+    );
+
+    roomChannel.current =
+      ch;
 
     return () => {
-      for (const timer of typingTimeouts.current.values()) {
-        clearTimeout(timer);
+      for (
+        const timer of
+          typingTimeouts.current.values()
+      ) {
+        clearTimeout(
+          timer,
+        );
       }
 
       typingTimeouts.current.clear();
-      roomChannel.current = null;
+      roomChannel.current =
+        null;
 
-      void supabase.removeChannel(ch);
+      void supabase.removeChannel(
+        ch,
+      );
     };
-  }, [id, user, qc, applyMessage, messagesKey]);
+  }, [
+    id,
+    user,
+    qc,
+    applyMessage,
+    messagesKey,
+  ]);
 
   /* ==========================================================
    * MARK READ
    * ========================================================== */
 
   useEffect(() => {
-    if (!user || !messages.length || !online) return;
+    if (
+      !user ||
+      !messages.length ||
+      !online
+    )
+      return;
 
     void supabase
-      .from("conversation_members")
+      .from(
+        "conversation_members",
+      )
       .update({
-        last_read_at: new Date().toISOString(),
+        last_read_at:
+          new Date().toISOString(),
       })
-      .eq("conversation_id", id)
-      .eq("user_id", user.id)
+      .eq(
+        "conversation_id",
+        id,
+      )
+      .eq(
+        "user_id",
+        user.id,
+      )
       .then(() =>
-        qc.invalidateQueries({
-          queryKey: ["chat-list"],
-        }),
+        qc.invalidateQueries(
+          {
+            queryKey: [
+              "chat-list",
+            ],
+          },
+        ),
       );
-  }, [messages.length, id, user, qc, online]);
+  }, [
+    messages.length,
+    id,
+    user,
+    qc,
+    online,
+  ]);
 
   /* ==========================================================
    * AUTO SCROLL
    * ========================================================== */
 
   useEffect(() => {
-    bottom.current?.scrollIntoView({
-      behavior: "smooth",
-    });
-  }, [messages.length, typingUsers.length, pending.length]);
+    bottom.current?.scrollIntoView(
+      {
+        behavior: "smooth",
+      },
+    );
+  }, [
+    messages.length,
+    typingUsers.length,
+    pending.length,
+  ]);
 
   /* ==========================================================
    * RECORDING TIMER
    * ========================================================== */
 
   useEffect(() => {
-    if (!recording) return;
+    if (!recording)
+      return;
 
-    const timer = setInterval(() => {
-      setRecSecs((seconds) => seconds + 1);
-    }, 1000);
+    const timer =
+      setInterval(() => {
+        setRecSecs(
+          (seconds) =>
+            seconds + 1,
+        );
+      }, 1000);
 
-    return () => clearInterval(timer);
+    return () =>
+      clearInterval(
+        timer,
+      );
   }, [recording]);
 
   /* ==========================================================
    * OUTBOX
    * ========================================================== */
 
-  const refreshOutbox = useCallback(
-    () => setPending(outboxFor(id)),
-    [id],
-  );
+  const refreshOutbox =
+    useCallback(
+      () =>
+        setPending(
+          outboxFor(id),
+        ),
+      [id],
+    );
 
-  const flushOutbox = useCallback(async () => {
-    if (!user || !navigator.onLine) return;
+  const flushOutbox =
+    useCallback(
+      async () => {
+        if (
+          !user ||
+          !navigator.onLine
+        )
+          return;
 
-    for (const item of outboxFor(id)) {
-      updateItem(item.id, {
-        state: "sending",
-      });
+        for (
+          const item of
+            outboxFor(id)
+        ) {
+          updateItem(
+            item.id,
+            {
+              state:
+                "sending",
+            },
+          );
 
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          conversation_id: item.conversationId,
-          sender_id: user.id,
-          type: "text",
-          content: item.content,
-          reply_to: item.replyTo,
-        })
-        .select("*")
-        .single();
+          const {
+            data,
+            error,
+          } =
+            await supabase
+              .from(
+                "messages",
+              )
+              .insert({
+                conversation_id:
+                  item.conversationId,
+                sender_id:
+                  user.id,
+                type: "text",
+                content:
+                  item.content,
+                reply_to:
+                  item.replyTo,
+              })
+              .select("*")
+              .single();
 
-      if (error) {
-        updateItem(item.id, {
-          state: "failed",
-          error: error.message,
-        });
-      } else {
-        dequeue(item.id);
+          if (error) {
+            updateItem(
+              item.id,
+              {
+                state:
+                  "failed",
+                error:
+                  error.message,
+              },
+            );
+          } else {
+            dequeue(
+              item.id,
+            );
 
-        applyMessage(data as Message);
+            applyMessage(
+              data as Message,
+            );
 
-        void roomChannel.current?.send({
-          type: "broadcast",
-          event: "message_upsert",
-          payload: {
-            message: data,
-          },
-        });
-      }
-    }
+            void roomChannel.current?.send(
+              {
+                type: "broadcast",
+                event:
+                  "message_upsert",
+                payload: {
+                  message:
+                    data,
+                },
+              },
+            );
+          }
+        }
 
-    refreshOutbox();
-  }, [id, user, applyMessage, refreshOutbox]);
+        refreshOutbox();
+      },
+      [
+        id,
+        user,
+        applyMessage,
+        refreshOutbox,
+      ],
+    );
 
   useEffect(() => {
     refreshOutbox();
 
-    const onChange = () => refreshOutbox();
-    const onOnline = () => void flushOutbox();
+    const onChange =
+      () =>
+        refreshOutbox();
 
-    window.addEventListener("whatsxup:outbox", onChange);
-    window.addEventListener("online", onOnline);
+    const onOnline =
+      () =>
+        void flushOutbox();
+
+    window.addEventListener(
+      "whatsxup:outbox",
+      onChange,
+    );
+
+    window.addEventListener(
+      "online",
+      onOnline,
+    );
 
     void flushOutbox();
 
     return () => {
-      window.removeEventListener("whatsxup:outbox", onChange);
-      window.removeEventListener("online", onOnline);
+      window.removeEventListener(
+        "whatsxup:outbox",
+        onChange,
+      );
+
+      window.removeEventListener(
+        "online",
+        onOnline,
+      );
     };
-  }, [refreshOutbox, flushOutbox]);
+  }, [
+    refreshOutbox,
+    flushOutbox,
+  ]);
 
   /* ==========================================================
    * TYPING
@@ -1395,50 +2928,78 @@ function ChatRoom() {
   function broadcastTyping() {
     if (!user) return;
 
-    const now = Date.now();
+    const now =
+      Date.now();
 
-    if (now - lastTypingSent.current < 1500) return;
+    if (
+      now -
+        lastTypingSent.current <
+      1500
+    )
+      return;
 
-    lastTypingSent.current = now;
+    lastTypingSent.current =
+      now;
 
-    const meProfile = profileMap.get(user.id);
+    const meProfile =
+      profileMap.get(
+        user.id,
+      );
+
     const myName =
-      meProfile?.display_name?.trim() || "Someone";
+      meProfile?.display_name?.trim() ||
+      "Someone";
 
-    void roomChannel.current?.send({
-      type: "broadcast",
-      event: "typing",
-      payload: {
-        userId: user.id,
-        name: myName,
+    void roomChannel.current?.send(
+      {
+        type: "broadcast",
+        event: "typing",
+        payload: {
+          userId:
+            user.id,
+          name: myName,
+        },
       },
-    });
+    );
   }
 
   /* ==========================================================
    * PUSH
    * ========================================================== */
 
-  async function pushNotify(preview: string) {
+  async function pushNotify(
+    preview: string,
+  ) {
     try {
-      const meProfile = user
-        ? profileMap.get(user.id)
-        : null;
+      const meProfile =
+        user
+          ? profileMap.get(
+              user.id,
+            )
+          : null;
 
       await notifyNewMessage({
         data: {
-          conversationId: id,
+          conversationId:
+            id,
           title:
-            conv?.type === "group"
-              ? conv.name ?? "WHATSXUP group"
-              : meProfile?.display_name ?? "WHATSXUP",
+            conv?.type ===
+            "group"
+              ? conv.name ??
+                "WHATSXUP group"
+              : meProfile?.display_name ??
+                "WHATSXUP",
           preview:
-            conv?.type === "group"
+            conv?.type ===
+            "group"
               ? `${meProfile?.display_name ?? "Someone"}: ${preview}`.slice(
                   0,
                   160,
                 )
-              : preview.slice(0, 160),
+              : preview.slice(
+                  0,
+                  160,
+                ),
         },
       });
     } catch {
@@ -1454,75 +3015,144 @@ function ChatRoom() {
     payload: Partial<Message>,
     preview: string,
   ) {
-    if (!user) return false;
+    if (!user)
+      return false;
 
-    const optimisticId = crypto.randomUUID();
-    const nowIso = new Date().toISOString();
-    const optimisticReplyTo = replyTo?.id ?? null;
+    const optimisticId =
+      crypto.randomUUID();
 
-    const optimisticMessage: Message = {
-      id: optimisticId,
-      conversation_id: id,
-      sender_id: user.id,
-      type: (payload.type ?? "text") as any,
-      content: payload.content ?? null,
-      media_url: payload.media_url ?? null,
-      media_duration: payload.media_duration ?? null,
-      reply_to: optimisticReplyTo,
-      created_at: nowIso,
-      edited_at: null,
-    } as Message;
+    const nowIso =
+      new Date().toISOString();
 
-    applyMessage(optimisticMessage);
+    const optimisticReplyTo =
+      replyTo?.id ??
+      null;
+
+    const optimisticMessage: Message =
+      {
+        id: optimisticId,
+        conversation_id:
+          id,
+        sender_id:
+          user.id,
+        type:
+          (payload.type ??
+            "text") as any,
+        content:
+          payload.content ??
+          null,
+        media_url:
+          payload.media_url ??
+          null,
+        media_duration:
+          payload.media_duration ??
+          null,
+        reply_to:
+          optimisticReplyTo,
+        created_at:
+          nowIso,
+        edited_at:
+          null,
+      } as Message;
+
+    applyMessage(
+      optimisticMessage,
+    );
+
     setReplyTo(null);
 
-    const { data, error } = await supabase
-      .from("messages")
-      .insert({
-        conversation_id: id,
-        sender_id: user.id,
-        type: (payload.type ?? "text") as any,
-        content: payload.content ?? null,
-        media_url: payload.media_url ?? null,
-        media_duration: payload.media_duration ?? null,
-        reply_to: optimisticReplyTo,
-      })
-      .select("*")
-      .single();
+    const {
+      data,
+      error,
+    } =
+      await supabase
+        .from("messages")
+        .insert({
+          conversation_id:
+            id,
+          sender_id:
+            user.id,
+          type:
+            (payload.type ??
+              "text") as any,
+          content:
+            payload.content ??
+            null,
+          media_url:
+            payload.media_url ??
+            null,
+          media_duration:
+            payload.media_duration ??
+            null,
+          reply_to:
+            optimisticReplyTo,
+        })
+        .select("*")
+        .single();
 
-    if (error || !data) {
-      qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-        prev.filter(
-          (message) => message.id !== optimisticId,
-        ),
+    if (
+      error ||
+      !data
+    ) {
+      qc.setQueryData<
+        Message[]
+      >(
+        messagesKey,
+        (prev = []) =>
+          prev.filter(
+            (message) =>
+              message.id !==
+              optimisticId,
+          ),
       );
 
       toast.error(
-        error?.message ?? "Could not send message",
+        error?.message ??
+          "Could not send message",
       );
 
       return false;
     }
 
-    qc.setQueryData<Message[]>(messagesKey, (prev = []) => {
-      const withoutTemp = prev.filter(
-        (message) => message.id !== optimisticId,
-      );
+    qc.setQueryData<
+      Message[]
+    >(
+      messagesKey,
+      (prev = []) => {
+        const withoutTemp =
+          prev.filter(
+            (message) =>
+              message.id !==
+              optimisticId,
+          );
 
-      return [...withoutTemp, data as Message].sort((a, b) =>
-        a.created_at.localeCompare(b.created_at),
-      );
-    });
-
-    void roomChannel.current?.send({
-      type: "broadcast",
-      event: "message_upsert",
-      payload: {
-        message: data,
+        return [
+          ...withoutTemp,
+          data as Message,
+        ].sort(
+          (a, b) =>
+            a.created_at.localeCompare(
+              b.created_at,
+            ),
+        );
       },
-    });
+    );
 
-    void pushNotify(preview);
+    void roomChannel.current?.send(
+      {
+        type: "broadcast",
+        event:
+          "message_upsert",
+        payload: {
+          message:
+            data,
+        },
+      },
+    );
+
+    void pushNotify(
+      preview,
+    );
 
     return true;
   }
@@ -1531,20 +3161,35 @@ function ChatRoom() {
    * SEND STICKER
    * ========================================================== */
 
-  async function sendSticker(stickerId: string) {
-    if (!user || !online) return;
+  async function sendSticker(
+    stickerId: string,
+  ) {
+    if (
+      !user ||
+      !online
+    )
+      return;
 
-    const sticker = getSticker(stickerId);
+    const sticker =
+      getSticker(
+        stickerId,
+      );
 
-    if (!sticker) return;
+    if (!sticker)
+      return;
 
-    setStickerPickerOpen(false);
+    setStickerPickerOpen(
+      false,
+    );
+
     setPlusOpen(false);
 
     await sendMessage(
       {
-        type: "sticker" as any,
-        content: sticker.id,
+        type:
+          "sticker" as any,
+        content:
+          sticker.id,
       },
       `${sticker.emoji} Sticker`,
     );
@@ -1555,59 +3200,100 @@ function ChatRoom() {
    * ========================================================== */
 
   async function sendEffectMessage() {
-    const body = text.trim();
+    const body =
+      text.trim();
 
-    if (!body || !user) {
-      toast.error("Type a message first.");
+    if (
+      !body ||
+      !user
+    ) {
+      toast.error(
+        "Type a message first.",
+      );
+
       return;
     }
 
-    const encoded = encodeSpecialMessage(
-      body,
-      selectedEffect,
-      secretMode,
-    );
+    const encoded =
+      encodeSpecialMessage(
+        body,
+        selectedEffect,
+        secretMode,
+      );
 
     setText("");
-    setEffectsOpen(false);
+
+    setEffectsOpen(
+      false,
+    );
+
     setPlusOpen(false);
 
     const effectPreview =
-      selectedEffect === "none"
+      selectedEffect ===
+      "none"
         ? body
-        : `${EFFECTS.find(
-            (item) => item.id === selectedEffect,
-          )?.emoji ?? "✨"} ${body}`;
+        : `${
+            EFFECTS.find(
+              (item) =>
+                item.id ===
+                selectedEffect,
+            )?.emoji ??
+            "✨"
+          } ${body}`;
 
-    const ok = await sendMessage(
-      {
-        type: "text",
-        content: encoded,
-      },
-      secretMode ? "🔐 Secret message" : effectPreview,
-    );
+    const ok =
+      await sendMessage(
+        {
+          type: "text",
+          content:
+            encoded,
+        },
+        secretMode
+          ? "🔐 Secret message"
+          : effectPreview,
+      );
 
     if (!ok) {
       setText(body);
-      toast.error("Could not send the special message.");
+
+      toast.error(
+        "Could not send the special message.",
+      );
     }
 
-    setSelectedEffect("none");
-    setSecretMode(false);
+    setSelectedEffect(
+      "none",
+    );
+
+    setSecretMode(
+      false,
+    );
   }
 
   /* ==========================================================
    * TEXT MESSAGE
    * ========================================================== */
 
-  async function submit(event: React.FormEvent) {
+  async function submit(
+    event: React.FormEvent,
+  ) {
     event.preventDefault();
 
-    const body = text.trim();
+    const body =
+      text.trim();
 
-    if (!body || !user) return;
+    if (
+      !body ||
+      !user
+    )
+      return;
 
-    if (selectedEffect !== "none" || secretMode) {
+    if (
+      selectedEffect !==
+        "none" ||
+      secretMode
+    ) {
       await sendEffectMessage();
       return;
     }
@@ -1615,81 +3301,133 @@ function ChatRoom() {
     setText("");
 
     if (editing) {
-      const target = editing;
+      const target =
+        editing;
 
-      setEditing(null);
-
-      const editedAt = new Date().toISOString();
-
-      qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
-        prev.map((message) =>
-          message.id === target.id
-            ? {
-                ...message,
-                content: body,
-                edited_at: editedAt,
-              }
-            : message,
-        ),
+      setEditing(
+        null,
       );
 
-      const { data, error } = await supabase
-        .from("messages")
-        .update({
-          content: body,
-          edited_at: editedAt,
-        })
-        .eq("id", target.id)
-        .select("*")
-        .single();
+      const editedAt =
+        new Date().toISOString();
+
+      qc.setQueryData<
+        Message[]
+      >(
+        messagesKey,
+        (prev = []) =>
+          prev.map(
+            (message) =>
+              message.id ===
+              target.id
+                ? {
+                    ...message,
+                    content:
+                      body,
+                    edited_at:
+                      editedAt,
+                  }
+                : message,
+          ),
+      );
+
+      const {
+        data,
+        error,
+      } =
+        await supabase
+          .from("messages")
+          .update({
+            content:
+              body,
+            edited_at:
+              editedAt,
+          })
+          .eq(
+            "id",
+            target.id,
+          )
+          .select("*")
+          .single();
 
       if (error) {
-        toast.error(error.message);
-      } else if (data) {
-        void roomChannel.current?.send({
-          type: "broadcast",
-          event: "message_upsert",
-          payload: {
-            message: data,
+        toast.error(
+          error.message,
+        );
+      } else if (
+        data
+      ) {
+        void roomChannel.current?.send(
+          {
+            type:
+              "broadcast",
+            event:
+              "message_upsert",
+            payload: {
+              message:
+                data,
+            },
           },
-        });
+        );
       }
 
       return;
     }
 
-    if (!navigator.onLine) {
+    if (
+      !navigator.onLine
+    ) {
       enqueue({
-        id: crypto.randomUUID(),
-        conversationId: id,
-        senderId: user.id,
-        content: body,
-        replyTo: replyTo?.id ?? null,
-        createdAt: new Date().toISOString(),
+        id:
+          crypto.randomUUID(),
+        conversationId:
+          id,
+        senderId:
+          user.id,
+        content:
+          body,
+        replyTo:
+          replyTo?.id ??
+          null,
+        createdAt:
+          new Date().toISOString(),
       });
 
-      setReplyTo(null);
+      setReplyTo(
+        null,
+      );
+
       refreshOutbox();
 
       return;
     }
 
-    const ok = await sendMessage(
-      {
-        type: "text",
-        content: body,
-      },
-      body,
-    );
+    const ok =
+      await sendMessage(
+        {
+          type:
+            "text",
+          content:
+            body,
+        },
+        body,
+      );
 
     if (!ok) {
       enqueue({
-        id: crypto.randomUUID(),
-        conversationId: id,
-        senderId: user.id,
-        content: body,
-        replyTo: replyTo?.id ?? null,
-        createdAt: new Date().toISOString(),
+        id:
+          crypto.randomUUID(),
+        conversationId:
+          id,
+        senderId:
+          user.id,
+        content:
+          body,
+        replyTo:
+          replyTo?.id ??
+          null,
+        createdAt:
+          new Date().toISOString(),
       });
 
       refreshOutbox();
@@ -1703,15 +3441,22 @@ function ChatRoom() {
   async function onFile(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
-    event.target.value = "";
+    event.target.value =
+      "";
 
-    if (!file) return;
+    if (!file)
+      return;
 
     if (
-      !file.type.startsWith("image/") &&
-      !file.type.startsWith("video/")
+      !file.type.startsWith(
+        "image/",
+      ) &&
+      !file.type.startsWith(
+        "video/",
+      )
     ) {
       toast.error(
         "Only images and videos are supported.",
@@ -1720,34 +3465,51 @@ function ChatRoom() {
       return;
     }
 
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("Files must be under 50 MB.");
+    if (
+      file.size >
+      50 * 1024 * 1024
+    ) {
+      toast.error(
+        "Files must be under 50 MB.",
+      );
+
       return;
     }
 
-    const kind = file.type.startsWith("video")
-      ? "video"
-      : "image";
+    const kind =
+      file.type.startsWith(
+        "video",
+      )
+        ? "video"
+        : "image";
 
     try {
-      const path = await uploadChatMedia(
-        id,
-        file,
-        kind === "video" ? "mp4" : "jpg",
-      );
+      const path =
+        await uploadChatMedia(
+          id,
+          file,
+          kind ===
+            "video"
+            ? "mp4"
+            : "jpg",
+        );
 
       await sendMessage(
         {
-          type: kind,
-          media_url: path,
+          type:
+            kind,
+          media_url:
+            path,
         },
-        kind === "video"
+        kind ===
+          "video"
           ? "🎬 Video"
           : "📷 Photo",
       );
     } catch (error) {
       toast.error(
-        (error as Error).message,
+        (error as Error)
+          .message,
       );
     }
   }
@@ -1762,44 +3524,68 @@ function ChatRoom() {
   async function onCameraFile(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
+    const file =
+      event.target.files?.[0];
 
-    event.target.value = "";
+    event.target.value =
+      "";
 
-    if (!file) return;
+    if (!file)
+      return;
 
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please capture a photo.");
+    if (
+      !file.type.startsWith(
+        "image/",
+      )
+    ) {
+      toast.error(
+        "Please capture a photo.",
+      );
+
       return;
     }
 
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("Photo must be under 50 MB.");
+    if (
+      file.size >
+      50 * 1024 * 1024
+    ) {
+      toast.error(
+        "Photo must be under 50 MB.",
+      );
+
       return;
     }
 
     try {
-      setCameraBusy(true);
-
-      const path = await uploadChatMedia(
-        id,
-        file,
-        "jpg",
+      setCameraBusy(
+        true,
       );
+
+      const path =
+        await uploadChatMedia(
+          id,
+          file,
+          "jpg",
+        );
 
       await sendMessage(
         {
-          type: "image",
-          media_url: path,
+          type:
+            "image",
+          media_url:
+            path,
         },
         "📸 Camera photo",
       );
     } catch (error) {
       toast.error(
-        (error as Error).message,
+        (error as Error)
+          .message,
       );
     } finally {
-      setCameraBusy(false);
+      setCameraBusy(
+        false,
+      );
     }
   }
 
@@ -1808,10 +3594,21 @@ function ChatRoom() {
    * ========================================================== */
 
   async function openCamera() {
-    setPlusOpen(false);
-    setCameraError(null);
-    setCameraOpen(true);
-    setCameraReady(false);
+    setPlusOpen(
+      false,
+    );
+
+    setCameraError(
+      null,
+    );
+
+    setCameraOpen(
+      true,
+    );
+
+    setCameraReady(
+      false,
+    );
 
     await startCamera();
   }
@@ -1822,35 +3619,274 @@ function ChatRoom() {
 
   async function startCamera() {
     try {
-      setCameraError(null);
+      setCameraError(
+        null,
+      );
 
       cameraStream.current
         ?.getTracks()
-        .forEach((track) => track.stop());
+        .forEach(
+          (track) =>
+            track.stop(),
+        );
 
       const stream =
-        await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: cameraFacing,
-            width: {
-              ideal: 1280,
+        await navigator.mediaDevices.getUserMedia(
+          {
+            video: {
+              facingMode:
+                cameraFacing,
+              width: {
+                ideal: 1280,
+              },
+              height: {
+                ideal: 1280,
+              },
             },
-            height: {
-              ideal: 1280,
-            },
+            audio: false,
           },
-          audio: false,
-        });
+        );
 
-      cameraStream.current = stream;
+      cameraStream.current =
+        stream;
 
-      if (cameraVideo.current) {
-        cameraVideo.current.srcObject = stream;
+      if (
+        cameraVideo.current
+      ) {
+        cameraVideo.current.srcObject =
+          stream;
+
         await cameraVideo.current.play();
       }
 
-      setCameraReady(true);
+      setCameraReady(
+        true,
+      );
     } catch (error) {
+      const name =
+        error instanceof DOMException
+          ? error.name
+          : "";
+
+      setCameraReady(
+        false,
+      );
+
+      setCameraError(
+        name ===
+          "NotAllowedError"
+          ? "Camera permission was denied. Allow camera access in your browser settings."
+          : "Could not open the camera on this device.",
+      );
+    }
+  }
+
+  /* ==========================================================
+   * SWITCH CAMERA
+   * ========================================================== */
+
+  async function switchCamera() {
+    setCameraFacing(
+      (current) =>
+        current ===
+        "environment"
+          ? "user"
+          : "environment",
+    );
+  }
+
+  useEffect(() => {
+    if (!cameraOpen)
+      return;
+
+    if (!cameraReady)
+      return;
+
+    void startCamera();
+
+    // The camera is intentionally restarted when the user
+    // changes between front and rear cameras.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cameraFacing,
+  ]);
+
+  /* ==========================================================
+   * TAKE PHOTO
+   * ========================================================== */
+
+  async function takeCameraPhoto() {
+    const video =
+      cameraVideo.current;
+
+    if (
+      !video ||
+      !cameraStream.current
+    ) {
+      toast.error(
+        "Camera is not ready.",
+      );
+
+      return;
+    }
+
+    const canvas =
+      cameraCanvas.current ??
+      document.createElement(
+        "canvas",
+      );
+
+    const width =
+      video.videoWidth ||
+      1280;
+
+    const height =
+      video.videoHeight ||
+      1280;
+
+    canvas.width =
+      width;
+
+    canvas.height =
+      height;
+
+    const context =
+      canvas.getContext(
+        "2d",
+      );
+
+    if (!context) {
+      toast.error(
+        "Could not capture the photo.",
+      );
+
+      return;
+    }
+
+    context.drawImage(
+      video,
+      0,
+      0,
+      width,
+      height,
+    );
+
+    const blob =
+      await new Promise<Blob | null>(
+        (resolve) =>
+          canvas.toBlob(
+            resolve,
+            "image/jpeg",
+            0.92,
+          ),
+      );
+
+    if (!blob) {
+      toast.error(
+        "Could not create the photo.",
+      );
+
+      return;
+    }
+
+    try {
+      setCameraBusy(
+        true,
+      );
+
+      const file =
+        new File(
+          [blob],
+          `camera-${Date.now()}.jpg`,
+          {
+            type:
+              "image/jpeg",
+          },
+        );
+
+      const path =
+        await uploadChatMedia(
+          id,
+          file,
+          "jpg",
+        );
+
+      await sendMessage(
+        {
+          type:
+            "image",
+          media_url:
+            path,
+        },
+        "📸 Camera photo",
+      );
+
+      closeCamera();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Could not send photo.",
+      );
+    } finally {
+      setCameraBusy(
+        false,
+      );
+    }
+  }
+
+  /* ==========================================================
+   * CLOSE CAMERA
+   * ========================================================== */
+
+  function closeCamera() {
+    cameraStream.current
+      ?.getTracks()
+      .forEach(
+        (track) =>
+          track.stop(),
+      );
+
+    cameraStream.current =
+      null;
+
+    if (
+      cameraVideo.current
+    ) {
+      cameraVideo.current.srcObject =
+        null;
+    }
+
+    setCameraReady(
+      false,
+    );
+
+    setCameraOpen(
+      false,
+    );
+
+    setCameraError(
+      null,
+    );
+  }
+
+  /* ==========================================================
+   * CLEAN CAMERA WHEN COMPONENT UNMOUNTS
+   * ========================================================== */
+
+  useEffect(() => {
+    return () => {
+      cameraStream.current
+        ?.getTracks()
+        .forEach(
+          (track) =>
+            track.stop(),
+        );
+
+      cameraStream.current =
+        null;
+    };
+  }, []);
       const name =
         error instanceof DOMException
           ? error.name
@@ -2851,200 +4887,7 @@ function ChatRoom() {
       transform: translateX(0) rotate(0);
     }
   }
-
-  @keyframes xup-from-bottom {
-    0% {
-      opacity: 0;
-      transform: translateY(100vh) scale(.9);
-    }
-
-    60% {
-      opacity: 1;
-      transform: translateY(-16px) scale(1.03);
-    }
-
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-    }
-  }
-
-  @keyframes xup-explosion {
-    0% {
-      opacity: 0;
-      transform: scale(.05) rotate(-20deg);
-      filter: blur(8px);
-    }
-
-    35% {
-      opacity: 1;
-      transform: scale(1.35) rotate(8deg);
-      filter: blur(0);
-    }
-
-    55% {
-      transform: scale(.82) rotate(-3deg);
-    }
-
-    75% {
-      transform: scale(1.08) rotate(1deg);
-    }
-
-    100% {
-      opacity: 1;
-      transform: scale(1) rotate(0);
-      filter: blur(0);
-    }
-  }
-
-  @keyframes xup-spin {
-    0% {
-      opacity: 0;
-      transform: rotate(-180deg) scale(.3);
-    }
-
-    60% {
-      opacity: 1;
-      transform: rotate(20deg) scale(1.08);
-    }
-
-    100% {
-      opacity: 1;
-      transform: rotate(0) scale(1);
-    }
-  }
-
-  .xup-effect-dramatic {
-    animation: xup-dramatic 650ms cubic-bezier(.2,.8,.2,1);
-    transform-origin: center;
-  }
-
-  .xup-effect-bounce {
-    animation: xup-bounce 650ms cubic-bezier(.2,.8,.2,1);
-  }
-
-  .xup-effect-shake {
-    animation: xup-shake 600ms ease-in-out;
-  }
-
-  .xup-effect-pop {
-    animation: xup-pop 450ms cubic-bezier(.2,1.4,.4,1);
-  }
-
-  .xup-effect-neon {
-    animation: xup-neon 1200ms ease-in-out infinite;
-  }
-
-  .xup-effect-rainbow {
-    animation: xup-rainbow 1800ms linear infinite;
-  }
-
-  .xup-effect-zoom {
-    animation: xup-zoom 550ms cubic-bezier(.2,.8,.2,1);
-  }
-
-  .xup-effect-from-top {
-    animation: xup-from-top 750ms cubic-bezier(.2,.85,.2,1);
-  }
-
-  .xup-effect-from-right {
-    animation: xup-from-right 650ms cubic-bezier(.2,.85,.2,1);
-  }
-
-  .xup-effect-from-left {
-    animation: xup-from-left 650ms cubic-bezier(.2,.85,.2,1);
-  }
-
-  .xup-effect-from-bottom {
-    animation: xup-from-bottom 700ms cubic-bezier(.2,.85,.2,1);
-  }
-
-  .xup-effect-explosion {
-    animation: xup-explosion 750ms cubic-bezier(.2,.8,.2,1);
-  }
-
-  .xup-effect-spin {
-    animation: xup-spin 700ms cubic-bezier(.2,.85,.2,1);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .xup-effect-dramatic,
-    .xup-effect-bounce,
-    .xup-effect-shake,
-    .xup-effect-pop,
-    .xup-effect-neon,
-    .xup-effect-rainbow,
-    .xup-effect-zoom,
-    .xup-effect-from-top,
-    .xup-effect-from-right,
-    .xup-effect-from-left,
-    .xup-effect-from-bottom,
-    .xup-effect-explosion,
-    .xup-effect-spin {
-      animation: none !important;
-      filter: none !important;
-      transform: none !important;
-    }
-  }
 `}</style>
-
-      {/* ======================================================
-       * HEADER
-       * ====================================================== */}
-
-      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-background/85 px-2 py-2.5 backdrop-blur safe-top">
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={() =>
-            void navigate({
-              to: "/chats",
-            })
-          }
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-
-        {conv?.type === "group" ? (
-          <Link
-            to="/groups/$id"
-            params={{ id }}
-            className="flex min-w-0 flex-1 items-center gap-3"
-          >
-            <UserAvatar
-              path={conv.avatar_url}
-              name={title}
-              bucket="chat-media"
-              size="sm"
-            />
-
-            <div className="min-w-0">
-              <p className="truncate font-medium leading-tight">
-                {title}
-              </p>
-
-              <p className="truncate text-xs text-muted-foreground">
-                {typingUsers.length
-                  ? `${typingUsers[0]} is typing…`
-                  : `${members.length} members`}
-              </p>
-            </div>
-          </Link>
-        ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <UserAvatar
-              path={otherAvatar}
-              name={displayedChatName}
-              size="sm"
-              online={isOtherOnline}
-            />
-
-            <div className="min-w-0">
-              <p className="truncate font-medium leading-tight">
-                {displayedChatName}
-              </p>
-
-              <p className="truncate text-xs text-muted-foreground">
                 {typingUsers.length
                   ? "typing…"
                   : directSubtitle}
@@ -3183,6 +5026,7 @@ function ChatRoom() {
               </div>
             </div>
           )}
+
       </header>
 
       {/* ======================================================
@@ -4045,6 +5889,7 @@ function ChatRoom() {
                   Try again
                 </button>
               </div>
+            )}
             )}
           </div>
 
