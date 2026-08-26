@@ -74,6 +74,16 @@ export function GiftSendSheet({
   async function confirmSend() {
     if (!selected || !recipientId || busyId) return;
 
+    const recipient = recipientId.trim();
+    const uuidRe =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRe.test(recipient)) {
+      toast.error(
+        "Invalid recipient — open a direct chat with a real user",
+      );
+      return;
+    }
+
     if (coins < selected.value_x_coins) {
       toast.error("Not enough X Coins");
       return;
@@ -87,7 +97,7 @@ export function GiftSendSheet({
     try {
       const res = await sendGift({
         data: {
-          recipientId,
+          recipientId: recipient,
           giftId: selected.gift_id,
           message: message.trim() || null,
           chatMessageId,
