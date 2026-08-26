@@ -759,6 +759,16 @@ function ChatRoom() {
   );
   const shopBadgeLabel = resolveBadgeLabel(shopCosmetics.badge);
 
+  const perChatThemeBlocksShop =
+    !!(
+      activeTheme.bubbleMine &&
+      activeTheme.bubbleMine.trim()
+    ) ||
+    !!(
+      activeTheme.messageAreaBackground &&
+      activeTheme.messageAreaBackground.trim()
+    );
+
   const effectiveBubbleMine =
     (activeTheme.bubbleMine && activeTheme.bubbleMine.trim()) ||
     shopBubble.mine ||
@@ -768,6 +778,15 @@ function ChatRoom() {
   const effectiveBubbleOther =
     shopBubble.other ||
     shopTheme.bubbleOther ||
+    null;
+
+  const effectiveBubbleMineShadow =
+    shopBubble.boxShadow ||
+    (!perChatThemeBlocksShop ? shopTheme.bubbleMineShadow : null) ||
+    null;
+
+  const effectiveBubbleOtherShadow =
+    (!perChatThemeBlocksShop ? shopTheme.bubbleOtherShadow : null) ||
     null;
 
   const effectiveAreaBackground =
@@ -780,12 +799,21 @@ function ChatRoom() {
     shopTheme.background ||
     null;
 
+  const shopEmojiOverlay =
+    !wallpaperUrl &&
+    !builtinWallpaperCss &&
+    (!customization ||
+      customization.wallpaper.kind === "none") &&
+    !perChatThemeBlocksShop
+      ? shopTheme.emojiOverlay
+      : null;
+
   const shopWallpaperActive =
     !wallpaperUrl &&
     !builtinWallpaperCss &&
     (!customization ||
       customization.wallpaper.kind === "none") &&
-    (!!shopWall.url || !!shopWall.css);
+    (!!shopWall.url || !!shopWall.css || !!shopEmojiOverlay);
 
   /* ==========================================================
    * CONVERSATION
@@ -3339,6 +3367,38 @@ function ChatRoom() {
               background: effectiveAreaBackground || undefined,
             }}
           >
+            {shopEmojiOverlay ? (
+              <div
+                aria-hidden
+                className="absolute inset-0 flex flex-wrap content-start justify-center overflow-hidden"
+                style={{
+                  opacity: shopTheme.emojiOpacity || 0.2,
+                  fontSize: `${shopTheme.emojiSizePx || 42}px`,
+                  lineHeight: 1.55,
+                  letterSpacing: "0.4em",
+                  transform: "scale(1.05)",
+                  userSelect: "none",
+                  pointerEvents: "none",
+                }}
+              >
+                {Array.from({ length: 120 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className="inline-block"
+                    style={{
+                      margin: "0.15em 0.2em",
+                      filter:
+                        i % 5 === 0
+                          ? "brightness(1.25)"
+                          : undefined,
+                    }}
+                  >
+                    {shopEmojiOverlay}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
             {wallpaperUrl && wallpaperType === "image" && (
               <img
                 src={wallpaperUrl}
@@ -3541,11 +3601,20 @@ function ChatRoom() {
                     mine && !sticker && effectiveBubbleMine
                       ? {
                           background: effectiveBubbleMine,
-                          boxShadow: shopBubble.boxShadow || undefined,
-                          borderRadius: shopBubble.borderRadius || undefined,
+                          boxShadow:
+                            effectiveBubbleMineShadow || undefined,
+                          borderRadius:
+                            shopBubble.borderRadius || "18px",
                         }
                       : !mine && !sticker && effectiveBubbleOther
-                        ? { background: effectiveBubbleOther }
+                        ? {
+                            background: effectiveBubbleOther,
+                            boxShadow:
+                              effectiveBubbleOtherShadow ||
+                              undefined,
+                            borderRadius:
+                              shopBubble.borderRadius || "18px",
+                          }
                         : undefined
                   }
                 >
