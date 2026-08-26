@@ -2217,6 +2217,120 @@ export const equipShopItem = createServerFn({
  * The frontend uses this once when the chat/app
  * loads, then stores the appearance locally.
  */
+
+/**
+ * Unequip a Shop cosmetic the user owns.
+ * Clears equipped flag on that inventory row only.
+ * Does not affect purchase, wallet, or other types.
+ */
+export type UnequipShopItemInput = {
+  itemId: string;
+};
+
+export const unequipShopItem = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: UnequipShopItemInput) => {
+    if (
+      !input ||
+      typeof input !== "object" ||
+      !input.itemId
+    ) {
+      throw new Error("Item ID is required");
+    }
+
+    return {
+      itemId: String(input.itemId),
+    };
+  })
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
+
+    const {
+      data: inventoryRow,
+      error: inventoryError,
+    } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .select(
+        "inventory_id, user_id, item_id, equipped",
+      )
+      .eq("user_id", userId)
+      .eq("item_id", data.itemId)
+      .maybeSingle();
+
+    if (inventoryError) {
+      console.error(
+        "Failed to check cosmetic ownership for unequip:",
+        inventoryError,
+      );
+
+      throw new Error(
+        "Unable to unequip cosmetic",
+      );
+    }
+
+    if (!inventoryRow) {
+      throw new Error(
+        "You do not own this cosmetic",
+      );
+    }
+
+    const {
+      data: item,
+      error: itemError,
+    } = await gamingSupabaseAdmin
+      .from("shop_items")
+      .select(
+        "item_id, metadata",
+      )
+      .eq("item_id", data.itemId)
+      .maybeSingle();
+
+    if (itemError) {
+      console.error(
+        "Failed to load Shop item for unequip:",
+        itemError,
+      );
+
+      throw new Error(
+        "Unable to unequip cosmetic",
+      );
+    }
+
+    const cosmeticType = getCosmeticType(
+      item?.metadata,
+    );
+
+    const {
+      error: unequipError,
+    } = await gamingSupabaseAdmin
+      .from("user_inventory")
+      .update({
+        equipped: false,
+      })
+      .eq("user_id", userId)
+      .eq("item_id", data.itemId);
+
+    if (unequipError) {
+      console.error(
+        "Failed to unequip cosmetic:",
+        unequipError,
+      );
+
+      throw new Error(
+        "Unable to unequip cosmetic",
+      );
+    }
+
+    return {
+      success: true,
+      itemId: data.itemId,
+      cosmetic_type: cosmeticType,
+    };
+  });
+
+
 export const getEquippedShopCosmetics =
   createServerFn({
     method: "POST",
