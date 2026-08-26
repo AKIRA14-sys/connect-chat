@@ -1557,9 +1557,7 @@ function ChatRoom() {
   ) {
     if (!user) return false;
 
-    const optimisticId =
-      (payload as { id?: string }).id ||
-      crypto.randomUUID();
+    const optimisticId = crypto.randomUUID();
     const nowIso = new Date().toISOString();
     const optimisticReplyTo = replyTo?.id ?? null;
 
@@ -1567,14 +1565,15 @@ function ChatRoom() {
       id: optimisticId,
       conversation_id: id,
       sender_id: user.id,
-      type: (payload.type ?? "text") as any,
+      type: (payload.type ?? "text") as Message["type"],
       content: payload.content ?? null,
       media_url: payload.media_url ?? null,
       media_duration: payload.media_duration ?? null,
       reply_to: optimisticReplyTo,
       created_at: nowIso,
       edited_at: null,
-    } as Message;
+      deleted_at: null,
+    };
 
     applyMessage(optimisticMessage);
     setReplyTo(null);
@@ -4576,15 +4575,33 @@ function ChatRoom() {
                   {/* GIFTS */}
                   <button
                     type="button"
-                    disabled={!online || conv?.type === "group"}
+                    disabled={!online}
                     onClick={() => {
                       setPlusOpen(false);
+                      if (conv?.type === "group") {
+                        toast.error("Gifts work in 1-to-1 chats only");
+                        return;
+                      }
+                      if (!otherUserId) {
+                        toast.error("No recipient found");
+                        return;
+                      }
                       void (async () => {
                         try {
                           const w = await getGamingWallet();
-                          setGiftCoins(
-                            Number(w?.wallet?.x_coins ?? 0) || 0,
-                          );
+                          const coins =
+                            w &&
+                            typeof w === "object" &&
+                            "wallet" in w &&
+                            w.wallet &&
+                            typeof w.wallet === "object" &&
+                            "x_coins" in w.wallet
+                              ? Number(
+                                  (w.wallet as { x_coins?: unknown })
+                                    .x_coins,
+                                ) || 0
+                              : 0;
+                          setGiftCoins(coins);
                         } catch {
                           setGiftCoins(0);
                         }
@@ -5038,20 +5055,19 @@ function ChatRoom() {
        * CHAT CUSTOMIZATION SHEET (theme / font / wallpaper)
        * ====================================================== */}
 
-      <GiftSendSheet
+            <GiftSendSheet
         open={giftSheetOpen}
         onClose={() => setGiftSheetOpen(false)}
         recipientId={otherUserId}
         recipientLabel={otherName}
         coins={giftCoins}
-        onGiftSent={async (payload, chatMessageId) => {
+        onGiftSent={async (payload) => {
           const content = encodeGiftMessage(payload);
           await sendMessage(
             {
               type: "text",
               content,
-              id: chatMessageId,
-            } as Partial<Message> & { id?: string },
+            },
             `🎁 ${payload.gift_name}`,
           );
         }}
