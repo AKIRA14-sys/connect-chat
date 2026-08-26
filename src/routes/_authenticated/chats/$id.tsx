@@ -64,6 +64,13 @@ import {
   type LocalShopCosmetics,
 } from "@/lib/shopCosmetics.local";
 import type { EquippedShopCosmetic } from "@/lib/gaming.functions";
+import {
+  resolveBadgeLabel,
+  resolveBubbleStyles,
+  resolveProfileFrameStyle,
+  resolveThemeStyles,
+  resolveWallpaperStyles,
+} from "@/lib/shopCosmeticStyles";
 
 import {
   dequeue,
@@ -178,107 +185,6 @@ const EMPTY_SHOP: LocalShopCosmetics = {
   profile_frame: null,
   badge: null,
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-}
-
-function strMeta(obj: Record<string, unknown> | null, ...keys: string[]): string | null {
-  if (!obj) return null;
-  for (const key of keys) {
-    const v = obj[key];
-    if (typeof v === "string" && v.trim()) return v.trim();
-  }
-  return null;
-}
-
-/** Category A — theme colors from shop metadata */
-function shopThemeBubbleMine(cosmetic: EquippedShopCosmetic | null): string | null {
-  if (!cosmetic) return null;
-  const meta = asRecord(cosmetic.metadata);
-  const colors = asRecord(meta?.colors);
-  return (
-    strMeta(colors, "bubbleMine", "bubble_mine", "mine") ||
-    strMeta(meta, "bubbleMine", "bubble_css", "css")
-  );
-}
-
-function shopThemeBackground(cosmetic: EquippedShopCosmetic | null): string | null {
-  if (!cosmetic) return null;
-  const meta = asRecord(cosmetic.metadata);
-  const colors = asRecord(meta?.colors);
-  return (
-    strMeta(colors, "background", "messageAreaBackground") ||
-    strMeta(meta, "background", "css")
-  );
-}
-
-/** Category A — bubble css object */
-function shopBubbleCss(cosmetic: EquippedShopCosmetic | null): {
-  mine: string | null;
-  other: string | null;
-  boxShadow: string | null;
-  borderRadius: string | null;
-} {
-  if (!cosmetic) {
-    return { mine: null, other: null, boxShadow: null, borderRadius: null };
-  }
-  const meta = asRecord(cosmetic.metadata);
-  const css = asRecord(meta?.css) ?? meta;
-  return {
-    mine: strMeta(css, "mine", "bubbleMine", "background"),
-    other: strMeta(css, "other", "bubbleOther"),
-    boxShadow: strMeta(css, "boxShadow", "shadow"),
-    borderRadius: strMeta(css, "borderRadius", "radius"),
-  };
-}
-
-/** Category B — wallpaper media url */
-function shopWallpaperMedia(cosmetic: EquippedShopCosmetic | null): {
-  kind: "image" | "video" | "css" | null;
-  url: string | null;
-  css: string | null;
-} {
-  if (!cosmetic) return { kind: null, url: null, css: null };
-  const meta = asRecord(cosmetic.metadata);
-  const media = asRecord(meta?.media);
-  const url =
-    strMeta(media, "url", "image_url", "src") ||
-    strMeta(meta, "url", "image_url", "wallpaper_url");
-  const kindRaw = strMeta(media, "kind", "type") || (url ? "image" : null);
-  const css = strMeta(meta, "css", "background");
-  if (css && !url) return { kind: "css", url: null, css };
-  if (!url) return { kind: null, url: null, css: null };
-  const kind =
-    kindRaw === "video" || (url && /\.(mp4|webm|mov)(\?|$)/i.test(url))
-      ? "video"
-      : "image";
-  return { kind, url, css: null };
-}
-
-/** Category A — profile frame ring styles */
-function shopProfileFrameStyle(cosmetic: EquippedShopCosmetic | null): import("react").CSSProperties | undefined {
-  if (!cosmetic) return undefined;
-  const meta = asRecord(cosmetic.metadata);
-  const style = asRecord(meta?.style) ?? meta;
-  const ring = strMeta(style, "ring", "border");
-  const shadow = strMeta(style, "shadow", "boxShadow");
-  if (!ring && !shadow) return undefined;
-  const out: import("react").CSSProperties = {};
-  if (ring) {
-    out.boxShadow = shadow
-      ? `${shadow}, 0 0 0 2px transparent`
-      : undefined;
-    out.outline = ring.includes("solid") || ring.includes("px") ? ring : `2px solid ${ring}`;
-    out.outlineOffset = strMeta(style, "ringOffset", "offset") || "2px";
-  } else if (shadow) {
-    out.boxShadow = shadow;
-  }
-  return out;
-}
 
 
 /* ============================================================
@@ -845,16 +751,23 @@ function ChatRoom() {
       : null;
 
   /* ---- Effective visuals: per-chat first, then shop ---- */
-  const shopBubble = shopBubbleCss(shopCosmetics.bubble);
-  const shopThemeMine = shopThemeBubbleMine(shopCosmetics.theme);
-  const shopThemeBg = shopThemeBackground(shopCosmetics.theme);
-  const shopWall = shopWallpaperMedia(shopCosmetics.wallpaper);
-  const shopFrameStyle = shopProfileFrameStyle(shopCosmetics.profile_frame);
+  const shopBubble = resolveBubbleStyles(shopCosmetics.bubble);
+  const shopTheme = resolveThemeStyles(shopCosmetics.theme);
+  const shopWall = resolveWallpaperStyles(shopCosmetics.wallpaper);
+  const shopFrameStyle = resolveProfileFrameStyle(
+    shopCosmetics.profile_frame,
+  );
+  const shopBadgeLabel = resolveBadgeLabel(shopCosmetics.badge);
 
   const effectiveBubbleMine =
     (activeTheme.bubbleMine && activeTheme.bubbleMine.trim()) ||
     shopBubble.mine ||
-    shopThemeMine ||
+    shopTheme.bubbleMine ||
+    null;
+
+  const effectiveBubbleOther =
+    shopBubble.other ||
+    shopTheme.bubbleOther ||
     null;
 
   const effectiveAreaBackground =
@@ -864,7 +777,7 @@ function ChatRoom() {
       ? activeTheme.messageAreaBackground
       : null) ||
     shopWall.css ||
-    shopThemeBg ||
+    shopTheme.background ||
     null;
 
   const shopWallpaperActive =
@@ -872,7 +785,7 @@ function ChatRoom() {
     !builtinWallpaperCss &&
     (!customization ||
       customization.wallpaper.kind === "none") &&
-    !!shopWall.url;
+    (!!shopWall.url || !!shopWall.css);
 
   /* ==========================================================
    * CONVERSATION
@@ -3168,6 +3081,11 @@ function ChatRoom() {
             <div className="min-w-0">
               <p className="truncate font-medium leading-tight">
                 {title}
+                {shopBadgeLabel ? (
+                  <span className="ml-1.5 inline-flex align-middle rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                    {shopBadgeLabel}
+                  </span>
+                ) : null}
               </p>
 
               <p className="truncate text-xs text-muted-foreground">
@@ -3626,8 +3544,8 @@ function ChatRoom() {
                           boxShadow: shopBubble.boxShadow || undefined,
                           borderRadius: shopBubble.borderRadius || undefined,
                         }
-                      : !mine && !sticker && shopBubble.other
-                        ? { background: shopBubble.other }
+                      : !mine && !sticker && effectiveBubbleOther
+                        ? { background: effectiveBubbleOther }
                         : undefined
                   }
                 >
