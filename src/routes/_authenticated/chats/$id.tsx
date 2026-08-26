@@ -34,6 +34,7 @@ import {
   UserRound,
   Video as VideoIcon,
   X,
+  Zap,
   Eye,
   EyeOff,
   Wand2,
