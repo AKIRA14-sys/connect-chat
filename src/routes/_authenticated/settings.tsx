@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { Camera, LogOut, ShieldCheck } from "lucide-react";
@@ -14,6 +14,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { uploadAvatar } from "@/lib/whatsxup";
+import {
+  getMyCollectibles,
+  setFeaturedGift,
+  type GiftCollectible,
+} from "@/lib/gaming.functions";
+import { formatSerial, giftEmoji } from "@/lib/giftMessage";
 
 export const Route = createFileRoute("/_authenticated/settings")({
   head: () => ({
@@ -105,7 +111,15 @@ function SettingsPage() {
             { key: "discoverable", label: "Discoverable", hint: "Allow people to find you by username." },
           ].map((row) => (
             <div key={row.key} className="flex items-center justify-between gap-4">
-              <div>
+              
+        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+          <h2 className="font-semibold">Featured Collectible</h2>
+          <p className="text-xs text-muted-foreground">
+            Choose a gift collectible to show on your profile. Only you can change this.
+          </p>
+          <FeaturedCollectiblePicker />
+        </div>
+<div>
                 <p className="text-sm font-medium">{row.label}</p>
                 <p className="text-xs text-muted-foreground">{row.hint}</p>
               </div>
@@ -132,3 +146,96 @@ function SettingsPage() {
     </AppShell>
   );
 }
+
+function FeaturedCollectiblePicker() {
+  const [items, setItems] = useState<GiftCollectible[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await getMyCollectibles();
+        if (!cancelled) setItems(res?.collectibles ?? []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function choose(id: string | null) {
+    setBusy(true);
+    try {
+      await setFeaturedGift({ data: { collectibleId: id } });
+      toast.success(id ? "Featured collectible updated" : "Featured collectible cleared");
+      const res = await getMyCollectibles();
+      setItems(res?.collectibles ?? []);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not update");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return <p className="text-sm text-muted-foreground">Loading…</p>;
+  }
+
+  if (items.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No collectibles yet. Receive a gift in chat first.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => {
+        const serial = item.limited
+          ? formatSerial(item.serial_number, item.serial_total)
+          : null;
+        return (
+          <button
+            key={item.collectible_id}
+            type="button"
+            disabled={busy}
+            onClick={() => void choose(item.collectible_id)}
+            className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm ${
+              item.featured
+                ? "border-primary bg-primary/10"
+                : "border-border bg-background"
+            }`}
+          >
+            <span>
+              {giftEmoji(item.gift_key || item.gift_name)}{" "}
+              {item.gift_name ?? "Collectible"}
+              {serial ? ` · ${serial}` : ""}
+            </span>
+            {item.featured ? (
+              <span className="text-[10px] font-semibold text-primary">
+                Featured
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={busy}
+        onClick={() => void choose(null)}
+      >
+        Clear featured
+      </Button>
+    </div>
+  );
+}
+
