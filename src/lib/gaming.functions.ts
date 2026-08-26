@@ -2784,11 +2784,18 @@ export const sendGift = createServerFn({
     };
   })
   .handler(async ({ data, context }) => {
-    if (data.recipientId === context.userId) {
+    const actorId = context.userId;
+
+    if (data.recipientId === actorId) {
       throw new Error("You cannot gift yourself");
     }
 
-    const args = {
+    /*
+     * Service role has no auth.uid(). Same as transfer_x_coins /
+     * purchase_shop_item: pass the authenticated user explicitly.
+     * Try common parameter names used on this gaming backend.
+     */
+    const baseArgs = {
       p_recipient_id: data.recipientId,
       p_gift_id: data.giftId,
       p_message: data.message,
@@ -2796,20 +2803,63 @@ export const sendGift = createServerFn({
       p_idempotency_key: data.idempotencyKey,
     };
 
-    let result = await gamingSupabaseAdmin.rpc("send_gift", args);
+    const argVariants = [
+      { ...baseArgs, p_sender_id: actorId },
+      { ...baseArgs, p_actor_id: actorId },
+      { ...baseArgs, p_user_id: actorId },
+      baseArgs,
+    ];
 
-    if (result.error) {
-      result = await gamingSupabaseAdmin.schema("gaming").rpc("send_gift", args);
+    let lastError: { message?: string } | null = null;
+    let resultData: unknown = null;
+
+    for (const args of argVariants) {
+      let result = await gamingSupabaseAdmin.rpc("send_gift", args);
+
+      if (result.error) {
+        result = await gamingSupabaseAdmin
+          .schema("gaming")
+          .rpc("send_gift", args);
+      }
+
+      if (!result.error) {
+        resultData = result.data;
+        lastError = null;
+        break;
+      }
+
+      lastError = result.error;
+      const msg = (result.error.message || "").toLowerCase();
+      // Wrong arg name → try next variant
+      if (
+        msg.includes("function") &&
+        (msg.includes("not found") ||
+          msg.includes("does not exist") ||
+          msg.includes("could not find"))
+      ) {
+        continue;
+      }
+      // Auth error with this variant → try next (may need p_sender_id)
+      if (
+        msg.includes("auth") ||
+        msg.includes("authentication") ||
+        msg.includes("permission") ||
+        msg.includes("not authenticated")
+      ) {
+        continue;
+      }
+      // Business logic error — stop
+      break;
     }
 
-    if (result.error) {
-      console.error("send_gift:", result.error);
-      throw new Error(friendlyGiftError(result.error));
+    if (lastError) {
+      console.error("send_gift:", lastError);
+      throw new Error(friendlyGiftError(lastError));
     }
 
     return {
       success: true,
-      result: result.data,
+      result: resultData,
     };
   });
 
@@ -2823,22 +2873,54 @@ export const convertGift = createServerFn({
     }
     return { collectibleId: String(input.collectibleId) };
   })
-  .handler(async ({ data }) => {
-    const args = { p_collectible_id: data.collectibleId };
+  .handler(async ({ data, context }) => {
+    const actorId = context.userId;
+    const argVariants = [
+      { p_collectible_id: data.collectibleId, p_user_id: actorId },
+      { p_collectible_id: data.collectibleId, p_actor_id: actorId },
+      { p_collectible_id: data.collectibleId, p_owner_id: actorId },
+      { p_collectible_id: data.collectibleId },
+    ];
 
-    let result = await gamingSupabaseAdmin.rpc("convert_gift", args);
-    if (result.error) {
-      result = await gamingSupabaseAdmin
-        .schema("gaming")
-        .rpc("convert_gift", args);
+    let lastError: { message?: string } | null = null;
+    let resultData: unknown = null;
+
+    for (const args of argVariants) {
+      let result = await gamingSupabaseAdmin.rpc("convert_gift", args);
+      if (result.error) {
+        result = await gamingSupabaseAdmin
+          .schema("gaming")
+          .rpc("convert_gift", args);
+      }
+      if (!result.error) {
+        resultData = result.data;
+        lastError = null;
+        break;
+      }
+      lastError = result.error;
+      const msg = (result.error.message || "").toLowerCase();
+      if (
+        msg.includes("function") &&
+        (msg.includes("not found") || msg.includes("does not exist"))
+      ) {
+        continue;
+      }
+      if (
+        msg.includes("auth") ||
+        msg.includes("authentication") ||
+        msg.includes("not authenticated")
+      ) {
+        continue;
+      }
+      break;
     }
 
-    if (result.error) {
-      console.error("convert_gift:", result.error);
-      throw new Error(friendlyGiftError(result.error));
+    if (lastError) {
+      console.error("convert_gift:", lastError);
+      throw new Error(friendlyGiftError(lastError));
     }
 
-    return { success: true, result: result.data };
+    return { success: true, result: resultData };
   });
 
 export const setFeaturedGift = createServerFn({
@@ -2853,20 +2935,51 @@ export const setFeaturedGift = createServerFn({
           : String(input.collectibleId),
     };
   })
-  .handler(async ({ data }) => {
-    const args = { p_collectible_id: data.collectibleId };
+  .handler(async ({ data, context }) => {
+    const actorId = context.userId;
+    const argVariants = [
+      { p_collectible_id: data.collectibleId, p_user_id: actorId },
+      { p_collectible_id: data.collectibleId, p_actor_id: actorId },
+      { p_collectible_id: data.collectibleId },
+    ];
 
-    let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
-    if (result.error) {
-      result = await gamingSupabaseAdmin
-        .schema("gaming")
-        .rpc("set_featured_gift", args);
+    let lastError: { message?: string } | null = null;
+    let resultData: unknown = null;
+
+    for (const args of argVariants) {
+      let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
+      if (result.error) {
+        result = await gamingSupabaseAdmin
+          .schema("gaming")
+          .rpc("set_featured_gift", args);
+      }
+      if (!result.error) {
+        resultData = result.data;
+        lastError = null;
+        break;
+      }
+      lastError = result.error;
+      const msg = (result.error.message || "").toLowerCase();
+      if (
+        msg.includes("function") &&
+        (msg.includes("not found") || msg.includes("does not exist"))
+      ) {
+        continue;
+      }
+      if (
+        msg.includes("auth") ||
+        msg.includes("authentication") ||
+        msg.includes("not authenticated")
+      ) {
+        continue;
+      }
+      break;
     }
 
-    if (result.error) {
-      console.error("set_featured_gift:", result.error);
-      throw new Error(friendlyGiftError(result.error));
+    if (lastError) {
+      console.error("set_featured_gift:", lastError);
+      throw new Error(friendlyGiftError(lastError));
     }
 
-    return { success: true, result: result.data };
+    return { success: true, result: resultData };
   });
