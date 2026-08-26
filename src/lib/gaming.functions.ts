@@ -2462,3 +2462,331 @@ export const getEquippedShopCosmetics =
         cosmetics,
       };
     });
+
+/* =========================================================
+   GIFTS & COLLECTIBLES
+   Frontend bridge to existing gaming.* gift RPCs/tables.
+   Does not create gifts, fees, or coin balances client-side.
+========================================================= */
+
+export type GiftDefinition = {
+  gift_id: string;
+  gift_key: string;
+  name: string;
+  value_x_coins: number;
+  convertible: boolean;
+  conversion_bps: number;
+  limited: boolean;
+  max_supply: number | null;
+  metadata: Record<string, unknown> | null;
+  available: boolean;
+};
+
+export type GiftCollectible = {
+  collectible_id: string;
+  gift_id: string;
+  owner_id: string;
+  sender_id: string | null;
+  serial_number: number | null;
+  serial_total: number | null;
+  status: string;
+  received_at: string | null;
+  converted_at: string | null;
+  featured: boolean;
+  metadata: Record<string, unknown> | null;
+  gift_name?: string | null;
+  gift_key?: string | null;
+  value_x_coins?: number | null;
+  limited?: boolean | null;
+  personal_message?: string | null;
+};
+
+export type SendGiftInput = {
+  recipientId: string;
+  giftId: string;
+  message?: string | null;
+  chatMessageId?: string | null;
+  idempotencyKey: string;
+};
+
+function mapGiftDefinition(row: Record<string, unknown>): GiftDefinition {
+  return {
+    gift_id: String(row.gift_id ?? ""),
+    gift_key: String(row.gift_key ?? ""),
+    name: String(row.name ?? "Gift"),
+    value_x_coins: Number(row.value_x_coins ?? 0) || 0,
+    convertible: Boolean(row.convertible ?? true),
+    conversion_bps: Number(row.conversion_bps ?? 8000) || 8000,
+    limited: Boolean(row.limited ?? false),
+    max_supply:
+      row.max_supply == null ? null : Number(row.max_supply) || null,
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : null,
+    available: Boolean(row.available ?? true),
+  };
+}
+
+function mapCollectible(row: Record<string, unknown>): GiftCollectible {
+  const gift = row.gift_definitions as Record<string, unknown> | undefined;
+  return {
+    collectible_id: String(row.collectible_id ?? ""),
+    gift_id: String(row.gift_id ?? ""),
+    owner_id: String(row.owner_id ?? ""),
+    sender_id: row.sender_id == null ? null : String(row.sender_id),
+    serial_number:
+      row.serial_number == null ? null : Number(row.serial_number),
+    serial_total:
+      row.serial_total == null ? null : Number(row.serial_total),
+    status: String(row.status ?? "owned"),
+    received_at: row.received_at == null ? null : String(row.received_at),
+    converted_at:
+      row.converted_at == null ? null : String(row.converted_at),
+    featured: Boolean(row.featured ?? false),
+    metadata:
+      row.metadata && typeof row.metadata === "object"
+        ? (row.metadata as Record<string, unknown>)
+        : null,
+    gift_name: gift?.name == null ? null : String(gift.name),
+    gift_key: gift?.gift_key == null ? null : String(gift.gift_key),
+    value_x_coins:
+      gift?.value_x_coins == null
+        ? null
+        : Number(gift.value_x_coins) || null,
+    limited: gift?.limited == null ? null : Boolean(gift.limited),
+    personal_message: null,
+  };
+}
+
+function friendlyGiftError(error: { message?: string } | null): string {
+  const raw = (error?.message ?? "").toLowerCase();
+  if (raw.includes("insufficient") || raw.includes("balance")) {
+    return "Not enough X Coins";
+  }
+  if (raw.includes("sold out") || raw.includes("supply")) {
+    return "This limited gift is sold out";
+  }
+  if (raw.includes("unavailable") || raw.includes("not available")) {
+    return "This gift is unavailable";
+  }
+  if (raw.includes("already converted")) {
+    return "This collectible was already converted";
+  }
+  if (raw.includes("not own") || raw.includes("ownership")) {
+    return "You do not own this collectible";
+  }
+  if (raw.includes("recipient")) {
+    return "Invalid recipient";
+  }
+  if (raw.includes("duplicate") || raw.includes("idempoten")) {
+    return "This gift was already sent";
+  }
+  return error?.message || "Gift request failed";
+}
+
+/** Catalog from gaming.gift_definitions — never hardcode gifts. */
+export const getGiftCatalog = createServerFn({
+  method: "GET",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async () => {
+    const { data, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .from("gift_definitions")
+      .select(
+        "gift_id, gift_key, name, value_x_coins, convertible, conversion_bps, limited, max_supply, metadata, available",
+      )
+      .eq("available", true)
+      .order("value_x_coins", { ascending: true });
+
+    if (error) {
+      console.error("getGiftCatalog:", error);
+      throw new Error("Unable to load gifts");
+    }
+
+    return {
+      gifts: (data ?? []).map((row) =>
+        mapGiftDefinition(row as Record<string, unknown>),
+      ),
+    };
+  });
+
+/** Collectibles owned by the authenticated user. */
+export const getMyCollectibles = createServerFn({
+  method: "GET",
+})
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const userId = context.userId;
+
+    const { data, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .from("gift_collectibles")
+      .select(
+        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata, gift_definitions ( name, gift_key, value_x_coins, limited )",
+      )
+      .eq("owner_id", userId)
+      .order("received_at", { ascending: false });
+
+    if (error) {
+      console.error("getMyCollectibles:", error);
+      throw new Error("Unable to load collectibles");
+    }
+
+    return {
+      collectibles: (data ?? []).map((row) =>
+        mapCollectible(row as Record<string, unknown>),
+      ),
+    };
+  });
+
+/** Public featured collectible for a profile. */
+export const getFeaturedCollectible = createServerFn({
+  method: "GET",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { userId: string }) => {
+    if (!input?.userId) throw new Error("User ID is required");
+    return { userId: String(input.userId) };
+  })
+  .handler(async ({ data }) => {
+    const { data: settings, error: settingsError } =
+      await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("user_gift_settings")
+        .select("featured_collectible_id")
+        .eq("user_id", data.userId)
+        .maybeSingle();
+
+    if (settingsError) {
+      console.error("getFeaturedCollectible settings:", settingsError);
+      return { featured: null as GiftCollectible | null };
+    }
+
+    const featuredId = settings?.featured_collectible_id;
+    if (!featuredId) {
+      return { featured: null as GiftCollectible | null };
+    }
+
+    const { data: row, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .from("gift_collectibles")
+      .select(
+        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata, gift_definitions ( name, gift_key, value_x_coins, limited )",
+      )
+      .eq("collectible_id", featuredId)
+      .maybeSingle();
+
+    if (error || !row) {
+      return { featured: null as GiftCollectible | null };
+    }
+
+    return {
+      featured: mapCollectible(row as Record<string, unknown>),
+    };
+  });
+
+/**
+ * Send a gift via gaming.send_gift RPC.
+ * Never deducts coins on the client.
+ */
+export const sendGift = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: SendGiftInput) => {
+    if (!input?.recipientId) throw new Error("Recipient is required");
+    if (!input?.giftId) throw new Error("Gift is required");
+    if (!input?.idempotencyKey) {
+      throw new Error("Idempotency key is required");
+    }
+    return {
+      recipientId: String(input.recipientId),
+      giftId: String(input.giftId),
+      message: input.message ? String(input.message) : null,
+      chatMessageId: input.chatMessageId
+        ? String(input.chatMessageId)
+        : null,
+      idempotencyKey: String(input.idempotencyKey),
+    };
+  })
+  .handler(async ({ data, context }) => {
+    if (data.recipientId === context.userId) {
+      throw new Error("You cannot gift yourself");
+    }
+
+    const { data: result, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .rpc("send_gift", {
+        p_recipient_id: data.recipientId,
+        p_gift_id: data.giftId,
+        p_message: data.message,
+        p_chat_message_id: data.chatMessageId,
+        p_idempotency_key: data.idempotencyKey,
+      });
+
+    if (error) {
+      console.error("send_gift:", error);
+      throw new Error(friendlyGiftError(error));
+    }
+
+    return {
+      success: true,
+      result,
+    };
+  });
+
+/** Convert collectible → X Coins via gaming.convert_gift (80/20 server-side). */
+export const convertGift = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { collectibleId: string }) => {
+    if (!input?.collectibleId) {
+      throw new Error("Collectible ID is required");
+    }
+    return { collectibleId: String(input.collectibleId) };
+  })
+  .handler(async ({ data }) => {
+    const { data: result, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .rpc("convert_gift", {
+        p_collectible_id: data.collectibleId,
+      });
+
+    if (error) {
+      console.error("convert_gift:", error);
+      throw new Error(friendlyGiftError(error));
+    }
+
+    return { success: true, result };
+  });
+
+/** Feature a collectible on the caller's profile. */
+export const setFeaturedGift = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { collectibleId: string | null }) => {
+    return {
+      collectibleId:
+        input?.collectibleId == null
+          ? null
+          : String(input.collectibleId),
+    };
+  })
+  .handler(async ({ data }) => {
+    const { data: result, error } = await gamingSupabaseAdmin
+      .schema("gaming")
+      .rpc("set_featured_gift", {
+        p_collectible_id: data.collectibleId,
+      });
+
+    if (error) {
+      console.error("set_featured_gift:", error);
+      throw new Error(friendlyGiftError(error));
+    }
+
+    return { success: true, result };
+  });
