@@ -2564,6 +2564,12 @@ function mapCollectible(row: Record<string, unknown>): GiftCollectible {
   };
 }
 
+function isAuthUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value.trim(),
+  );
+}
+
 function friendlyGiftError(error: { message?: string } | null): string {
   const raw = (error?.message ?? "").toLowerCase();
   if (raw.includes("insufficient") || raw.includes("balance")) {
@@ -2773,8 +2779,16 @@ export const sendGift = createServerFn({
     if (!input?.idempotencyKey) {
       throw new Error("Idempotency key is required");
     }
+
+    const recipientId = String(input.recipientId).trim();
+    if (!isAuthUuid(recipientId)) {
+      throw new Error(
+        "Invalid recipient id — expected a Supabase Auth user UUID",
+      );
+    }
+
     return {
-      recipientId: String(input.recipientId),
+      recipientId,
       giftId: String(input.giftId),
       message: input.message ? String(input.message) : null,
       chatMessageId: input.chatMessageId
@@ -2786,28 +2800,78 @@ export const sendGift = createServerFn({
   .handler(async ({ data, context }) => {
     const actorId = context.userId;
 
+    if (!isAuthUuid(actorId)) {
+      throw new Error("You are not authenticated");
+    }
+
     if (data.recipientId === actorId) {
       throw new Error("You cannot gift yourself");
     }
 
     /*
-     * Service role has no auth.uid(). Same as transfer_x_coins /
-     * purchase_shop_item: pass the authenticated user explicitly.
-     * Try common parameter names used on this gaming backend.
+     * gift_collectibles.owner_id → auth.users.id on the GAMING project.
+     * Connect Chat member.user_id is the auth UUID from the main app.
+     * Those UUIDs must also exist in the gaming project's auth.users
+     * (same pattern as transfer_x_coins recipients).
      */
+    try {
+      const { data: authUser, error: authErr } =
+        await gamingSupabaseAdmin.auth.admin.getUserById(
+          data.recipientId,
+        );
+
+      if (authErr || !authUser?.user) {
+        console.error(
+          "Gift recipient not in gaming auth.users:",
+          data.recipientId,
+          authErr,
+        );
+        throw new Error(
+          "This contact is not set up on the gaming account yet. Ask them to open Shop or Games once, then try again.",
+        );
+      }
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        err.message.includes("not set up on the gaming")
+      ) {
+        throw err;
+      }
+      // admin API may be unavailable — still attempt send; FK will catch bad ids
+      console.warn(
+        "Could not pre-check gaming auth user:",
+        err,
+      );
+    }
+
+    // Prefer explicit sender id (service role has no auth.uid())
     const baseArgs = {
       p_recipient_id: data.recipientId,
       p_gift_id: data.giftId,
       p_message: data.message,
       p_chat_message_id: data.chatMessageId,
       p_idempotency_key: data.idempotencyKey,
+      p_sender_id: actorId,
     };
 
     const argVariants = [
-      { ...baseArgs, p_sender_id: actorId },
-      { ...baseArgs, p_actor_id: actorId },
-      { ...baseArgs, p_user_id: actorId },
       baseArgs,
+      {
+        p_recipient_id: data.recipientId,
+        p_gift_id: data.giftId,
+        p_message: data.message,
+        p_chat_message_id: data.chatMessageId,
+        p_idempotency_key: data.idempotencyKey,
+        p_actor_id: actorId,
+      },
+      {
+        p_recipient_id: data.recipientId,
+        p_gift_id: data.giftId,
+        p_message: data.message,
+        p_chat_message_id: data.chatMessageId,
+        p_idempotency_key: data.idempotencyKey,
+        p_user_id: actorId,
+      },
     ];
 
     let lastError: { message?: string } | null = null;
@@ -2830,7 +2894,7 @@ export const sendGift = createServerFn({
 
       lastError = result.error;
       const msg = (result.error.message || "").toLowerCase();
-      // Wrong arg name → try next variant
+
       if (
         msg.includes("function") &&
         (msg.includes("not found") ||
@@ -2839,21 +2903,36 @@ export const sendGift = createServerFn({
       ) {
         continue;
       }
-      // Auth error with this variant → try next (may need p_sender_id)
+
+      // Wrong signature / auth — try next variant
       if (
         msg.includes("auth") ||
         msg.includes("authentication") ||
-        msg.includes("permission") ||
         msg.includes("not authenticated")
       ) {
         continue;
       }
-      // Business logic error — stop
+
       break;
     }
 
     if (lastError) {
-      console.error("send_gift:", lastError);
+      console.error("send_gift:", lastError, {
+        recipientId: data.recipientId,
+        senderId: actorId,
+      });
+
+      const msg = (lastError.message || "").toLowerCase();
+      if (
+        msg.includes("gift_collectibles_owner_id_fkey") ||
+        msg.includes("owner_id_fkey") ||
+        (msg.includes("foreign key") && msg.includes("owner"))
+      ) {
+        throw new Error(
+          "Recipient auth id is not on the gaming database. They need to open Shop once so their gaming account exists, then try again.",
+        );
+      }
+
       throw new Error(friendlyGiftError(lastError));
     }
 
