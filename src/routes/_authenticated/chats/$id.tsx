@@ -81,6 +81,12 @@ import {
 } from "@/lib/outbox";
 
 import { notifyNewMessage } from "@/lib/push.functions";
+import {
+  GiftMessageCard,
+  GiftSendSheet,
+} from "@/components/gifts/GiftSendSheet";
+import { decodeGiftMessage, encodeGiftMessage } from "@/lib/giftMessage";
+import { getGamingWallet } from "@/lib/gaming.functions";
 
 import {
   durationLabel,
@@ -315,6 +321,11 @@ const EFFECT_PREFIX = "__XUP_EFFECT__:";
 const SECRET_PREFIX = "__XUP_SECRET__:";
 const SECRET_SEPARATOR = "__XUP_SECRET_SEPARATOR__:";
 
+
+function tryGiftPayload(content: string | null | undefined) {
+  return decodeGiftMessage(content);
+}
+
 function encodeSpecialMessage(
   text: string,
   effect: ChatEffect,
@@ -534,6 +545,8 @@ function ChatRoom() {
   const [sendingIds, setSendingIds] = useState<string[]>([]);
   const [reactionPicker, setReactionPicker] = useState<string | null>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
+  const [giftSheetOpen, setGiftSheetOpen] = useState(false);
+  const [giftCoins, setGiftCoins] = useState(0);
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -1544,7 +1557,9 @@ function ChatRoom() {
   ) {
     if (!user) return false;
 
-    const optimisticId = crypto.randomUUID();
+    const optimisticId =
+      (payload as { id?: string }).id ||
+      crypto.randomUUID();
     const nowIso = new Date().toISOString();
     const optimisticReplyTo = replyTo?.id ?? null;
 
@@ -3543,6 +3558,29 @@ function ChatRoom() {
             decoded.effect !==
             "none";
 
+          const giftPayload = tryGiftPayload(
+            message.content,
+          );
+
+          if (giftPayload) {
+            return (
+              <div
+                id={`message-${message.id}`}
+                key={message.id}
+                className={`group flex ${
+                  mine
+                    ? "justify-end"
+                    : "justify-start"
+                }`}
+              >
+                <GiftMessageCard
+                  payload={giftPayload}
+                  mine={mine}
+                />
+              </div>
+            );
+          }
+
           return (
             <div
               id={`message-${message.id}`}
@@ -4535,6 +4573,34 @@ function ChatRoom() {
                     </span>
                   </button>
 
+                  {/* GIFTS */}
+                  <button
+                    type="button"
+                    disabled={!online || conv?.type === "group"}
+                    onClick={() => {
+                      setPlusOpen(false);
+                      void (async () => {
+                        try {
+                          const w = await getGamingWallet();
+                          setGiftCoins(
+                            Number(w?.wallet?.x_coins ?? 0) || 0,
+                          );
+                        } catch {
+                          setGiftCoins(0);
+                        }
+                        setGiftSheetOpen(true);
+                      })();
+                    }}
+                    className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-xl">
+                      🎁
+                    </span>
+                    <span className="text-[11px] font-medium">
+                      Gift
+                    </span>
+                  </button>
+
                   {/* EFFECTS */}
                   <button
                     type="button"
@@ -4971,6 +5037,25 @@ function ChatRoom() {
       {/* ======================================================
        * CHAT CUSTOMIZATION SHEET (theme / font / wallpaper)
        * ====================================================== */}
+
+      <GiftSendSheet
+        open={giftSheetOpen}
+        onClose={() => setGiftSheetOpen(false)}
+        recipientId={otherUserId}
+        recipientLabel={otherName}
+        coins={giftCoins}
+        onGiftSent={async (payload, chatMessageId) => {
+          const content = encodeGiftMessage(payload);
+          await sendMessage(
+            {
+              type: "text",
+              content,
+              id: chatMessageId,
+            } as Partial<Message> & { id?: string },
+            `🎁 ${payload.gift_name}`,
+          );
+        }}
+      />
 
       <ChatCustomizeSheet
         chatId={id}
