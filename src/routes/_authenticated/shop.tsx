@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CollectiblesPanel } from "@/components/gifts/CollectiblesPanel";
+
 import { AppShell, PageHeader } from "@/components/AppShell";
 import { XCoinIcon } from "@/components/gaming/XCoinIcon";
 import { UserAvatar } from "@/components/UserAvatar";
@@ -78,6 +80,7 @@ type Tab =
   | "shop"
   | "transfer"
   | "inventory"
+  | "collectibles"
   | "history";
 
 const EMPTY_WALLET: GamingWalletData = {
@@ -1103,6 +1106,11 @@ function ShopPage() {
       icon: Package,
     },
     {
+      id: "collectibles",
+      label: "Collectibles",
+      icon: Gift,
+    },
+    {
       id: "history",
       label: "History",
       icon: RefreshCw,
@@ -1839,6 +1847,17 @@ function ShopPage() {
               ),
             )}
           </div>
+        )}
+
+        {/* =========================
+            COLLECTIBLES (gifts received)
+        ========================== */}
+        {tab === "collectibles" && (
+          <CollectiblesPanel
+            onBalanceMaybeChanged={() => {
+              void load(true);
+            }}
+          />
         )}
 
         {/* =========================
