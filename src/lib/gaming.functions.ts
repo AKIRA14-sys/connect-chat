@@ -3110,9 +3110,24 @@ export const setFeaturedGift = createServerFn({
   })
   .handler(async ({ data, context }) => {
     const actorId = context.userId;
+
+    /*
+     * user_gift_settings.user_id → auth.users.id (gaming project).
+     * Ensure the current user has a gaming profile row first,
+     * same as shop purchase / wallet flows.
+     */
+    try {
+      await gamingSupabaseAdmin.rpc("ensure_gaming_profile", {
+        p_user_id: actorId,
+      });
+    } catch (err) {
+      console.warn("ensure_gaming_profile before feature:", err);
+    }
+
     const argVariants = [
       { p_collectible_id: data.collectibleId, p_user_id: actorId },
       { p_collectible_id: data.collectibleId, p_actor_id: actorId },
+      { p_collectible_id: data.collectibleId, p_owner_id: actorId },
       { p_collectible_id: data.collectibleId },
     ];
 
@@ -3150,7 +3165,16 @@ export const setFeaturedGift = createServerFn({
     }
 
     if (lastError) {
-      console.error("set_featured_gift:", lastError);
+      console.error("set_featured_gift:", lastError, { actorId });
+      const msg = (lastError.message || "").toLowerCase();
+      if (
+        msg.includes("user_gift_settings_user_id_fkey") ||
+        (msg.includes("foreign key") && msg.includes("user_id"))
+      ) {
+        throw new Error(
+          "Your gaming account is not linked in auth.users on the gaming database. Open Shop once, or ask your DB admin to ensure your user exists in gaming auth.users.",
+        );
+      }
       throw new Error(friendlyGiftError(lastError));
     }
 
