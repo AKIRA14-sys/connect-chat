@@ -3145,6 +3145,8 @@ function ChatRoom() {
                 name={displayedChatName}
                 size="sm"
                 online={isOtherOnline}
+                userId={otherUserId}
+                showGamingLevel
               />
             </div>
 
