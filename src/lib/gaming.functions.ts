@@ -2218,10 +2218,10 @@ export const equipShopItem = createServerFn({
  * loads, then stores the appearance locally.
  */
 
+
 /**
  * Unequip a Shop cosmetic the user owns.
  * Clears equipped flag on that inventory row only.
- * Does not affect purchase, wallet, or other types.
  */
 export type UnequipShopItemInput = {
   itemId: string;
@@ -2264,16 +2264,11 @@ export const unequipShopItem = createServerFn({
         "Failed to check cosmetic ownership for unequip:",
         inventoryError,
       );
-
-      throw new Error(
-        "Unable to unequip cosmetic",
-      );
+      throw new Error("Unable to unequip cosmetic");
     }
 
     if (!inventoryRow) {
-      throw new Error(
-        "You do not own this cosmetic",
-      );
+      throw new Error("You do not own this cosmetic");
     }
 
     const {
@@ -2281,9 +2276,7 @@ export const unequipShopItem = createServerFn({
       error: itemError,
     } = await gamingSupabaseAdmin
       .from("shop_items")
-      .select(
-        "item_id, metadata",
-      )
+      .select("item_id, metadata")
       .eq("item_id", data.itemId)
       .maybeSingle();
 
@@ -2292,44 +2285,28 @@ export const unequipShopItem = createServerFn({
         "Failed to load Shop item for unequip:",
         itemError,
       );
-
-      throw new Error(
-        "Unable to unequip cosmetic",
-      );
+      throw new Error("Unable to unequip cosmetic");
     }
 
-    const cosmeticType = getCosmeticType(
-      item?.metadata,
-    );
+    const cosmeticType = getCosmeticType(item?.metadata);
 
-    const {
-      error: unequipError,
-    } = await gamingSupabaseAdmin
+    const { error: unequipError } = await gamingSupabaseAdmin
       .from("user_inventory")
-      .update({
-        equipped: false,
-      })
+      .update({ equipped: false })
       .eq("user_id", userId)
       .eq("item_id", data.itemId);
 
     if (unequipError) {
-      console.error(
-        "Failed to unequip cosmetic:",
-        unequipError,
-      );
-
-      throw new Error(
-        "Unable to unequip cosmetic",
-      );
+      console.error("Failed to unequip cosmetic:", unequipError);
+      throw new Error("Unable to unequip cosmetic");
     }
 
     return {
-      success: true,
+      success: true as const,
       itemId: data.itemId,
       cosmetic_type: cosmeticType,
     };
   });
-
 
 export const getEquippedShopCosmetics =
   createServerFn({
@@ -2466,9 +2443,8 @@ export const getEquippedShopCosmetics =
 
 /* =========================================================
    GIFTS & COLLECTIBLES
-   Bridge to existing gift tables / RPCs on the gaming DB.
-   Uses the same client pattern as shop_items (no schema() prefix),
-   because shop/inventory already work that way on this project.
+   Minimal bridge to existing gaming gift tables / RPCs.
+   Same client style as shop_items and transfer_x_coins.
 ========================================================= */
 
 export type GiftDefinition = {
@@ -2500,7 +2476,6 @@ export type GiftCollectible = {
   gift_key?: string | null;
   value_x_coins?: number | null;
   limited?: boolean | null;
-  personal_message?: string | null;
 };
 
 export type SendGiftInput = {
@@ -2526,15 +2501,12 @@ function mapGiftDefinition(row: Record<string, unknown>): GiftDefinition {
       row.metadata && typeof row.metadata === "object"
         ? (row.metadata as Record<string, unknown>)
         : null,
-    available: Boolean(row.available ?? true),
+    available: row.available === false ? false : true,
   };
 }
 
 function mapCollectible(row: Record<string, unknown>): GiftCollectible {
-  const gift =
-    (row.gift_definitions as Record<string, unknown> | undefined) ||
-    (row.gift as Record<string, unknown> | undefined);
-
+  const gift = row.gift_definitions as Record<string, unknown> | undefined;
   return {
     collectible_id: String(row.collectible_id ?? ""),
     gift_id: String(row.gift_id ?? ""),
@@ -2553,24 +2525,15 @@ function mapCollectible(row: Record<string, unknown>): GiftCollectible {
       row.metadata && typeof row.metadata === "object"
         ? (row.metadata as Record<string, unknown>)
         : null,
-    gift_name: gift?.name == null ? null : String(gift.name),
-    gift_key: gift?.gift_key == null ? null : String(gift.gift_key),
+    gift_name: gift?.name != null ? String(gift.name) : null,
+    gift_key: gift?.gift_key != null ? String(gift.gift_key) : null,
     value_x_coins:
-      gift?.value_x_coins == null
-        ? null
-        : Number(gift.value_x_coins) || null,
-    limited: gift?.limited == null ? null : Boolean(gift.limited),
-    personal_message: null,
+      gift?.value_x_coins != null ? Number(gift.value_x_coins) || null : null,
+    limited: gift?.limited != null ? Boolean(gift.limited) : null,
   };
 }
 
-function isAuthUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value.trim(),
-  );
-}
-
-function friendlyGiftError(error: { message?: string } | null): string {
+function giftErr(error: { message?: string } | null): string {
   const raw = (error?.message ?? "").toLowerCase();
   if (raw.includes("insufficient") || raw.includes("balance")) {
     return "Not enough X Coins";
@@ -2578,229 +2541,119 @@ function friendlyGiftError(error: { message?: string } | null): string {
   if (raw.includes("sold out") || raw.includes("supply")) {
     return "This limited gift is sold out";
   }
-  if (raw.includes("unavailable") || raw.includes("not available")) {
-    return "This gift is unavailable";
-  }
   if (raw.includes("already converted")) {
     return "This collectible was already converted";
   }
-  if (raw.includes("not own") || raw.includes("ownership")) {
-    return "You do not own this collectible";
-  }
-  if (raw.includes("recipient")) {
-    return "Invalid recipient";
-  }
-  if (raw.includes("duplicate") || raw.includes("idempoten")) {
-    return "This gift was already sent";
-  }
   if (raw.includes("permission denied")) {
-    return "Permission denied on gift tables — grant SELECT to service_role on the gaming database";
-  }
-  if (raw.includes("does not exist") || raw.includes("schema cache")) {
-    return "Gift table was not found on the gaming database";
+    return "Permission denied on gift tables (check service_role grants)";
   }
   return error?.message || "Gift request failed";
 }
 
-/**
- * Load gift catalog.
- * Tries public tables first (same as shop_items), then gaming schema.
- */
-async function fetchGiftDefinitions(): Promise<GiftDefinition[]> {
-  const selectCols =
-    "gift_id, gift_key, name, value_x_coins, convertible, conversion_bps, limited, max_supply, metadata, available";
-
-  // 1) Same pattern as shop_items / user_inventory
-  {
-    const { data, error } = await gamingSupabaseAdmin
-      .from("gift_definitions")
-      .select(selectCols)
-      .order("value_x_coins", { ascending: true });
-
-    if (!error) {
-      const rows = (data ?? []) as Record<string, unknown>[];
-      const mapped = rows.map(mapGiftDefinition);
-      const available = mapped.filter((g) => g.available !== false);
-      return available.length > 0 ? available : mapped;
-    }
-
-    console.warn("gift_definitions (public):", error.message);
-  }
-
-  // 2) Explicit gaming schema (if tables live there only)
-  {
-    const { data, error } = await gamingSupabaseAdmin
-      .schema("gaming")
-      .from("gift_definitions")
-      .select(selectCols)
-      .order("value_x_coins", { ascending: true });
-
-    if (!error) {
-      const rows = (data ?? []) as Record<string, unknown>[];
-      const mapped = rows.map(mapGiftDefinition);
-      const available = mapped.filter((g) => g.available !== false);
-      return available.length > 0 ? available : mapped;
-    }
-
-    console.error("gift_definitions (gaming schema):", error);
-    throw new Error(friendlyGiftError(error));
-  }
-}
-
+/** Catalog — POST like other gaming server fns */
 export const getGiftCatalog = createServerFn({
   method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .handler(async () => {
-    const gifts = await fetchGiftDefinitions();
+    const cols =
+      "gift_id, gift_key, name, value_x_coins, convertible, conversion_bps, limited, max_supply, metadata, available";
+
+    let res = await gamingSupabaseAdmin
+      .from("gift_definitions")
+      .select(cols)
+      .order("value_x_coins", { ascending: true });
+
+    if (res.error) {
+      res = await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("gift_definitions")
+        .select(cols)
+        .order("value_x_coins", { ascending: true });
+    }
+
+    if (res.error) {
+      console.error("getGiftCatalog:", res.error);
+      throw new Error(giftErr(res.error));
+    }
+
+    const gifts = ((res.data ?? []) as Record<string, unknown>[])
+      .map(mapGiftDefinition)
+      .filter((g) => g.available);
+
     return { gifts };
   });
 
+/** Owned collectibles */
 export const getMyCollectibles = createServerFn({
   method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const userId = context.userId;
-    const selectCols =
+    const cols =
       "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata";
 
-    let rows: Record<string, unknown>[] | null = null;
-    let lastMessage = "";
-
-    // Prefer gaming schema (matches working send_gift path)
-    for (const useGamingSchema of [true, false]) {
-      const client = useGamingSchema
-        ? gamingSupabaseAdmin.schema("gaming")
-        : gamingSupabaseAdmin;
-
-      const plain = await client
-        .from("gift_collectibles")
-        .select(selectCols)
-        .eq("owner_id", userId)
-        .order("received_at", { ascending: false });
-
-      if (plain.error) {
-        lastMessage = plain.error.message || lastMessage;
-        console.warn(
-          "getMyCollectibles",
-          useGamingSchema ? "gaming" : "public",
-          plain.error.message,
-        );
-        continue;
-      }
-
-      rows = (plain.data ?? []) as Record<string, unknown>[];
-
-      // Enrich names from gift_definitions (no join required)
-      const giftIds = [
-        ...new Set(
-          rows
-            .map((r) => String(r.gift_id ?? ""))
-            .filter(Boolean),
-        ),
-      ];
-
-      if (giftIds.length > 0) {
-        const defs = await client
-          .from("gift_definitions")
-          .select(
-            "gift_id, name, gift_key, value_x_coins, limited",
-          )
-          .in("gift_id", giftIds);
-
-        if (!defs.error && defs.data) {
-          const map = new Map<string, Record<string, unknown>>();
-          for (const d of defs.data as Record<string, unknown>[]) {
-            map.set(String(d.gift_id), d);
-          }
-          rows = rows.map((row) => {
-            const def = map.get(String(row.gift_id ?? ""));
-            return def ? { ...row, gift_definitions: def } : row;
-          });
-        }
-      }
-
-      lastMessage = "";
-      break;
-    }
-
-    if (rows == null) {
-      const lower = lastMessage.toLowerCase();
-      if (lower.includes("permission denied")) {
-        throw new Error(
-          "Permission denied reading gift_collectibles. Grant SELECT to service_role.",
-        );
-      }
-      throw new Error(
-        lastMessage || "Unable to load collectibles",
-      );
-    }
-
-    return {
-      collectibles: rows.map((row) => mapCollectible(row)),
-    };
-  });
-
-export const getFeaturedCollectible = createServerFn({
-  method: "POST",
-})
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: { userId: string }) => {
-    if (!input?.userId) throw new Error("User ID is required");
-    return { userId: String(input.userId) };
-  })
-  .handler(async ({ data }) => {
-    const trySettings = async (useSchema: boolean) => {
-      const client = useSchema
-        ? gamingSupabaseAdmin.schema("gaming")
-        : gamingSupabaseAdmin;
-      return client
-        .from("user_gift_settings")
-        .select("featured_collectible_id")
-        .eq("user_id", data.userId)
-        .maybeSingle();
-    };
-
-    let settingsRes = await trySettings(false);
-    if (settingsRes.error) {
-      settingsRes = await trySettings(true);
-    }
-
-    if (settingsRes.error || !settingsRes.data?.featured_collectible_id) {
-      return { featured: null as GiftCollectible | null };
-    }
-
-    const featuredId = settingsRes.data.featured_collectible_id;
-
-    let rowRes = await gamingSupabaseAdmin
+    let res = await gamingSupabaseAdmin
       .from("gift_collectibles")
-      .select(
-        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
-      )
-      .eq("collectible_id", featuredId)
-      .maybeSingle();
+      .select(cols)
+      .eq("owner_id", userId)
+      .order("received_at", { ascending: false });
 
-    if (rowRes.error) {
-      rowRes = await gamingSupabaseAdmin
+    if (res.error) {
+      res = await gamingSupabaseAdmin
         .schema("gaming")
         .from("gift_collectibles")
-        .select(
-          "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
-        )
-        .eq("collectible_id", featuredId)
-        .maybeSingle();
+        .select(cols)
+        .eq("owner_id", userId)
+        .order("received_at", { ascending: false });
     }
 
-    if (rowRes.error || !rowRes.data) {
-      return { featured: null as GiftCollectible | null };
+    if (res.error) {
+      console.error("getMyCollectibles:", res.error);
+      throw new Error(giftErr(res.error));
     }
 
-    return {
-      featured: mapCollectible(rowRes.data as Record<string, unknown>),
-    };
+    const rows = (res.data ?? []) as Record<string, unknown>[];
+    const giftIds = [
+      ...new Set(rows.map((r) => String(r.gift_id ?? "")).filter(Boolean)),
+    ];
+
+    let defMap = new Map<string, Record<string, unknown>>();
+    if (giftIds.length > 0) {
+      let defs = await gamingSupabaseAdmin
+        .from("gift_definitions")
+        .select("gift_id, name, gift_key, value_x_coins, limited")
+        .in("gift_id", giftIds);
+      if (defs.error) {
+        defs = await gamingSupabaseAdmin
+          .schema("gaming")
+          .from("gift_definitions")
+          .select("gift_id, name, gift_key, value_x_coins, limited")
+          .in("gift_id", giftIds);
+      }
+      if (!defs.error && defs.data) {
+        for (const d of defs.data as Record<string, unknown>[]) {
+          defMap.set(String(d.gift_id), d);
+        }
+      }
+    }
+
+    const collectibles = rows.map((row) => {
+      const def = defMap.get(String(row.gift_id ?? ""));
+      return mapCollectible(
+        def ? { ...row, gift_definitions: def } : row,
+      );
+    });
+
+    return { collectibles };
   });
 
+/**
+ * Send gift — same pattern as transfer_x_coins:
+ * pass p_sender_id (service role has no auth.uid()).
+ * No auth.admin pre-check (that blocked working sends).
+ */
 export const sendGift = createServerFn({
   method: "POST",
 })
@@ -2811,16 +2664,8 @@ export const sendGift = createServerFn({
     if (!input?.idempotencyKey) {
       throw new Error("Idempotency key is required");
     }
-
-    const recipientId = String(input.recipientId).trim();
-    if (!isAuthUuid(recipientId)) {
-      throw new Error(
-        "Invalid recipient id — expected a Supabase Auth user UUID",
-      );
-    }
-
     return {
-      recipientId,
+      recipientId: String(input.recipientId).trim(),
       giftId: String(input.giftId),
       message: input.message ? String(input.message) : null,
       chatMessageId: input.chatMessageId
@@ -2832,22 +2677,11 @@ export const sendGift = createServerFn({
   .handler(async ({ data, context }) => {
     const actorId = context.userId;
 
-    if (!isAuthUuid(actorId)) {
-      throw new Error("You are not authenticated");
-    }
-
     if (data.recipientId === actorId) {
       throw new Error("You cannot gift yourself");
     }
 
-    /*
-     * Same pattern as transfer_x_coins / purchase_shop_item:
-     * pass sender UUID explicitly (service role has no auth.uid()).
-     * Do NOT pre-block on auth.admin.getUserById — that check broke
-     * working sends when gaming auth lookup failed or differed.
-     * Recipient is Connect Chat conversation_members.user_id (auth UUID).
-     */
-    const baseArgs = {
+    const argsWithSender = {
       p_recipient_id: data.recipientId,
       p_gift_id: data.giftId,
       p_message: data.message,
@@ -2856,86 +2690,33 @@ export const sendGift = createServerFn({
       p_sender_id: actorId,
     };
 
-    const argVariants = [
-      baseArgs,
-      {
+    let result = await gamingSupabaseAdmin.rpc("send_gift", argsWithSender);
+
+    if (result.error) {
+      result = await gamingSupabaseAdmin.schema("gaming").rpc("send_gift", argsWithSender);
+    }
+
+    // Fallback if RPC has no p_sender_id parameter
+    if (result.error) {
+      const argsNoSender = {
         p_recipient_id: data.recipientId,
         p_gift_id: data.giftId,
         p_message: data.message,
         p_chat_message_id: data.chatMessageId,
         p_idempotency_key: data.idempotencyKey,
-        p_actor_id: actorId,
-      },
-      {
-        p_recipient_id: data.recipientId,
-        p_gift_id: data.giftId,
-        p_message: data.message,
-        p_chat_message_id: data.chatMessageId,
-        p_idempotency_key: data.idempotencyKey,
-        p_user_id: actorId,
-      },
-      {
-        p_recipient_id: data.recipientId,
-        p_gift_id: data.giftId,
-        p_message: data.message,
-        p_chat_message_id: data.chatMessageId,
-        p_idempotency_key: data.idempotencyKey,
-      },
-    ];
-
-    let lastError: { message?: string } | null = null;
-    let resultData: unknown = null;
-
-    for (const args of argVariants) {
-      let result = await gamingSupabaseAdmin.rpc("send_gift", args);
-
+      };
+      result = await gamingSupabaseAdmin.rpc("send_gift", argsNoSender);
       if (result.error) {
-        result = await gamingSupabaseAdmin
-          .schema("gaming")
-          .rpc("send_gift", args);
+        result = await gamingSupabaseAdmin.schema("gaming").rpc("send_gift", argsNoSender);
       }
-
-      if (!result.error) {
-        resultData = result.data;
-        lastError = null;
-        break;
-      }
-
-      lastError = result.error;
-      const msg = (result.error.message || "").toLowerCase();
-
-      if (
-        msg.includes("function") &&
-        (msg.includes("not found") ||
-          msg.includes("does not exist") ||
-          msg.includes("could not find"))
-      ) {
-        continue;
-      }
-
-      if (
-        msg.includes("auth") ||
-        msg.includes("authentication") ||
-        msg.includes("not authenticated")
-      ) {
-        continue;
-      }
-
-      break;
     }
 
-    if (lastError) {
-      console.error("send_gift:", lastError, {
-        recipientId: data.recipientId,
-        senderId: actorId,
-      });
-      throw new Error(friendlyGiftError(lastError));
+    if (result.error) {
+      console.error("send_gift:", result.error);
+      throw new Error(giftErr(result.error));
     }
 
-    return {
-      success: true,
-      result: resultData,
-    };
+    return { success: true, result: result.data };
   });
 
 export const convertGift = createServerFn({
@@ -2949,53 +2730,29 @@ export const convertGift = createServerFn({
     return { collectibleId: String(input.collectibleId) };
   })
   .handler(async ({ data, context }) => {
-    const actorId = context.userId;
-    const argVariants = [
-      { p_collectible_id: data.collectibleId, p_user_id: actorId },
-      { p_collectible_id: data.collectibleId, p_actor_id: actorId },
-      { p_collectible_id: data.collectibleId, p_owner_id: actorId },
-      { p_collectible_id: data.collectibleId },
-    ];
+    const args = {
+      p_collectible_id: data.collectibleId,
+      p_user_id: context.userId,
+    };
 
-    let lastError: { message?: string } | null = null;
-    let resultData: unknown = null;
-
-    for (const args of argVariants) {
-      let result = await gamingSupabaseAdmin.rpc("convert_gift", args);
+    let result = await gamingSupabaseAdmin.rpc("convert_gift", args);
+    if (result.error) {
+      result = await gamingSupabaseAdmin.schema("gaming").rpc("convert_gift", args);
+    }
+    if (result.error) {
+      const simple = { p_collectible_id: data.collectibleId };
+      result = await gamingSupabaseAdmin.rpc("convert_gift", simple);
       if (result.error) {
-        result = await gamingSupabaseAdmin
-          .schema("gaming")
-          .rpc("convert_gift", args);
+        result = await gamingSupabaseAdmin.schema("gaming").rpc("convert_gift", simple);
       }
-      if (!result.error) {
-        resultData = result.data;
-        lastError = null;
-        break;
-      }
-      lastError = result.error;
-      const msg = (result.error.message || "").toLowerCase();
-      if (
-        msg.includes("function") &&
-        (msg.includes("not found") || msg.includes("does not exist"))
-      ) {
-        continue;
-      }
-      if (
-        msg.includes("auth") ||
-        msg.includes("authentication") ||
-        msg.includes("not authenticated")
-      ) {
-        continue;
-      }
-      break;
     }
 
-    if (lastError) {
-      console.error("convert_gift:", lastError);
-      throw new Error(friendlyGiftError(lastError));
+    if (result.error) {
+      console.error("convert_gift:", result.error);
+      throw new Error(giftErr(result.error));
     }
 
-    return { success: true, result: resultData };
+    return { success: true, result: result.data };
   });
 
 export const setFeaturedGift = createServerFn({
@@ -3011,74 +2768,88 @@ export const setFeaturedGift = createServerFn({
     };
   })
   .handler(async ({ data, context }) => {
-    const actorId = context.userId;
+    const args = {
+      p_collectible_id: data.collectibleId,
+      p_user_id: context.userId,
+    };
 
-    /*
-     * user_gift_settings.user_id → auth.users.id (gaming project).
-     * Ensure the current user has a gaming profile row first,
-     * same as shop purchase / wallet flows.
-     */
-    try {
-      await gamingSupabaseAdmin.rpc("ensure_gaming_profile", {
-        p_user_id: actorId,
-      });
-    } catch (err) {
-      console.warn("ensure_gaming_profile before feature:", err);
+    let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
+    if (result.error) {
+      result = await gamingSupabaseAdmin
+        .schema("gaming")
+        .rpc("set_featured_gift", args);
     }
-
-    const argVariants = [
-      { p_collectible_id: data.collectibleId, p_user_id: actorId },
-      { p_collectible_id: data.collectibleId, p_actor_id: actorId },
-      { p_collectible_id: data.collectibleId, p_owner_id: actorId },
-      { p_collectible_id: data.collectibleId },
-    ];
-
-    let lastError: { message?: string } | null = null;
-    let resultData: unknown = null;
-
-    for (const args of argVariants) {
-      let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
+    if (result.error) {
+      const simple = { p_collectible_id: data.collectibleId };
+      result = await gamingSupabaseAdmin.rpc("set_featured_gift", simple);
       if (result.error) {
         result = await gamingSupabaseAdmin
           .schema("gaming")
-          .rpc("set_featured_gift", args);
+          .rpc("set_featured_gift", simple);
       }
-      if (!result.error) {
-        resultData = result.data;
-        lastError = null;
-        break;
-      }
-      lastError = result.error;
-      const msg = (result.error.message || "").toLowerCase();
-      if (
-        msg.includes("function") &&
-        (msg.includes("not found") || msg.includes("does not exist"))
-      ) {
-        continue;
-      }
-      if (
-        msg.includes("auth") ||
-        msg.includes("authentication") ||
-        msg.includes("not authenticated")
-      ) {
-        continue;
-      }
-      break;
     }
 
-    if (lastError) {
-      console.error("set_featured_gift:", lastError, { actorId });
-      const msg = (lastError.message || "").toLowerCase();
-      if (
-        msg.includes("user_gift_settings_user_id_fkey") ||
-        (msg.includes("foreign key") && msg.includes("user_id"))
-      ) {
-        throw new Error(
-          "Your gaming account is not linked in auth.users on the gaming database. Open Shop once, or ask your DB admin to ensure your user exists in gaming auth.users.",
-        );
-      }
-      throw new Error(friendlyGiftError(lastError));
+    if (result.error) {
+      console.error("set_featured_gift:", result.error);
+      throw new Error(giftErr(result.error));
     }
 
-    return { success: true, result: resultData };
+    return { success: true, result: result.data };
+  });
+
+export const getFeaturedCollectible = createServerFn({
+  method: "POST",
+})
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { userId: string }) => {
+    if (!input?.userId) throw new Error("User ID is required");
+    return { userId: String(input.userId) };
+  })
+  .handler(async ({ data }) => {
+    let settings = await gamingSupabaseAdmin
+      .from("user_gift_settings")
+      .select("featured_collectible_id")
+      .eq("user_id", data.userId)
+      .maybeSingle();
+
+    if (settings.error) {
+      settings = await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("user_gift_settings")
+        .select("featured_collectible_id")
+        .eq("user_id", data.userId)
+        .maybeSingle();
+    }
+
+    const featuredId = settings.data?.featured_collectible_id;
+    if (settings.error || !featuredId) {
+      return { featured: null as GiftCollectible | null };
+    }
+
+    let row = await gamingSupabaseAdmin
+      .from("gift_collectibles")
+      .select(
+        "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
+      )
+      .eq("collectible_id", featuredId)
+      .maybeSingle();
+
+    if (row.error) {
+      row = await gamingSupabaseAdmin
+        .schema("gaming")
+        .from("gift_collectibles")
+        .select(
+          "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata",
+        )
+        .eq("collectible_id", featuredId)
+        .maybeSingle();
+    }
+
+    if (row.error || !row.data) {
+      return { featured: null as GiftCollectible | null };
+    }
+
+    return {
+      featured: mapCollectible(row.data as Record<string, unknown>),
+    };
   });
