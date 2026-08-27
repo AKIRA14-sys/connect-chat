@@ -62,6 +62,10 @@ import {
 } from "@/lib/shopCosmetics.local";
 
 export const Route = createFileRoute("/_authenticated/shop")({
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => {
+    const tab = typeof search.tab === "string" ? search.tab : undefined;
+    return { tab };
+  },
   head: () => ({
     meta: [
       { title: "Shop" },
@@ -461,8 +465,19 @@ function getCategoryLabel(
 function ShopPage() {
   const { user } = useAuth();
 
+  const search = Route.useSearch();
+  const initialTab: Tab =
+    search.tab === "collectibles" ||
+    search.tab === "inventory" ||
+    search.tab === "wallet" ||
+    search.tab === "transfer" ||
+    search.tab === "history" ||
+    search.tab === "shop"
+      ? (search.tab as Tab)
+      : "shop";
+
   const [tab, setTab] =
-    useState<Tab>("shop");
+    useState<Tab>(initialTab);
 
   const [wallet, setWallet] =
     useState<GamingWalletData>(
