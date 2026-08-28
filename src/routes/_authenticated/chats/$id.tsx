@@ -86,7 +86,8 @@ import {
   GiftSendSheet,
 } from "@/components/gifts/GiftSendSheet";
 import { decodeGiftMessage, encodeGiftMessage } from "@/lib/giftMessage";
-import { getGamingWallet } from "@/lib/gaming.functions";
+import { getGamingWallet,
+  getPublicGamingProfile } from "@/lib/gaming.functions";
 
 import {
   durationLabel,
@@ -891,6 +892,30 @@ function ChatRoom() {
 
   const otherUserId = otherMember?.user_id ?? null;
   const otherName = otherProfile?.display_name?.trim() || "Unknown";
+
+  const { data: otherGamingLevel } = useQuery({
+    queryKey: ["chat-other-gaming-level", otherUserId],
+    enabled: Boolean(otherUserId) && conv?.type !== "group",
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      if (!otherUserId) return null;
+      try {
+        const res: unknown = await getPublicGamingProfile({
+          data: { userId: otherUserId },
+        });
+        if (!res || typeof res !== "object") return null;
+        const root = res as Record<string, unknown>;
+        const profile =
+          root.profile && typeof root.profile === "object"
+            ? (root.profile as Record<string, unknown>)
+            : root;
+        const n = Number(profile.current_level ?? profile.level);
+        return Number.isFinite(n) && n >= 1 ? n : null;
+      } catch {
+        return null;
+      }
+    },
+  });
   const otherAvatar = otherProfile?.avatar_url ?? null;
   const canShowOnline = otherProfile?.show_online_status !== false;
   const isOtherOnline =
@@ -898,11 +923,16 @@ function ChatRoom() {
 
   const directSubtitle = loadingProfile
     ? "Loading…"
-    : isOtherOnline
-      ? "online"
-      : canShowOnline
-        ? lastSeenLabel(otherProfile?.last_seen ?? null)
-        : "offline";
+    : [
+        isOtherOnline
+          ? "online"
+          : canShowOnline
+            ? lastSeenLabel(otherProfile?.last_seen ?? null)
+            : "offline",
+        otherGamingLevel != null ? `Lv ${otherGamingLevel}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
   const title =
     conv?.type === "group" ? conv.name?.trim() || "Group" : otherName;
