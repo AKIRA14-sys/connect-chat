@@ -2662,145 +2662,62 @@ export const getMyCollectibles = createServerFn({
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     const userId = context.userId;
-
     const selectCols =
       "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata";
 
-    type Client = typeof gamingSupabaseAdmin;
-
-    async function queryCollectibles(
-      client: Client,
-      withJoin: boolean,
-    ) {
-      const base = client.from("gift_collectibles");
-      const q = withJoin
-        ? base.select(
-            `${selectCols}, gift_definitions ( name, gift_key, value_x_coins, limited )`,
-          )
-        : base.select(selectCols);
-
-      return q.eq("owner_id", userId).order("received_at", {
-        ascending: false,
-      });
-    }
-
-    async function loadGiftNames(
-      client: Client,
-      giftIds: string[],
-    ): Promise<Map<string, Record<string, unknown>>> {
-      const map = new Map<string, Record<string, unknown>>();
-      if (giftIds.length === 0) return map;
-
-      const unique = [...new Set(giftIds.filter(Boolean))];
-      const { data, error } = await client
-        .from("gift_definitions")
-        .select("gift_id, name, gift_key, value_x_coins, limited")
-        .in("gift_id", unique);
-
-      if (error || !data) {
-        console.warn("gift_definitions lookup:", error?.message);
-        return map;
-      }
-
-      for (const row of data as Record<string, unknown>[]) {
-        map.set(String(row.gift_id), row);
-      }
-      return map;
-    }
-
-    /*
-     * Send already works against the gaming DB.
-     * Prefer gaming schema first, then public — mirror that success path.
-     */
-    const attempts: { label: string; client: Client }[] = [
-      {
-        label: "gaming schema",
-        client: gamingSupabaseAdmin.schema("gaming") as unknown as Client,
-      },
-      {
-        label: "public",
-        client: gamingSupabaseAdmin,
-      },
-    ];
-
     let rows: Record<string, unknown>[] | null = null;
-    let usedClient: Client = gamingSupabaseAdmin;
-    let lastError: { message?: string } | null = null;
+    let lastMessage = "";
 
-    for (const attempt of attempts) {
-      // plain select first (most reliable)
-      let result = await queryCollectibles(attempt.client, false);
-      if (result.error) {
-        lastError = result.error;
-        console.warn(
-          `getMyCollectibles ${attempt.label} plain:`,
-          result.error.message,
-        );
+    for (const useSchema of [true, false] as const) {
+      const client = useSchema
+        ? gamingSupabaseAdmin.schema("gaming")
+        : gamingSupabaseAdmin;
+
+      const plain = await client
+        .from("gift_collectibles")
+        .select(selectCols)
+        .eq("owner_id", userId)
+        .order("received_at", { ascending: false });
+
+      if (plain.error) {
+        lastMessage = plain.error.message || lastMessage;
         continue;
       }
 
-      rows = (result.data ?? []) as Record<string, unknown>[];
-      usedClient = attempt.client;
+      rows = (plain.data ?? []) as Record<string, unknown>[];
 
-      // optional join enrichment
-      const joined = await queryCollectibles(attempt.client, true);
-      if (!joined.error && joined.data) {
-        rows = joined.data as Record<string, unknown>[];
+      const giftIds = [
+        ...new Set(
+          rows.map((r) => String(r.gift_id ?? "")).filter(Boolean),
+        ),
+      ];
+
+      if (giftIds.length > 0) {
+        const defs = await client
+          .from("gift_definitions")
+          .select("gift_id, name, gift_key, value_x_coins, limited")
+          .in("gift_id", giftIds);
+
+        if (!defs.error && defs.data) {
+          const map = new Map<string, Record<string, unknown>>();
+          for (const d of defs.data as Record<string, unknown>[]) {
+            map.set(String(d.gift_id), d);
+          }
+          rows = rows.map((row) => {
+            const def = map.get(String(row.gift_id ?? ""));
+            return def ? { ...row, gift_definitions: def } : row;
+          });
+        }
       }
-      lastError = null;
       break;
     }
 
-    if (lastError || rows == null) {
-      console.error("getMyCollectibles failed:", lastError);
-      const msg = (lastError?.message || "").toLowerCase();
-      if (msg.includes("permission denied")) {
-        throw new Error(
-          "Permission denied reading gift_collectibles. Grant SELECT on gift_collectibles (and gift_definitions) to service_role on the gaming database.",
-        );
-      }
-      if (
-        msg.includes("does not exist") ||
-        msg.includes("schema cache") ||
-        msg.includes("could not find")
-      ) {
-        throw new Error(
-          "gift_collectibles was not found. Confirm the table exists on the gaming database (public or gaming schema).",
-        );
-      }
-      throw new Error(
-        lastError?.message ||
-          "Unable to load collectibles",
-      );
-    }
-
-    // If join did not attach definitions, fetch names in a second query
-    const needsNames = rows.some(
-      (row) =>
-        !row.gift_definitions &&
-        !row.gift &&
-        row.gift_id,
-    );
-
-    if (needsNames) {
-      const nameMap = await loadGiftNames(
-        usedClient,
-        rows.map((r) => String(r.gift_id ?? "")),
-      );
-      rows = rows.map((row) => {
-        const def = nameMap.get(String(row.gift_id ?? ""));
-        if (!def) return row;
-        return {
-          ...row,
-          gift_definitions: def,
-        };
-      });
+    if (rows == null) {
+      throw new Error(lastMessage || "Unable to load collectibles");
     }
 
     return {
-      collectibles: rows.map((row) =>
-        mapCollectible(row),
-      ),
+      collectibles: rows.map((row) => mapCollectible(row)),
     };
   });
 
@@ -2873,16 +2790,8 @@ export const sendGift = createServerFn({
     if (!input?.idempotencyKey) {
       throw new Error("Idempotency key is required");
     }
-
-    const recipientId = String(input.recipientId).trim();
-    if (!isAuthUuid(recipientId)) {
-      throw new Error(
-        "Invalid recipient id — expected a Supabase Auth user UUID",
-      );
-    }
-
     return {
-      recipientId,
+      recipientId: String(input.recipientId).trim(),
       giftId: String(input.giftId),
       message: input.message ? String(input.message) : null,
       chatMessageId: input.chatMessageId
@@ -2894,52 +2803,12 @@ export const sendGift = createServerFn({
   .handler(async ({ data, context }) => {
     const actorId = context.userId;
 
-    if (!isAuthUuid(actorId)) {
-      throw new Error("You are not authenticated");
-    }
-
     if (data.recipientId === actorId) {
       throw new Error("You cannot gift yourself");
     }
 
-    /*
-     * gift_collectibles.owner_id → auth.users.id on the GAMING project.
-     * Connect Chat member.user_id is the auth UUID from the main app.
-     * Those UUIDs must also exist in the gaming project's auth.users
-     * (same pattern as transfer_x_coins recipients).
-     */
-    try {
-      const { data: authUser, error: authErr } =
-        await gamingSupabaseAdmin.auth.admin.getUserById(
-          data.recipientId,
-        );
-
-      if (authErr || !authUser?.user) {
-        console.error(
-          "Gift recipient not in gaming auth.users:",
-          data.recipientId,
-          authErr,
-        );
-        throw new Error(
-          "This contact is not set up on the gaming account yet. Ask them to open Shop or Games once, then try again.",
-        );
-      }
-    } catch (err) {
-      if (
-        err instanceof Error &&
-        err.message.includes("not set up on the gaming")
-      ) {
-        throw err;
-      }
-      // admin API may be unavailable — still attempt send; FK will catch bad ids
-      console.warn(
-        "Could not pre-check gaming auth user:",
-        err,
-      );
-    }
-
-    // Prefer explicit sender id (service role has no auth.uid())
-    const baseArgs = {
+    // Same pattern as transfer_x_coins — pass sender id (service role has no auth.uid())
+    const withSender = {
       p_recipient_id: data.recipientId,
       p_gift_id: data.giftId,
       p_message: data.message,
@@ -2948,91 +2817,41 @@ export const sendGift = createServerFn({
       p_sender_id: actorId,
     };
 
-    const argVariants = [
-      baseArgs,
-      {
+    let result = await gamingSupabaseAdmin.rpc("send_gift", withSender);
+
+    if (result.error) {
+      result = await gamingSupabaseAdmin
+        .schema("gaming")
+        .rpc("send_gift", withSender);
+    }
+
+    if (result.error) {
+      const withoutSender = {
         p_recipient_id: data.recipientId,
         p_gift_id: data.giftId,
         p_message: data.message,
         p_chat_message_id: data.chatMessageId,
         p_idempotency_key: data.idempotencyKey,
-        p_actor_id: actorId,
-      },
-      {
-        p_recipient_id: data.recipientId,
-        p_gift_id: data.giftId,
-        p_message: data.message,
-        p_chat_message_id: data.chatMessageId,
-        p_idempotency_key: data.idempotencyKey,
-        p_user_id: actorId,
-      },
-    ];
-
-    let lastError: { message?: string } | null = null;
-    let resultData: unknown = null;
-
-    for (const args of argVariants) {
-      let result = await gamingSupabaseAdmin.rpc("send_gift", args);
-
+      };
+      result = await gamingSupabaseAdmin.rpc("send_gift", withoutSender);
       if (result.error) {
         result = await gamingSupabaseAdmin
           .schema("gaming")
-          .rpc("send_gift", args);
+          .rpc("send_gift", withoutSender);
       }
-
-      if (!result.error) {
-        resultData = result.data;
-        lastError = null;
-        break;
-      }
-
-      lastError = result.error;
-      const msg = (result.error.message || "").toLowerCase();
-
-      if (
-        msg.includes("function") &&
-        (msg.includes("not found") ||
-          msg.includes("does not exist") ||
-          msg.includes("could not find"))
-      ) {
-        continue;
-      }
-
-      // Wrong signature / auth — try next variant
-      if (
-        msg.includes("auth") ||
-        msg.includes("authentication") ||
-        msg.includes("not authenticated")
-      ) {
-        continue;
-      }
-
-      break;
     }
 
-    if (lastError) {
-      console.error("send_gift:", lastError, {
+    if (result.error) {
+      console.error("send_gift:", result.error, {
         recipientId: data.recipientId,
         senderId: actorId,
       });
-
-      const msg = (lastError.message || "").toLowerCase();
-      if (
-        msg.includes("gift_collectibles_owner_id_fkey") ||
-        msg.includes("owner_id_fkey") ||
-        (msg.includes("foreign key") && msg.includes("owner"))
-      ) {
-        throw new Error(
-          "Recipient auth id is not on the gaming database. They need to open Shop once so their gaming account exists, then try again.",
-        );
-      }
-
-      throw new Error(friendlyGiftError(lastError));
+      throw new Error(friendlyGiftError(result.error));
     }
 
     return {
       success: true,
-      result: resultData,
+      result: result.data,
     };
   });
 
