@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { X } from "lucide-react";
@@ -272,7 +271,6 @@ export function GiftMessageCard({
   payload: GiftMessagePayload;
   mine: boolean;
 }) {
-  const navigate = useNavigate();
   const emoji =
     payload.emoji || giftEmoji(payload.gift_key || payload.gift_name);
   const serial = payload.limited
@@ -280,15 +278,8 @@ export function GiftMessageCard({
     : null;
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void navigate({
-          to: "/shop",
-          search: { tab: "collectibles" },
-        });
-      }}
-      className={`max-w-[85%] rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-card to-card px-4 py-3 text-left shadow transition hover:border-amber-400/50 ${
+    <div
+      className={`max-w-[85%] rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/15 via-card to-card px-4 py-3 shadow ${
         mine ? "ml-auto" : "mr-auto"
       }`}
     >
@@ -312,9 +303,6 @@ export function GiftMessageCard({
           “{payload.message}”
         </p>
       ) : null}
-      <p className="mt-2 text-xs font-semibold text-primary">
-        View collectible →
-      </p>
-    </button>
+    </div>
   );
 }
