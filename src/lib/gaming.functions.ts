@@ -2593,8 +2593,11 @@ function friendlyGiftError(error: { message?: string } | null): string {
   if (raw.includes("duplicate") || raw.includes("idempoten")) {
     return "This gift was already sent";
   }
+  if (raw.includes("permission denied")) {
+    return "Permission denied on gift tables — grant SELECT to service_role on the gaming database";
+  }
   if (raw.includes("does not exist") || raw.includes("schema cache")) {
-    return "Gift tables are not available on the gaming database yet";
+    return "Gift table was not found on the gaming database";
   }
   return error?.message || "Gift request failed";
 }
@@ -2663,8 +2666,13 @@ export const getMyCollectibles = createServerFn({
     const selectCols =
       "collectible_id, gift_id, owner_id, sender_id, serial_number, serial_total, status, received_at, converted_at, featured, metadata";
 
-    async function load(withJoin: boolean) {
-      const base = gamingSupabaseAdmin.from("gift_collectibles");
+    type Client = typeof gamingSupabaseAdmin;
+
+    async function queryCollectibles(
+      client: Client,
+      withJoin: boolean,
+    ) {
+      const base = client.from("gift_collectibles");
       const q = withJoin
         ? base.select(
             `${selectCols}, gift_definitions ( name, gift_key, value_x_coins, limited )`,
@@ -2676,36 +2684,122 @@ export const getMyCollectibles = createServerFn({
       });
     }
 
-    let result = await load(true);
-    if (result.error) {
-      console.warn("collectibles join failed, retry plain:", result.error.message);
-      result = await load(false);
-    }
+    async function loadGiftNames(
+      client: Client,
+      giftIds: string[],
+    ): Promise<Map<string, Record<string, unknown>>> {
+      const map = new Map<string, Record<string, unknown>>();
+      if (giftIds.length === 0) return map;
 
-    if (result.error) {
-      // try gaming schema
-      const schemaResult = await gamingSupabaseAdmin
-        .schema("gaming")
-        .from("gift_collectibles")
-        .select(selectCols)
-        .eq("owner_id", userId)
-        .order("received_at", { ascending: false });
+      const unique = [...new Set(giftIds.filter(Boolean))];
+      const { data, error } = await client
+        .from("gift_definitions")
+        .select("gift_id, name, gift_key, value_x_coins, limited")
+        .in("gift_id", unique);
 
-      if (schemaResult.error) {
-        console.error("getMyCollectibles:", schemaResult.error);
-        throw new Error(friendlyGiftError(schemaResult.error));
+      if (error || !data) {
+        console.warn("gift_definitions lookup:", error?.message);
+        return map;
       }
 
-      return {
-        collectibles: (schemaResult.data ?? []).map((row) =>
-          mapCollectible(row as Record<string, unknown>),
-        ),
-      };
+      for (const row of data as Record<string, unknown>[]) {
+        map.set(String(row.gift_id), row);
+      }
+      return map;
+    }
+
+    /*
+     * Send already works against the gaming DB.
+     * Prefer gaming schema first, then public — mirror that success path.
+     */
+    const attempts: { label: string; client: Client }[] = [
+      {
+        label: "gaming schema",
+        client: gamingSupabaseAdmin.schema("gaming") as unknown as Client,
+      },
+      {
+        label: "public",
+        client: gamingSupabaseAdmin,
+      },
+    ];
+
+    let rows: Record<string, unknown>[] | null = null;
+    let usedClient: Client = gamingSupabaseAdmin;
+    let lastError: { message?: string } | null = null;
+
+    for (const attempt of attempts) {
+      // plain select first (most reliable)
+      let result = await queryCollectibles(attempt.client, false);
+      if (result.error) {
+        lastError = result.error;
+        console.warn(
+          `getMyCollectibles ${attempt.label} plain:`,
+          result.error.message,
+        );
+        continue;
+      }
+
+      rows = (result.data ?? []) as Record<string, unknown>[];
+      usedClient = attempt.client;
+
+      // optional join enrichment
+      const joined = await queryCollectibles(attempt.client, true);
+      if (!joined.error && joined.data) {
+        rows = joined.data as Record<string, unknown>[];
+      }
+      lastError = null;
+      break;
+    }
+
+    if (lastError || rows == null) {
+      console.error("getMyCollectibles failed:", lastError);
+      const msg = (lastError?.message || "").toLowerCase();
+      if (msg.includes("permission denied")) {
+        throw new Error(
+          "Permission denied reading gift_collectibles. Grant SELECT on gift_collectibles (and gift_definitions) to service_role on the gaming database.",
+        );
+      }
+      if (
+        msg.includes("does not exist") ||
+        msg.includes("schema cache") ||
+        msg.includes("could not find")
+      ) {
+        throw new Error(
+          "gift_collectibles was not found. Confirm the table exists on the gaming database (public or gaming schema).",
+        );
+      }
+      throw new Error(
+        lastError?.message ||
+          "Unable to load collectibles",
+      );
+    }
+
+    // If join did not attach definitions, fetch names in a second query
+    const needsNames = rows.some(
+      (row) =>
+        !row.gift_definitions &&
+        !row.gift &&
+        row.gift_id,
+    );
+
+    if (needsNames) {
+      const nameMap = await loadGiftNames(
+        usedClient,
+        rows.map((r) => String(r.gift_id ?? "")),
+      );
+      rows = rows.map((row) => {
+        const def = nameMap.get(String(row.gift_id ?? ""));
+        if (!def) return row;
+        return {
+          ...row,
+          gift_definitions: def,
+        };
+      });
     }
 
     return {
-      collectibles: (result.data ?? []).map((row) =>
-        mapCollectible(row as Record<string, unknown>),
+      collectibles: rows.map((row) =>
+        mapCollectible(row),
       ),
     };
   });
