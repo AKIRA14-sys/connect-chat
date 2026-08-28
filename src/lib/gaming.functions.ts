@@ -1764,121 +1764,72 @@ export const getPublicGamingProfile =
         };
       },
     )
-    .handler(
-      async ({
-        data,
-      }) => {
-        const {
-          data: row,
-          error,
-        } =
-          await gamingSupabaseAdmin
-            .from(
-              "public_gaming_profiles",
-            )
-            .select(
-              "user_id, total_xp, current_level, games_played, wins, losses, draws, bot_games, real_user_games, win_rate, current_streak, longest_streak",
-            )
-            .eq(
-              "user_id",
-              data.userId,
-            )
+    .handler(async ({ data }) => {
+        const selectCols =
+          "user_id, total_xp, current_level, games_played, wins, losses, draws, bot_games, real_user_games, win_rate, current_streak, longest_streak";
+
+        async function loadFrom(
+          table: string,
+          useSchema: boolean,
+        ) {
+          const client = useSchema
+            ? gamingSupabaseAdmin.schema("gaming")
+            : gamingSupabaseAdmin;
+          return client
+            .from(table)
+            .select(selectCols)
+            .eq("user_id", data.userId)
             .maybeSingle();
+        }
 
-        if (error) {
-          console.error(
-            "public_gaming_profiles error:",
-            error,
-          );
+        let row: Record<string, unknown> | null = null;
+        let lastError: { message?: string } | null = null;
 
-          throw new Error(
-            "Unable to load public gaming profile",
-          );
+        // Try public view first, then base profiles table; public then gaming schema
+        for (const table of [
+          "public_gaming_profiles",
+          "gaming_profiles",
+        ]) {
+          for (const useSchema of [false, true]) {
+            const res = await loadFrom(table, useSchema);
+            if (!res.error) {
+              row = (res.data as Record<string, unknown> | null) ?? null;
+              lastError = null;
+              if (row) break;
+            } else {
+              lastError = res.error;
+            }
+          }
+          if (row) break;
+        }
+
+        if (lastError && !row) {
+          console.error("public gaming profile error:", lastError);
+          // Don't hard-fail UI — return null so avatar still works
+          return { success: true, profile: null };
         }
 
         if (!row) {
-          return {
-            success: true,
-            profile: null,
-          };
+          return { success: true, profile: null };
         }
 
-        const profile: PublicGamingProfile =
-          {
-            user_id:
-              String(
-                row.user_id,
-              ),
-
-            total_xp:
-              Number(
-                row.total_xp ??
-                  0,
-              ),
-
-            current_level:
-              Number(
-                row.current_level ??
-                  1,
-              ),
-
-            games_played:
-              Number(
-                row.games_played ??
-                  0,
-              ),
-
-            wins:
-              Number(
-                row.wins ?? 0,
-              ),
-
-            losses:
-              Number(
-                row.losses ?? 0,
-              ),
-
-            draws:
-              Number(
-                row.draws ?? 0,
-              ),
-
-            bot_games:
-              Number(
-                row.bot_games ??
-                  0,
-              ),
-
-            real_user_games:
-              Number(
-                row.real_user_games ??
-                  0,
-              ),
-
-            win_rate:
-              Number(
-                row.win_rate ?? 0,
-              ),
-
-            current_streak:
-              Number(
-                row.current_streak ??
-                  0,
-              ),
-
-            longest_streak:
-              Number(
-                row.longest_streak ??
-                  0,
-              ),
-          };
-
-        return {
-          success: true,
-          profile,
+        const profile: PublicGamingProfile = {
+          user_id: String(row.user_id ?? data.userId),
+          total_xp: Number(row.total_xp ?? 0) || 0,
+          current_level: Number(row.current_level ?? 1) || 1,
+          games_played: Number(row.games_played ?? 0) || 0,
+          wins: Number(row.wins ?? 0) || 0,
+          losses: Number(row.losses ?? 0) || 0,
+          draws: Number(row.draws ?? 0) || 0,
+          bot_games: Number(row.bot_games ?? 0) || 0,
+          real_user_games: Number(row.real_user_games ?? 0) || 0,
+          win_rate: Number(row.win_rate ?? 0) || 0,
+          current_streak: Number(row.current_streak ?? 0) || 0,
+          longest_streak: Number(row.longest_streak ?? 0) || 0,
         };
-      },
-    );
+
+        return { success: true, profile };
+      });
 /* =========================================================
  * SHOP COSMETIC EQUIP / LOAD
  *
