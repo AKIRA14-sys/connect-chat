@@ -2929,6 +2929,15 @@ export const setFeaturedGift = createServerFn({
   })
   .handler(async ({ data, context }) => {
     const actorId = context.userId;
+
+    try {
+      await gamingSupabaseAdmin.rpc("ensure_gaming_profile", {
+        p_user_id: actorId,
+      });
+    } catch (err) {
+      console.warn("ensure_gaming_profile before feature:", err);
+    }
+
     const argVariants = [
       { p_collectible_id: data.collectibleId, p_user_id: actorId },
       { p_collectible_id: data.collectibleId, p_actor_id: actorId },
@@ -2937,6 +2946,7 @@ export const setFeaturedGift = createServerFn({
 
     let lastError: { message?: string } | null = null;
     let resultData: unknown = null;
+    let ok = false;
 
     for (const args of argVariants) {
       let result = await gamingSupabaseAdmin.rpc("set_featured_gift", args);
@@ -2947,30 +2957,51 @@ export const setFeaturedGift = createServerFn({
       }
       if (!result.error) {
         resultData = result.data;
+        ok = true;
         lastError = null;
         break;
       }
       lastError = result.error;
       const msg = (result.error.message || "").toLowerCase();
       if (
-        msg.includes("function") &&
-        (msg.includes("not found") || msg.includes("does not exist"))
-      ) {
-        continue;
-      }
-      if (
+        (msg.includes("function") &&
+          (msg.includes("not found") || msg.includes("does not exist"))) ||
         msg.includes("auth") ||
-        msg.includes("authentication") ||
-        msg.includes("not authenticated")
+        msg.includes("authentication")
       ) {
         continue;
       }
       break;
     }
 
-    if (lastError) {
-      console.error("set_featured_gift:", lastError);
-      throw new Error(friendlyGiftError(lastError));
+    // Direct upsert if RPC fails (e.g. auth.uid() null under service role)
+    if (!ok) {
+      const row = {
+        user_id: actorId,
+        featured_collectible_id: data.collectibleId,
+      };
+
+      let upsert = await gamingSupabaseAdmin
+        .from("user_gift_settings")
+        .upsert(row, { onConflict: "user_id" });
+
+      if (upsert.error) {
+        upsert = await gamingSupabaseAdmin
+          .schema("gaming")
+          .from("user_gift_settings")
+          .upsert(row, { onConflict: "user_id" });
+      }
+
+      if (upsert.error) {
+        console.error("set_featured_gift failed:", lastError, upsert.error);
+        throw new Error(
+          upsert.error.message ||
+            lastError?.message ||
+            "Could not feature collectible",
+        );
+      }
+
+      resultData = { featured_collectible_id: data.collectibleId };
     }
 
     return { success: true, result: resultData };
