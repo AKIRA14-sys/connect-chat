@@ -10,7 +10,6 @@ type Props = {
   bucket?: "avatars" | "chat-media";
   online?: boolean;
   className?: string;
-  /** Optional: show public gaming level badge */
   userId?: string | null;
   showGamingLevel?: boolean;
 };
@@ -20,13 +19,6 @@ const sizes = {
   md: "h-12 w-12 text-sm",
   lg: "h-16 w-16 text-lg",
   xl: "h-28 w-28 text-3xl",
-};
-
-const badgeSizes = {
-  sm: "min-w-[1.1rem] px-0.5 text-[8px]",
-  md: "min-w-[1.25rem] px-1 text-[9px]",
-  lg: "min-w-[1.4rem] px-1 text-[10px]",
-  xl: "min-w-[1.6rem] px-1.5 text-[11px]",
 };
 
 export function UserAvatar({
@@ -49,7 +41,7 @@ export function UserAvatar({
   const { data: level } = useQuery({
     queryKey: ["public-gaming-level", userId],
     enabled: Boolean(showGamingLevel && userId),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
     queryFn: async (): Promise<number | null> => {
       if (!userId) return null;
       try {
@@ -57,14 +49,23 @@ export function UserAvatar({
           data: { userId },
         });
         if (!res || typeof res !== "object") return null;
+
         const root = res as Record<string, unknown>;
-        const profile =
-          root.profile && typeof root.profile === "object"
-            ? (root.profile as Record<string, unknown>)
-            : root;
-        const n = Number(profile.current_level ?? profile.level);
-        return Number.isFinite(n) && n > 0 ? n : null;
-      } catch {
+        const profileRaw =
+          root.profile ??
+          root.data ??
+          (root.current_level != null || root.level != null ? root : null);
+
+        if (!profileRaw || typeof profileRaw !== "object") return null;
+
+        const profile = profileRaw as Record<string, unknown>;
+        const n = Number(
+          profile.current_level ?? profile.level ?? profile.lvl ?? 0,
+        );
+        if (!Number.isFinite(n) || n < 1) return null;
+        return n;
+      } catch (err) {
+        console.warn("[UserAvatar] gaming level load failed", userId, err);
         return null;
       }
     },
@@ -92,20 +93,17 @@ export function UserAvatar({
       {online !== undefined ? (
         <span
           className={cn(
-            "absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background",
+            "absolute bottom-0 right-0 z-[1] h-3 w-3 rounded-full border-2 border-background",
             online ? "bg-success" : "bg-muted-foreground/50",
           )}
         />
       ) : null}
       {showGamingLevel && level != null ? (
         <span
-          className={cn(
-            "absolute -bottom-0.5 -left-0.5 rounded-full border border-background bg-amber-500 font-bold text-black shadow",
-            badgeSizes[size],
-          )}
-          title={`Level ${level}`}
+          className="absolute -left-1 -top-1 z-[2] rounded-full border border-black/20 bg-amber-400 px-1.5 py-0.5 text-[9px] font-black leading-none text-black shadow-md"
+          title={`Gaming level ${level}`}
         >
-          {level}
+          Lv{level}
         </span>
       ) : null}
     </div>
