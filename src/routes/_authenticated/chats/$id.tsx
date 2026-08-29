@@ -719,6 +719,11 @@ function ChatRoom() {
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [giftSheetOpen, setGiftSheetOpen] = useState(false);
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [profileMuted, setProfileMuted] = useState(false);
+  const [profilePinned, setProfilePinned] = useState(false);
+  const [profileNote, setProfileNote] = useState("");
+  const [profileNoteDraft, setProfileNoteDraft] = useState("");
+  const [profileNameDraft, setProfileNameDraft] = useState("");
   const [giftCoins, setGiftCoins] = useState(0);
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
@@ -786,6 +791,18 @@ function ChatRoom() {
 
   const localChatNameKey = useMemo(
     () => `whatsxup-chat-name:${id}`,
+    [id],
+  );
+  const localMuteKey = useMemo(
+    () => `whatsxup-chat-mute:${id}`,
+    [id],
+  );
+  const localPinKey = useMemo(
+    () => `whatsxup-chat-pin:${id}`,
+    [id],
+  );
+  const localNoteKey = useMemo(
+    () => `whatsxup-chat-note:${id}`,
     [id],
   );
 
