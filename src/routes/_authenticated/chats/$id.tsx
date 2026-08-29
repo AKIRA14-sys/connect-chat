@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createFileRoute,
   Link,
@@ -476,12 +470,181 @@ export const Route = createFileRoute("/_authenticated/chats/$id")({
  * MEDIA BUBBLE
  * ============================================================ */
 
+function hashSeed(input: string) {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function buildPseudoWaveform(path: string, bars = 28) {
+  const seed = hashSeed(path);
+  const values: number[] = [];
+  for (let i = 0; i < bars; i++) {
+    const x = Math.sin(seed * 0.001 + i * 1.7) * 10000;
+    const y = Math.cos(seed * 0.002 + i * 2.3) * 10000;
+    const n = Math.abs((x + y) % 1);
+    const v = 0.22 + n * 0.78;
+    const edge = Math.min(i, bars - 1 - i) / 6;
+    values.push(Math.min(1, v * (0.55 + Math.min(edge, 1) * 0.45)));
+  }
+  return values;
+}
+
+function VoiceNotePlayer({
+  url,
+  path,
+  durationSec,
+  mine,
+}: {
+  url: string;
+  path: string;
+  durationSec?: number | null;
+  mine?: boolean;
+}) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(
+    durationSec && durationSec > 0 ? durationSec : 0,
+  );
+  const bars = useMemo(() => buildPseudoWaveform(path), [path]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTime = () => {
+      if (!audio.duration || !Number.isFinite(audio.duration)) return;
+      setProgress(audio.currentTime / audio.duration);
+    };
+    const onMeta = () => {
+      if (audio.duration && Number.isFinite(audio.duration)) {
+        setDuration(audio.duration);
+      }
+    };
+    const onEnd = () => {
+      setPlaying(false);
+      setProgress(0);
+    };
+
+    audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("loadedmetadata", onMeta);
+    audio.addEventListener("ended", onEnd);
+    return () => {
+      audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("loadedmetadata", onMeta);
+      audio.removeEventListener("ended", onEnd);
+    };
+  }, [url]);
+
+  async function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    try {
+      if (playing) {
+        audio.pause();
+        setPlaying(false);
+      } else {
+        await audio.play();
+        setPlaying(true);
+      }
+    } catch {
+      setPlaying(false);
+    }
+  }
+
+  function seek(ratio: number) {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration || !Number.isFinite(audio.duration)) return;
+    audio.currentTime = Math.max(0, Math.min(1, ratio)) * audio.duration;
+    setProgress(audio.currentTime / audio.duration);
+  }
+
+  const barColor = mine
+    ? "bg-primary-foreground/80"
+    : "bg-primary/70";
+  const barTrack = mine
+    ? "bg-primary-foreground/25"
+    : "bg-primary/20";
+
+  const elapsed =
+    playing || progress > 0
+      ? progress * (duration || durationSec || 0)
+      : 0;
+
+  return (
+    <div className="flex min-w-[220px] max-w-[280px] items-center gap-3 py-1">
+      <button
+        type="button"
+        onClick={() => void togglePlay()}
+        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+          mine
+            ? "bg-primary-foreground/20 text-primary-foreground"
+            : "bg-primary/15 text-primary"
+        }`}
+        aria-label={playing ? "Pause voice message" : "Play voice message"}
+      >
+        {playing ? (
+          <span className="flex gap-0.5">
+            <span className="h-4 w-1 rounded-sm bg-current" />
+            <span className="h-4 w-1 rounded-sm bg-current" />
+          </span>
+        ) : (
+          <span className="ml-0.5 border-y-[6px] border-l-[10px] border-y-transparent border-l-current" />
+        )}
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          className="flex h-8 w-full items-end gap-[2px]"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio =
+              (e.clientX - rect.left) / Math.max(rect.width, 1);
+            seek(ratio);
+          }}
+          aria-label="Seek voice message"
+        >
+          {bars.map((v, barIndex) => {
+            const filled = progress >= (barIndex + 1) / bars.length;
+            return (
+              <span
+                key={barIndex}
+                className={`inline-block w-[3px] min-w-[3px] flex-1 rounded-full ${
+                  filled ? barColor : barTrack
+                }`}
+                style={{
+                  height: `${Math.max(20, Math.round(v * 100))}%`,
+                }}
+              />
+            );
+          })}
+        </button>
+        <div className="mt-1 flex justify-between text-[10px] opacity-70">
+          <span>{durationLabel(elapsed)}</span>
+          <span>{durationLabel(duration || durationSec || 0)}</span>
+        </div>
+      </div>
+
+      <audio ref={audioRef} src={url} preload="metadata" className="hidden" />
+    </div>
+  );
+}
+
 function MediaBubble({
   path,
   type,
+  durationSec,
+  mine,
 }: {
   path: string;
   type: "image" | "video" | "audio";
+  durationSec?: number | null;
+  mine?: boolean;
 }) {
   const { data: url } = useQuery({
     queryKey: ["signed", "chat-media", path],
@@ -519,8 +682,16 @@ function MediaBubble({
     );
   }
 
-  return <audio src={url} controls preload="none" className="w-56" />;
+  return (
+    <VoiceNotePlayer
+      url={url}
+      path={path}
+      durationSec={durationSec}
+      mine={mine}
+    />
+  );
 }
+
 
 /* ============================================================
  * CHAT ROOM
@@ -547,6 +718,7 @@ function ChatRoom() {
   const [reactionPicker, setReactionPicker] = useState<string | null>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [giftSheetOpen, setGiftSheetOpen] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [giftCoins, setGiftCoins] = useState(0);
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
@@ -664,7 +836,25 @@ function ChatRoom() {
     } catch {
       setCustomName(null);
     }
-  }, [localChatNameKey]);
+
+    try {
+      setProfileMuted(
+        window.localStorage.getItem(localMuteKey) === "1",
+      );
+      setProfilePinned(
+        window.localStorage.getItem(localPinKey) === "1",
+      );
+      const note =
+        window.localStorage.getItem(localNoteKey) ?? "";
+      setProfileNote(note);
+      setProfileNoteDraft(note);
+    } catch {
+      setProfileMuted(false);
+      setProfilePinned(false);
+      setProfileNote("");
+      setProfileNoteDraft("");
+    }
+  }, [localChatNameKey, localMuteKey, localPinKey, localNoteKey]);
 
   /* ==========================================================
    * LOAD CHAT CUSTOMIZATION (theme / font) FROM INDEXEDDB
@@ -893,8 +1083,8 @@ function ChatRoom() {
   const otherUserId = otherMember?.user_id ?? null;
   const otherName = otherProfile?.display_name?.trim() || "Unknown";
 
-  const { data: otherGamingLevel } = useQuery({
-    queryKey: ["chat-other-gaming-level", otherUserId],
+  const { data: otherGamingProfile } = useQuery({
+    queryKey: ["chat-other-gaming-profile", otherUserId],
     enabled: Boolean(otherUserId) && conv?.type !== "group",
     staleTime: 60 * 1000,
     queryFn: async () => {
@@ -908,14 +1098,22 @@ function ChatRoom() {
         const profile =
           root.profile && typeof root.profile === "object"
             ? (root.profile as Record<string, unknown>)
-            : root;
-        const n = Number(profile.current_level ?? profile.level);
-        return Number.isFinite(n) && n >= 1 ? n : null;
+            : null;
+        if (!profile) return null;
+        return profile;
       } catch {
         return null;
       }
     },
   });
+
+  const otherGamingLevel = (() => {
+    if (!otherGamingProfile) return null;
+    const n = Number(
+      otherGamingProfile.current_level ?? otherGamingProfile.level,
+    );
+    return Number.isFinite(n) && n >= 1 ? n : null;
+  })();
   const otherAvatar = otherProfile?.avatar_url ?? null;
   const canShowOnline = otherProfile?.show_online_status !== false;
   const isOtherOnline =
@@ -930,6 +1128,7 @@ function ChatRoom() {
             ? lastSeenLabel(otherProfile?.last_seen ?? null)
             : "offline",
         otherGamingLevel != null ? `Lv ${otherGamingLevel}` : null,
+        profileMuted ? "muted" : null,
       ]
         .filter(Boolean)
         .join(" · ");
@@ -2711,6 +2910,103 @@ function ChatRoom() {
     setNameModalOpen(true);
   }
 
+
+  function toggleProfileMute() {
+    const next = !profileMuted;
+    setProfileMuted(next);
+    try {
+      if (typeof window !== "undefined") {
+        if (next) window.localStorage.setItem(localMuteKey, "1");
+        else window.localStorage.removeItem(localMuteKey);
+      }
+      toast.success(next ? "Chat muted on this device" : "Chat unmuted");
+    } catch {
+      toast.error("Could not update mute on this device");
+    }
+  }
+
+  function toggleProfilePin() {
+    const next = !profilePinned;
+    setProfilePinned(next);
+    try {
+      if (typeof window !== "undefined") {
+        if (next) window.localStorage.setItem(localPinKey, "1");
+        else window.localStorage.removeItem(localPinKey);
+      }
+      toast.success(next ? "Pinned on this device" : "Unpinned");
+    } catch {
+      toast.error("Could not update pin on this device");
+    }
+  }
+
+  function saveProfileNickname() {
+    const trimmed = profileNameDraft.trim().slice(0, 40);
+    if (!trimmed) {
+      toast.error("Name can't be empty.");
+      return;
+    }
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(localChatNameKey, trimmed);
+      }
+      setCustomName(trimmed);
+      try {
+        window.dispatchEvent(new Event("xup-chat-name-changed"));
+      } catch {
+        /* ignore */
+      }
+      toast.success("Name updated — only you see this");
+    } catch {
+      toast.error("Could not save the name on this device.");
+    }
+  }
+
+  function clearProfileNickname() {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(localChatNameKey);
+      }
+    } catch {
+      /* ignore */
+    }
+    setCustomName(null);
+    setProfileNameDraft(otherName || "");
+    try {
+      window.dispatchEvent(new Event("xup-chat-name-changed"));
+    } catch {
+      /* ignore */
+    }
+    toast.success("Original profile name restored");
+  }
+
+  function saveProfileNote() {
+    const note = profileNoteDraft.slice(0, 500);
+    try {
+      if (typeof window !== "undefined") {
+        if (note.trim()) window.localStorage.setItem(localNoteKey, note);
+        else window.localStorage.removeItem(localNoteKey);
+      }
+      setProfileNote(note);
+      toast.success("Private note saved on this device");
+    } catch {
+      toast.error("Could not save note");
+    }
+  }
+
+  async function copyProfileUsername() {
+    const u = otherProfile?.username;
+    if (!u) {
+      toast.error("No username to copy");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(`@${u}`);
+      toast.success("Username copied");
+    } catch {
+      toast.error("Could not copy");
+    }
+  }
+
   function saveCustomChatName() {
     const trimmed = nameInput.trim().slice(0, 40);
 
@@ -2729,6 +3025,11 @@ function ChatRoom() {
 
       setCustomName(trimmed);
       setNameModalOpen(false);
+      try {
+        window.dispatchEvent(new Event("xup-chat-name-changed"));
+      } catch {
+        /* ignore */
+      }
 
       toast.success("Chat name changed on your device");
     } catch {
@@ -3168,7 +3469,15 @@ function ChatRoom() {
             </div>
           </Link>
         ) : (
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+          <button
+            type="button"
+            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+            onClick={() => {
+              setProfileNameDraft(customName || otherName || "");
+              setProfileNoteDraft(profileNote);
+              setProfileSheetOpen(true);
+            }}
+          >
             <div style={shopFrameStyle} className="rounded-full">
               <UserAvatar
                 path={otherAvatar}
@@ -3191,7 +3500,7 @@ function ChatRoom() {
                   : directSubtitle}
               </p>
             </div>
-          </div>
+          </button>
         )}
 
         {conv?.type === "direct" &&
@@ -3805,6 +4114,10 @@ function ChatRoom() {
                               | "video"
                               | "audio"
                           }
+                          durationSec={
+                            message.media_duration
+                          }
+                          mine={mine}
                         />
                       )}
 
@@ -5087,7 +5400,229 @@ function ChatRoom() {
        * CHAT CUSTOMIZATION SHEET (theme / font / wallpaper)
        * ====================================================== */}
 
-            <GiftSendSheet
+            
+      {profileSheetOpen && conv?.type !== "group" && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+          onClick={() => setProfileSheetOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border border-border bg-background p-5 shadow-2xl sm:rounded-3xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Contact profile"
+          >
+            <div className="mb-4 flex items-start justify-between">
+              <p className="text-sm font-semibold text-muted-foreground">
+                Profile
+              </p>
+              <button
+                type="button"
+                className="rounded-full px-2 py-1 text-sm text-muted-foreground hover:bg-muted"
+                onClick={() => setProfileSheetOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center gap-3 text-center">
+              <UserAvatar
+                path={otherAvatar}
+                name={displayedChatName}
+                size="xl"
+                online={isOtherOnline}
+                userId={otherUserId}
+                showGamingLevel
+              />
+              <div>
+                <p className="text-xl font-bold">{displayedChatName}</p>
+                {customName ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    Local name · real: {otherName}
+                  </p>
+                ) : null}
+                {otherProfile?.username ? (
+                  <p className="text-sm text-muted-foreground">
+                    @{otherProfile.username}
+                  </p>
+                ) : null}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {isOtherOnline
+                    ? "Online"
+                    : canShowOnline
+                      ? lastSeenLabel(otherProfile?.last_seen ?? null)
+                      : "Last seen hidden"}
+                  {profileMuted ? " · Muted" : ""}
+                  {profilePinned ? " · Pinned" : ""}
+                </p>
+              </div>
+              {otherProfile?.bio ? (
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {otherProfile.bio}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="mt-5 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Name on this device
+              </p>
+              <input
+                value={profileNameDraft}
+                onChange={(e) => setProfileNameDraft(e.target.value)}
+                maxLength={40}
+                placeholder="Nickname only you see"
+                className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => saveProfileNickname()}
+                  className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+                >
+                  Save name
+                </button>
+                <button
+                  type="button"
+                  onClick={() => clearProfileNickname()}
+                  className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold"
+                >
+                  Reset name
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => toggleProfileMute()}
+                className="rounded-2xl border border-border bg-card px-3 py-3 text-left text-sm font-medium"
+              >
+                {profileMuted ? "Unmute chat" : "Mute chat"}
+                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  This device only
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleProfilePin()}
+                className="rounded-2xl border border-border bg-card px-3 py-3 text-left text-sm font-medium"
+              >
+                {profilePinned ? "Unpin" : "Pin contact"}
+                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  This device only
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void copyProfileUsername()}
+                className="rounded-2xl border border-border bg-card px-3 py-3 text-left text-sm font-medium"
+              >
+                Copy @username
+                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  Clipboard
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileSheetOpen(false);
+                  setNameModalOpen(true);
+                  setNameInput(customName || otherName || "");
+                }}
+                className="rounded-2xl border border-border bg-card px-3 py-3 text-left text-sm font-medium"
+              >
+                Name modal
+                <span className="mt-0.5 block text-[10px] font-normal text-muted-foreground">
+                  Same as chat menu
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Private note (only you)
+              </p>
+              <textarea
+                value={profileNoteDraft}
+                onChange={(e) => setProfileNoteDraft(e.target.value)}
+                maxLength={500}
+                rows={3}
+                placeholder="e.g. Met at school — only stored on this phone"
+                className="w-full resize-none rounded-xl border border-border bg-card px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              />
+              <button
+                type="button"
+                onClick={() => saveProfileNote()}
+                className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
+              >
+                Save note
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Gaming
+              </p>
+              {otherGamingProfile ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">Level</p>
+                    <p className="text-lg font-bold">
+                      {Number(
+                        otherGamingProfile.current_level ??
+                          otherGamingProfile.level ??
+                          1,
+                      ) || 1}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">XP</p>
+                    <p className="text-lg font-bold">
+                      {Number(otherGamingProfile.total_xp ?? 0) || 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">Wins</p>
+                    <p className="text-lg font-bold">
+                      {Number(otherGamingProfile.wins ?? 0) || 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">Games</p>
+                    <p className="text-lg font-bold">
+                      {Number(otherGamingProfile.games_played ?? 0) || 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">Streak</p>
+                    <p className="text-lg font-bold">
+                      {Number(otherGamingProfile.current_streak ?? 0) || 0}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-card p-3">
+                    <p className="text-[10px] text-muted-foreground">
+                      Best streak
+                    </p>
+                    <p className="text-lg font-bold">
+                      {Number(otherGamingProfile.longest_streak ?? 0) || 0}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="rounded-2xl border border-border bg-card p-4 text-sm text-muted-foreground">
+                  No public gaming stats yet. They need to open Shop or play
+                  once.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <GiftSendSheet
         open={giftSheetOpen}
         onClose={() => setGiftSheetOpen(false)}
         recipientId={otherUserId}
