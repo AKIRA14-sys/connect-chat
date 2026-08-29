@@ -150,12 +150,43 @@ function saveFavorites(ids: string[]) {
   }
 }
 
+
+const LOCAL_CHAT_NAME_PREFIX = "whatsxup-chat-name:";
+
+function readLocalChatName(conversationId: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.localStorage.getItem(
+      `${LOCAL_CHAT_NAME_PREFIX}${conversationId}`,
+    );
+    const trimmed = stored?.trim();
+    return trimmed ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 function ChatsPage() {
   const { user } = useAuth();
   const { onlineIds } = useRealtime();
   const qc = useQueryClient();
 
   const [search, setSearch] = useState("");
+  const [localNameTick, setLocalNameTick] = useState(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const bump = () => setLocalNameTick((n) => n + 1);
+
+    window.addEventListener("focus", bump);
+    window.addEventListener("xup-chat-name-changed", bump);
+
+    return () => {
+      window.removeEventListener("focus", bump);
+      window.removeEventListener("xup-chat-name-changed", bump);
+    };
+  }, []);
+
   const [filter, setFilter] =
     useState<FilterType>("all");
 
@@ -254,7 +285,7 @@ function ChatsPage() {
    */
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["chat-list", user?.id],
+    queryKey: ["chat-list", user?.id, localNameTick],
 
     enabled: !!user,
 
@@ -498,7 +529,10 @@ function ChatsPage() {
           const username =
             profile?.username?.trim();
 
+          const localNick = readLocalChatName(conv.id);
+
           const title =
+            localNick ||
             displayName ||
             username ||
             "Unknown";
