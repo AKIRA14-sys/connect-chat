@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
@@ -168,6 +168,90 @@ function readLocalChatName(conversationId: string): string | null {
 
 function ChatsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+
+  /* Active XUPs tray (same source as /xups — avatars only on Chats) */
+  const { data: xupTray = [] } = useQuery({
+    queryKey: ["chats-xup-tray", user?.id],
+    enabled: Boolean(user?.id),
+    staleTime: 60_000,
+    queryFn: async () => {
+      if (!user) return [] as {
+        userId: string;
+        profile: Profile | null;
+        latestAt: string;
+      }[];
+
+      const { data: xups, error } = await supabase
+        .from("xups")
+        .select("id, user_id, created_at, expires_at, deleted_at")
+        .is("deleted_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(80);
+
+      if (error) {
+        console.warn("chats xup tray:", error.message);
+        return [];
+      }
+
+      const rows = (xups ?? []) as {
+        id: string;
+        user_id: string;
+        created_at: string;
+        expires_at: string;
+        deleted_at: string | null;
+      }[];
+
+      const byUser = new Map<
+        string,
+        { userId: string; latestAt: string }
+      >();
+      for (const row of rows) {
+        const prev = byUser.get(row.user_id);
+        if (
+          !prev ||
+          new Date(row.created_at).getTime() >
+            new Date(prev.latestAt).getTime()
+        ) {
+          byUser.set(row.user_id, {
+            userId: row.user_id,
+            latestAt: row.created_at,
+          });
+        }
+      }
+
+      const userIds = Array.from(byUser.keys());
+      if (userIds.length === 0) return [];
+
+      const { data: profiles, error: pErr } = await supabase
+        .from("profiles")
+        .select("id, username, display_name, avatar_url")
+        .in("id", userIds);
+
+      if (pErr) {
+        console.warn("chats xup tray profiles:", pErr.message);
+      }
+
+      const pmap = new Map<string, Profile>();
+      for (const p of (profiles ?? []) as Profile[]) {
+        pmap.set(p.id, p);
+      }
+
+      return Array.from(byUser.values())
+        .map((item) => ({
+          userId: item.userId,
+          profile: pmap.get(item.userId) ?? null,
+          latestAt: item.latestAt,
+        }))
+        .sort(
+          (a, b) =>
+            new Date(b.latestAt).getTime() -
+            new Date(a.latestAt).getTime(),
+        );
+    },
+  });
+
   const { onlineIds } = useRealtime();
   const qc = useQueryClient();
 
@@ -1135,7 +1219,63 @@ function ChatsPage() {
           }
         />
 
+
         <NotificationPrompt />
+
+        {/* XUP posters tray — horizontal swipe, opens full XUPs page */}
+        {xupTray.length > 0 ? (
+          <div className="border-b border-border/40 px-4 pb-3 pt-1">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                XUPs today
+              </p>
+              <Link
+                to="/xups"
+                className="text-xs font-medium text-primary"
+              >
+                See all
+              </Link>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+              {xupTray.map((item) => {
+                const name =
+                  item.profile?.display_name?.trim() ||
+                  item.profile?.username?.trim() ||
+                  "User";
+                const isMe = item.userId === user?.id;
+                return (
+                  <button
+                    key={item.userId}
+                    type="button"
+                    onClick={() => {
+                      void navigate({ to: "/xups" });
+                    }}
+                    className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5"
+                  >
+                    <div
+                      className={`rounded-full p-[2px] ${
+                        isMe
+                          ? "bg-gradient-to-tr from-primary to-amber-400"
+                          : "bg-gradient-to-tr from-pink-500 via-primary to-amber-400"
+                      }`}
+                    >
+                      <div className="rounded-full bg-background p-[2px]">
+                        <UserAvatar
+                          path={item.profile?.avatar_url ?? null}
+                          name={name}
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                    <span className="w-full truncate text-center text-[10px] text-muted-foreground">
+                      {isMe ? "You" : name}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
 
         <div className="px-4 pb-3 pt-2">
           <div className="relative">
