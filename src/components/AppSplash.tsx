@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Uses your uploaded logo: /icons/logo-splash.png
- * 1) Show logo only (~0.5s)
- * 2) Dots 1 → 2 → 3 quickly
- * 3) Rise → land → fade
- * Replays when returning from background.
+ * Your logo only at first (no extra dots on top).
+ * Then glow appears for dot 1 → 2 → 3 (one at a time).
+ * Then rise → land → fade.
  */
 const LOGO_SRC = "/icons/logo-splash.png";
 const LOGO_FALLBACK = "/icons/icon-512.png";
@@ -43,21 +41,22 @@ export function AppSplash() {
       timersRef.current.push(id);
     };
 
-    // Logo alone — short hold (0.5s), then animation starts
+    // 0.5s: pure logo only — no overlay
     later(() => {
       setPhase("dots");
       setDot(1);
     }, 500);
-    later(() => setDot(2), 750);
-    later(() => setDot(3), 1000);
-    later(() => setPhase("rise"), 1250);
-    later(() => setPhase("land"), 1550);
-    later(() => setPhase("out"), 1850);
+    // slower spacing so 2 and 3 are not rushed
+    later(() => setDot(2), 1100);
+    later(() => setDot(3), 1700);
+    later(() => setPhase("rise"), 2100);
+    later(() => setPhase("land"), 2500);
+    later(() => setPhase("out"), 2900);
     later(() => {
       setVisible(false);
       setPhase("done");
       playingRef.current = false;
-    }, 2150);
+    }, 3300);
   }, [clearTimers]);
 
   useEffect(() => {
@@ -94,16 +93,13 @@ export function AppSplash() {
           ? "translate-y-0 scale-95 opacity-0"
           : "translate-y-0 scale-100 opacity-100";
 
-  // During hold: no overlay dots (pure image). After: sequential glow.
-  const showDotOverlay = phase !== "hold";
-
   return (
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#050b14]"
       aria-hidden
     >
       <div
-        className={`relative flex flex-col items-center transition-all duration-400 ease-out ${motionClass}`}
+        className={`relative flex flex-col items-center transition-all duration-500 ease-out ${motionClass}`}
       >
         <div className="pointer-events-none absolute h-48 w-48 rounded-full bg-cyan-400/20 blur-3xl" />
 
@@ -120,38 +116,40 @@ export function AppSplash() {
             }}
           />
 
-          {showDotOverlay ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div
-                className="flex items-center justify-center gap-[0.85rem]"
-                style={{ marginTop: "0.15rem" }}
-              >
-                {[0, 1, 2].map((i) => {
-                  const on = dot > i;
+          {/*
+            Only lit dots appear — nothing dim/covering before a dot loads.
+            Unlit slots render nothing.
+          */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+              className="flex items-center justify-center gap-[0.85rem]"
+              style={{ marginTop: "0.15rem" }}
+            >
+              {[0, 1, 2].map((i) => {
+                const on = dot > i;
+                if (!on) {
                   return (
-                    <span
-                      key={i}
-                      className="block h-3.5 w-3.5 rounded-full transition-all duration-200 ease-out"
-                      style={{
-                        backgroundColor: on
-                          ? "#2ee6c8"
-                          : "rgba(5, 11, 20, 0.55)",
-                        boxShadow: on
-                          ? "0 0 14px rgba(46, 230, 200, 1)"
-                          : "none",
-                        transform: on ? "scale(1.15)" : "scale(0.9)",
-                        opacity: on ? 1 : 0.85,
-                      }}
-                    />
+                    <span key={i} className="block h-3.5 w-3.5 opacity-0" />
                   );
-                })}
-              </div>
+                }
+                return (
+                  <span
+                    key={i}
+                    className="block h-3.5 w-3.5 rounded-full animate-in fade-in zoom-in duration-300"
+                    style={{
+                      backgroundColor: "#2ee6c8",
+                      boxShadow: "0 0 16px rgba(46, 230, 200, 1)",
+                      transform: "scale(1.2)",
+                    }}
+                  />
+                );
+              })}
             </div>
-          ) : null}
+          </div>
         </div>
 
         <p
-          className={`mt-6 text-sm font-semibold tracking-[0.25em] text-cyan-300 transition-opacity duration-200 ${
+          className={`mt-6 text-sm font-semibold tracking-[0.25em] text-cyan-300 transition-opacity duration-300 ${
             dot >= 3 ? "opacity-100" : "opacity-40"
           }`}
         >
