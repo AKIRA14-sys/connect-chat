@@ -165,9 +165,39 @@ const STICKER_PACKS = [
 
 type StickerPack = (typeof STICKER_PACKS)[number];
 
+
+function isSoloEmojiMessage(text: string): boolean {
+  const value = text.trim();
+  if (!value || value.length > 16) return false;
+  try {
+    if (/\p{L}|\p{N}/u.test(value)) return false;
+    if (!/\p{Extended_Pictographic}/u.test(value)) return false;
+    const pics = value.match(/\p{Extended_Pictographic}/gu) ?? [];
+    return pics.length >= 1 && pics.length <= 3;
+  } catch {
+    // Fallback if unicode property escapes unsupported
+    return value.length <= 8 && !/[A-Za-z0-9]/.test(value);
+  }
+}
+
 function getSticker(id: string | null | undefined) {
   if (!id) return null;
-  return STICKERS.find((sticker) => sticker.id === id) ?? null;
+  const found = STICKERS.find((sticker) => sticker.id === id);
+  if (found) return found;
+  if (id.startsWith("emoji:")) {
+    const emoji = id.slice("emoji:".length);
+    return {
+      id,
+      emoji,
+      label: emoji,
+      pack: "Emoji",
+    };
+  }
+  // Raw emoji stored as content
+  if (isSoloEmojiMessage(id)) {
+    return { id, emoji: id, label: id, pack: "Emoji" };
+  }
+  return null;
 }
 
 /* ============================================================
@@ -1943,6 +1973,20 @@ function ChatRoom() {
       return;
     }
 
+    // Only emoji → treat as sticker (big + animated)
+    if (!editing && isSoloEmojiMessage(body)) {
+      setText("");
+      const known = STICKERS.find((s) => s.emoji === body);
+      await sendMessage(
+        {
+          type: "sticker" as any,
+          content: known?.id ?? `emoji:${body}`,
+        },
+        `${body} Sticker`,
+      );
+      return;
+    }
+
     setText("");
 
     if (editing) {
@@ -2694,47 +2738,62 @@ function ChatRoom() {
    * SWIPE RIGHT TO REPLY
    * ========================================================== */
 
+  const touchMeta = useRef<
+    Map<string, { x: number; y: number; t: number }>
+  >(new Map());
+
+  useEffect(() => {
+    const onWall = () => {
+      setCustomizationVersion((v) => v + 1);
+    };
+    window.addEventListener("xup-wallpaper-changed", onWall);
+    return () => window.removeEventListener("xup-wallpaper-changed", onWall);
+  }, []);
+
+
   function handleTouchStart(
     event: React.TouchEvent,
     messageId: string,
   ) {
-    touchStartX.current.set(
-      messageId,
-      event.touches[0]?.clientX ?? 0,
-    );
+    const touch = event.touches[0];
+    touchStartX.current.set(messageId, touch?.clientX ?? 0);
+    touchMeta.current.set(messageId, {
+      x: touch?.clientX ?? 0,
+      y: touch?.clientY ?? 0,
+      t: Date.now(),
+    });
   }
 
   function handleTouchEnd(
     event: React.TouchEvent,
     message: Message,
   ) {
-    const start =
-      touchStartX.current.get(
-        message.id,
+    const startX = touchStartX.current.get(message.id);
+    const meta = touchMeta.current.get(message.id);
+    touchStartX.current.delete(message.id);
+    touchMeta.current.delete(message.id);
+
+    if (startX == null || !meta) return;
+
+    const endX = event.changedTouches[0]?.clientX ?? startX;
+    const endY = event.changedTouches[0]?.clientY ?? meta.y;
+    const distanceX = endX - startX;
+    const distanceY = Math.abs(endY - meta.y);
+    const held = Date.now() - meta.t;
+
+    // Long-press opens reactions (no under-bubble clutter)
+    if (held >= 450 && Math.abs(distanceX) < 24 && distanceY < 24) {
+      setReactionPicker((cur) =>
+        cur === message.id ? null : message.id,
       );
+      return;
+    }
 
-    touchStartX.current.delete(
-      message.id,
-    );
-
-    if (start == null) return;
-
-    const end =
-      event.changedTouches[0]
-        ?.clientX ?? start;
-
-    const distance = end - start;
-
-    if (distance > 70) {
-      setSwipingMessageId(
-        message.id,
-      );
-
+    // Swipe right to reply — less sensitive
+    if (distanceX > 120 && distanceY < 40) {
+      setSwipingMessageId(message.id);
       startReply(message);
-
-      setTimeout(() => {
-        setSwipingMessageId(null);
-      }, 300);
+      setTimeout(() => setSwipingMessageId(null), 300);
     }
   }
 
@@ -4051,12 +4110,10 @@ function ChatRoom() {
                       This message was deleted
                     </p>
                   ) : sticker ? (
-                    <div className="flex flex-col items-center justify-center">
+                    <div className="flex flex-col items-center justify-center px-1 py-1">
                       <span
-                        className="select-none text-7xl leading-none drop-shadow-sm"
-                        title={
-                          sticker.label
-                        }
+                        className="xup-sticker-pop select-none text-7xl leading-none drop-shadow-sm"
+                        title={sticker.label}
                       >
                         {sticker.emoji}
                       </span>
@@ -4210,69 +4267,30 @@ function ChatRoom() {
 
                 {!deleted && (
                   <div className="mt-1 flex flex-wrap items-center gap-1">
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
-                        onClick={() =>
-                          setReactionPicker(
-                            pickerOpen
-                              ? null
-                              : message.id,
-                          )
-                        }
-                      >
-                        ❤️
-                      </button>
-
-                      {pickerOpen && (
+                      {pickerOpen ? (
                         <div
-                          className={`absolute bottom-full z-30 mb-2 flex gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl ${
-                            mine
-                              ? "right-0"
-                              : "left-0"
+                          className={`z-30 flex gap-1 rounded-2xl border border-border bg-surface p-2 shadow-xl ${
+                            mine ? "ml-auto" : ""
                           }`}
                         >
-                          {REACTIONS.map(
-                            (emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                className={`rounded-full p-1.5 text-lg transition hover:scale-125 ${
-                                  hasReacted(
-                                    message.id,
-                                    emoji,
-                                  )
-                                    ? "bg-primary/20"
-                                    : ""
-                                }`}
-                                onClick={() =>
-                                  void toggleReaction(
-                                    message,
-                                    emoji,
-                                  )
-                                }
-                              >
-                                {emoji}
-                              </button>
-                            ),
-                          )}
+                          {REACTIONS.map((emoji) => (
+                            <button
+                              key={emoji}
+                              type="button"
+                              className={`rounded-full p-1.5 text-lg transition hover:scale-125 ${
+                                hasReacted(message.id, emoji)
+                                  ? "bg-primary/20"
+                                  : ""
+                              }`}
+                              onClick={() =>
+                                void toggleReaction(message, emoji)
+                              }
+                            >
+                              {emoji}
+                            </button>
+                          ))}
                         </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      className="rounded-full bg-background/80 px-2 py-1 text-[11px] shadow-sm hover:bg-background"
-                      onClick={() =>
-                        startReply(
-                          message,
-                        )
-                      }
-                    >
-                      <Reply className="mr-1 inline h-3 w-3" />
-                      Reply
-                    </button>
+                      ) : null}
 
                     {mine &&
                       message.type ===
