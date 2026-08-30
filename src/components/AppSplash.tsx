@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Base image: logo-splash-nodots.png (empty outlines).
- * Loading dots sit exactly in those outline holes:
- *   1 → 2 → 3, then rise → land → fade.
+ * Opening splash only:
+ * - First time this browser tab loads the app
+ * - NOT when switching Chats / Shop / Settings
+ * - NOT when a screen is merely loading data
+ *
+ * Dots fill the outline holes on logo-splash-nodots.png.
  */
 const LOGO_SRC = "/icons/logo-splash-nodots.png";
 const LOGO_FALLBACK = "/icons/logo-splash.png";
+const SESSION_KEY = "xuppin.splash.shown";
 
-/** Measured from the original 512px logo — centers of the three dots */
 const DOT_SLOTS = [
   { left: "38.30%", top: "49.68%" },
   { left: "50.00%", top: "49.69%" },
@@ -23,7 +26,7 @@ export function AppSplash() {
   const [dot, setDot] = useState(0);
   const [logoSrc, setLogoSrc] = useState(LOGO_SRC);
   const timersRef = useRef<number[]>([]);
-  const playingRef = useRef(false);
+  const startedRef = useRef(false);
 
   const clearTimers = useCallback(() => {
     for (const id of timersRef.current) {
@@ -32,13 +35,15 @@ export function AppSplash() {
     timersRef.current = [];
   }, []);
 
-  const play = useCallback(() => {
+  useEffect(() => {
     if (typeof window === "undefined") return;
-    if (playingRef.current) return;
+    if (startedRef.current) return;
+    if (sessionStorage.getItem(SESSION_KEY) === "1") {
+      setPhase("done");
+      return;
+    }
 
-    playingRef.current = true;
-    clearTimers();
-
+    startedRef.current = true;
     setDot(0);
     setPhase("hold");
     setVisible(true);
@@ -58,34 +63,13 @@ export function AppSplash() {
     later(() => setPhase("land"), 2500);
     later(() => setPhase("out"), 2900);
     later(() => {
+      sessionStorage.setItem(SESSION_KEY, "1");
       setVisible(false);
       setPhase("done");
-      playingRef.current = false;
     }, 3300);
+
+    return () => clearTimers();
   }, [clearTimers]);
-
-  useEffect(() => {
-    play();
-    return () => {
-      clearTimers();
-      playingRef.current = false;
-    };
-  }, [play, clearTimers]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") play();
-    };
-    const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) play();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", onPageShow);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("pageshow", onPageShow);
-    };
-  }, [play]);
 
   if (!visible || phase === "done") return null;
 
@@ -121,7 +105,6 @@ export function AppSplash() {
             }}
           />
 
-          {/* Solid dots fill the outline holes — only after each loads */}
           <div className="pointer-events-none absolute inset-0">
             {DOT_SLOTS.map((slot, i) => {
               if (dot <= i) return null;
