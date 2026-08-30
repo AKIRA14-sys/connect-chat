@@ -48,9 +48,10 @@ export const THEMES: Theme[] = [
   {
     id: "default",
     name: "Default",
-    swatch: "#0a0e14",
-    messageAreaBackground: "",
-    bubbleMine: "",
+    swatch: "#0a1628",
+    messageAreaBackground:
+      "radial-gradient(circle at 20% 0%, rgba(46,230,200,0.07), transparent 55%), linear-gradient(180deg, #050b14 0%, #0a1628 100%)",
+    bubbleMine: "linear-gradient(135deg, #14b8a6 0%, #2ee6c8 55%, #22d3ee 100%)",
   },
   {
     id: "midnight",
@@ -287,6 +288,34 @@ export async function getLocalChatCustomization(
   chatId: string,
 ): Promise<ChatCustomization> {
   return readCustomizationRecord(chatId);
+}
+
+
+async function saveCustomization(
+  chatId: string,
+  patch: Partial<ChatCustomization>,
+): Promise<void> {
+  try {
+    const db = await openDb();
+    if (!db) return;
+
+    const current = await readCustomizationRecord(chatId);
+    const next: ChatCustomization & { chatId: string } = {
+      chatId,
+      themeId: patch.themeId ?? current.themeId,
+      fontId: patch.fontId !== undefined ? patch.fontId : current.fontId,
+      wallpaper: patch.wallpaper ?? current.wallpaper,
+    };
+
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(SETTINGS_STORE, "readwrite");
+      tx.objectStore(SETTINGS_STORE).put(next);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  } catch {
+    // best effort — IndexedDB may be unavailable
+  }
 }
 
 export async function setChatTheme(chatId: string, themeId: ThemeId) {
