@@ -33,6 +33,9 @@ export const DEFAULT_CUSTOMIZATION: ChatCustomization = {
   wallpaper: { kind: "none" },
 };
 
+/** App-wide default backdrop for every chat (overridable per chat). */
+export const GLOBAL_CHAT_ID = "__global__";
+
 export type Theme = {
   id: ThemeId;
   name: string;
@@ -200,7 +203,8 @@ function openDb(): Promise<IDBDatabase | null> {
   });
 }
 
-export async function getChatCustomization(
+
+async function readCustomizationRecord(
   chatId: string,
 ): Promise<ChatCustomization> {
   try {
@@ -209,8 +213,7 @@ export async function getChatCustomization(
 
     return await new Promise((resolve) => {
       const tx = db.transaction(SETTINGS_STORE, "readonly");
-      const store = tx.objectStore(SETTINGS_STORE);
-      const request = store.get(chatId);
+      const request = tx.objectStore(SETTINGS_STORE).get(chatId);
 
       request.onsuccess = () => {
         const record = request.result as
@@ -236,26 +239,54 @@ export async function getChatCustomization(
   }
 }
 
-async function saveCustomization(
+async function readWallpaperMediaRecord(
   chatId: string,
-  patch: Partial<ChatCustomization>,
-): Promise<void> {
+): Promise<{ blob: Blob; mediaType: "image" | "video" } | null> {
   try {
     const db = await openDb();
-    if (!db) return;
+    if (!db) return null;
 
-    const current = await getChatCustomization(chatId);
-    const next: ChatCustomization = { ...current, ...patch };
+    return await new Promise((resolve) => {
+      const tx = db.transaction(MEDIA_STORE, "readonly");
+      const request = tx.objectStore(MEDIA_STORE).get(chatId);
 
-    await new Promise<void>((resolve) => {
-      const tx = db.transaction(SETTINGS_STORE, "readwrite");
-      tx.objectStore(SETTINGS_STORE).put({ chatId, ...next });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
+      request.onsuccess = () => {
+        const record = request.result as
+          | { chatId: string; blob: Blob; mediaType: "image" | "video" }
+          | undefined;
+
+        resolve(record ? { blob: record.blob, mediaType: record.mediaType } : null);
+      };
+
+      request.onerror = () => resolve(null);
     });
   } catch {
-    // Best effort — customization is a non-critical local preference.
+    return null;
   }
+}
+
+export async function getChatCustomization(
+  chatId: string,
+): Promise<ChatCustomization> {
+  const local = await readCustomizationRecord(chatId);
+
+  // Per-chat theme/font always local; wallpaper falls back to global default
+  if (chatId === GLOBAL_CHAT_ID) return local;
+  if (local.wallpaper.kind !== "none") return local;
+
+  const global = await readCustomizationRecord(GLOBAL_CHAT_ID);
+  if (global.wallpaper.kind === "none") return local;
+
+  return {
+    ...local,
+    wallpaper: global.wallpaper,
+  };
+}
+
+export async function getLocalChatCustomization(
+  chatId: string,
+): Promise<ChatCustomization> {
+  return readCustomizationRecord(chatId);
 }
 
 export async function setChatTheme(chatId: string, themeId: ThemeId) {
@@ -316,27 +347,16 @@ export async function setChatWallpaperCustomFile(
 export async function getChatWallpaperMedia(
   chatId: string,
 ): Promise<{ blob: Blob; mediaType: "image" | "video" } | null> {
-  try {
-    const db = await openDb();
-    if (!db) return null;
+  const localMedia = await readWallpaperMediaRecord(chatId);
+  if (localMedia) return localMedia;
 
-    return await new Promise((resolve) => {
-      const tx = db.transaction(MEDIA_STORE, "readonly");
-      const request = tx.objectStore(MEDIA_STORE).get(chatId);
+  // Only fall back to global media when this chat has no own wallpaper
+  if (chatId === GLOBAL_CHAT_ID) return null;
 
-      request.onsuccess = () => {
-        const record = request.result as
-          | { chatId: string; blob: Blob; mediaType: "image" | "video" }
-          | undefined;
+  const localSettings = await readCustomizationRecord(chatId);
+  if (localSettings.wallpaper.kind !== "none") return null;
 
-        resolve(record ? { blob: record.blob, mediaType: record.mediaType } : null);
-      };
-
-      request.onerror = () => resolve(null);
-    });
-  } catch {
-    return null;
-  }
+  return readWallpaperMediaRecord(GLOBAL_CHAT_ID);
 }
 
 async function clearChatWallpaperMedia(chatId: string): Promise<void> {
