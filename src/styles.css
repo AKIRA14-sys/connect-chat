@@ -156,3 +156,26 @@
 @utility safe-top {
   padding-top: max(0.5rem, env(safe-area-inset-top));
 }
+
+
+/* Solo-emoji / sticker entrance */
+@keyframes xup-sticker-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.xup-sticker-pop {
+  display: inline-block;
+  animation: xup-sticker-pop 0.45s cubic-bezier(0.22, 1.2, 0.36, 1) both;
+}
+
+/* Soft continuous bob for stickers in view */
+@keyframes xup-sticker-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.xup-sticker-pop {
+  animation:
+    xup-sticker-pop 0.45s cubic-bezier(0.22, 1.2, 0.36, 1) both,
+    xup-sticker-bob 2.4s ease-in-out 0.45s infinite;
+}
