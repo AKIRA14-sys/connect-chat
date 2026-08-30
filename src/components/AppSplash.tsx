@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Base image has NO dots (logo-splash-nodots.png).
- * Dots only appear when they "load": 1, then 2, then 3.
- * Then rise → land → fade.
+ * Base image: logo-splash-nodots.png (empty outlines).
+ * Loading dots sit exactly in those outline holes:
+ *   1 → 2 → 3, then rise → land → fade.
  */
 const LOGO_SRC = "/icons/logo-splash-nodots.png";
 const LOGO_FALLBACK = "/icons/logo-splash.png";
+
+/** Measured from the original 512px logo — centers of the three dots */
+const DOT_SLOTS = [
+  { left: "38.30%", top: "49.68%" },
+  { left: "50.00%", top: "49.69%" },
+  { left: "61.62%", top: "49.68%" },
+] as const;
 
 export function AppSplash() {
   const [visible, setVisible] = useState(false);
@@ -41,7 +48,6 @@ export function AppSplash() {
       timersRef.current.push(id);
     };
 
-    // Pure empty bubble first
     later(() => {
       setPhase("dots");
       setDot(1);
@@ -103,7 +109,6 @@ export function AppSplash() {
         <div className="pointer-events-none absolute h-48 w-48 rounded-full bg-cyan-400/20 blur-3xl" />
 
         <div className="relative h-44 w-44">
-          {/* Empty bubble — no dots in the picture */}
           <img
             src={logoSrc}
             alt=""
@@ -116,28 +121,26 @@ export function AppSplash() {
             }}
           />
 
-          {/* Dots only after each one loads — nothing before */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div
-              className="flex items-center justify-center gap-[0.85rem]"
-              style={{ marginTop: "0.15rem" }}
-            >
-              {[0, 1, 2].map((i) => {
-                if (dot <= i) {
-                  return <span key={i} className="block h-3.5 w-3.5" />;
-                }
-                return (
-                  <span
-                    key={i}
-                    className="block h-3.5 w-3.5 rounded-full"
-                    style={{
-                      backgroundColor: "#2ee6c8",
-                      boxShadow: "0 0 14px rgba(46, 230, 200, 0.95)",
-                    }}
-                  />
-                );
-              })}
-            </div>
+          {/* Solid dots fill the outline holes — only after each loads */}
+          <div className="pointer-events-none absolute inset-0">
+            {DOT_SLOTS.map((slot, i) => {
+              if (dot <= i) return null;
+              return (
+                <span
+                  key={i}
+                  className="absolute block rounded-full"
+                  style={{
+                    left: slot.left,
+                    top: slot.top,
+                    width: "6.2%",
+                    height: "6.2%",
+                    transform: "translate(-50%, -50%)",
+                    backgroundColor: "#2ee6c8",
+                    boxShadow: "0 0 12px rgba(46, 230, 200, 0.95)",
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
 
