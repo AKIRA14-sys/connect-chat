@@ -15,6 +15,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { AndroidBackHandler } from "@/components/AndroidBackHandler";
 import { AppSplash } from "@/components/AppSplash";
 
 
@@ -169,6 +170,7 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AppSplash />
+      <AndroidBackHandler />
       <AuthProvider>
         <RealtimeProvider>
           <ConnectionBanner />
@@ -180,4 +182,3 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
-
