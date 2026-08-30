@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Your logo only at first (no extra dots on top).
- * Then glow appears for dot 1 → 2 → 3 (one at a time).
+ * Base image has NO dots (logo-splash-nodots.png).
+ * Dots only appear when they "load": 1, then 2, then 3.
  * Then rise → land → fade.
  */
-const LOGO_SRC = "/icons/logo-splash.png";
-const LOGO_FALLBACK = "/icons/icon-512.png";
+const LOGO_SRC = "/icons/logo-splash-nodots.png";
+const LOGO_FALLBACK = "/icons/logo-splash.png";
 
 export function AppSplash() {
   const [visible, setVisible] = useState(false);
@@ -41,12 +41,11 @@ export function AppSplash() {
       timersRef.current.push(id);
     };
 
-    // 0.5s: pure logo only — no overlay
+    // Pure empty bubble first
     later(() => {
       setPhase("dots");
       setDot(1);
     }, 500);
-    // slower spacing so 2 and 3 are not rushed
     later(() => setDot(2), 1100);
     later(() => setDot(3), 1700);
     later(() => setPhase("rise"), 2100);
@@ -104,6 +103,7 @@ export function AppSplash() {
         <div className="pointer-events-none absolute h-48 w-48 rounded-full bg-cyan-400/20 blur-3xl" />
 
         <div className="relative h-44 w-44">
+          {/* Empty bubble — no dots in the picture */}
           <img
             src={logoSrc}
             alt=""
@@ -116,30 +116,23 @@ export function AppSplash() {
             }}
           />
 
-          {/*
-            Only lit dots appear — nothing dim/covering before a dot loads.
-            Unlit slots render nothing.
-          */}
+          {/* Dots only after each one loads — nothing before */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div
               className="flex items-center justify-center gap-[0.85rem]"
               style={{ marginTop: "0.15rem" }}
             >
               {[0, 1, 2].map((i) => {
-                const on = dot > i;
-                if (!on) {
-                  return (
-                    <span key={i} className="block h-3.5 w-3.5 opacity-0" />
-                  );
+                if (dot <= i) {
+                  return <span key={i} className="block h-3.5 w-3.5" />;
                 }
                 return (
                   <span
                     key={i}
-                    className="block h-3.5 w-3.5 rounded-full animate-in fade-in zoom-in duration-300"
+                    className="block h-3.5 w-3.5 rounded-full"
                     style={{
                       backgroundColor: "#2ee6c8",
-                      boxShadow: "0 0 16px rgba(46, 230, 200, 1)",
-                      transform: "scale(1.2)",
+                      boxShadow: "0 0 14px rgba(46, 230, 200, 0.95)",
                     }}
                   />
                 );
