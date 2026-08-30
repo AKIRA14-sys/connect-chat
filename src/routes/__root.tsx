@@ -15,6 +15,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { AppSplash } from "@/components/AppSplash";
 
 
 function NotFoundComponent() {
@@ -82,14 +83,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { title: "WHATSXUP — Real-time messaging" },
+      { title: "XUPPIN — Real-time messaging" },
       {
         name: "description",
         content:
-          "WHATSXUP is a fast, installable messaging app with private chats, groups, voice notes and calls.",
+          "XUPPIN is a fast, installable messaging app with private chats, groups, voice notes and calls.",
       },
       { name: "theme-color", content: "#0b1020" },
-      { property: "og:title", content: "WHATSXUP — Real-time messaging" },
+      { property: "og:title", content: "XUPPIN — Real-time messaging" },
       {
         property: "og:description",
         content: "Private chats, groups, voice notes and calls in one installable app.",
@@ -97,7 +98,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "WHATSXUP" },
+      { name: "apple-mobile-web-app-title", content: "XUPPIN" },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
@@ -167,6 +168,7 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <AppSplash />
       <AuthProvider>
         <RealtimeProvider>
           <ConnectionBanner />
