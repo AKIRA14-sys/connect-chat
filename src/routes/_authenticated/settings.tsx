@@ -611,6 +611,7 @@ function GlobalBackdropPanel() {
   async function chooseBuiltin(id: string) {
     await setChatWallpaperBuiltin(GLOBAL_CHAT_ID, id);
     toast.success("Default backdrop updated");
+    window.dispatchEvent(new Event("xup-wallpaper-changed"));
     await reload();
   }
 
@@ -634,6 +635,7 @@ function GlobalBackdropPanel() {
           ? "Default video backdrop set"
           : "Default photo backdrop set",
       );
+      window.dispatchEvent(new Event("xup-wallpaper-changed"));
       await reload();
     } finally {
       setUploading(false);
@@ -643,6 +645,7 @@ function GlobalBackdropPanel() {
   async function clearAll() {
     await clearChatWallpaper(GLOBAL_CHAT_ID);
     toast.success("Default backdrop cleared");
+    window.dispatchEvent(new Event("xup-wallpaper-changed"));
     await reload();
   }
 
