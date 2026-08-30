@@ -44,10 +44,10 @@ import {
   type ChatCustomization,
 } from "@/lib/chatCustomization";
 import {
-  ensurePushSubscription,
-  getPushStatus,
+  getPushSubscription,
+  pushSupported,
+  subscribeToPush,
   unsubscribeFromPush,
-  type PushStatus,
 } from "@/lib/pwa";
 import {
   removePushSubscription,
@@ -60,8 +60,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
       { title: "You — XUPPIN" },
       {
         name: "description",
-        content:
-          "Manage your XUPPIN profile, privacy, alerts and chat look.",
+        content: "Manage your XUPPIN profile, privacy, alerts and chat look.",
       },
       { property: "og:title", content: "You — XUPPIN" },
     ],
@@ -78,13 +77,9 @@ type SectionId =
   | "showcase";
 
 function SettingsPage() {
-  const auth = useAuth() as {
-    user: { id: string } | null;
-    signOut?: () => Promise<void> | void;
-  };
-  const user = auth.user;
+  const { user } = useAuth();
   const { data: profile, refetch } = useProfile();
-  const isAdmin = useIsAdmin();
+  const { data: isAdmin = false } = useIsAdmin();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [section, setSection] = useState<SectionId>("home");
@@ -95,34 +90,30 @@ function SettingsPage() {
   const [showOnline, setShowOnline] = useState(true);
   const [readReceipts, setReadReceipts] = useState(true);
   const [discoverable, setDiscoverable] = useState(true);
-  const [pushStatus, setPushStatus] = useState<PushStatus | null>(null);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
     setDisplayName(profile.display_name ?? "");
     setUsername(profile.username ?? "");
-    setBio((profile as { bio?: string | null }).bio ?? "");
-    setShowOnline(
-      (profile as { show_online_status?: boolean }).show_online_status ?? true,
-    );
-    setReadReceipts(
-      (profile as { show_read_receipts?: boolean }).show_read_receipts ?? true,
-    );
-    setDiscoverable(
-      (profile as { discoverable?: boolean }).discoverable ?? true,
-    );
+    setBio(profile.bio ?? "");
+    setShowOnline(profile.show_online_status ?? true);
+    setReadReceipts(profile.show_read_receipts ?? true);
+    setDiscoverable(profile.discoverable ?? true);
   }, [profile]);
 
   useEffect(() => {
     let cancelled = false;
-    void getPushStatus()
-      .then((s) => {
-        if (!cancelled) setPushStatus(s);
-      })
-      .catch(() => {
-        /* push helpers may be older build */
-      });
+    void (async () => {
+      try {
+        if (!pushSupported()) return;
+        const sub = await getPushSubscription();
+        if (!cancelled) setPushSubscribed(!!sub);
+      } catch {
+        /* ignore */
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -194,15 +185,19 @@ function SettingsPage() {
     setPushBusy(true);
     try {
       window.localStorage.removeItem("whatsxup.push.dismissed");
-      const result = await ensurePushSubscription();
-      if (!result.ok) {
-        toast.error(result.error);
-        setPushStatus(await getPushStatus());
+      const payload = await subscribeToPush();
+      if (!payload) {
+        toast.error(
+          Notification.permission === "denied"
+            ? "Notifications are blocked in browser settings"
+            : "Could not enable alerts on this device",
+        );
+        setPushSubscribed(!!(await getPushSubscription()));
         return;
       }
-      await savePushSubscription({ data: result.payload });
+      await savePushSubscription({ data: payload });
       toast.success("Alerts enabled on this device");
-      setPushStatus(await getPushStatus());
+      setPushSubscribed(true);
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Could not enable alerts",
@@ -220,11 +215,11 @@ function SettingsPage() {
         try {
           await removePushSubscription({ data: { endpoint } });
         } catch {
-          /* ignore */
+          /* ignore server cleanup */
         }
       }
       toast.success("Alerts disabled on this device");
-      setPushStatus(await getPushStatus());
+      setPushSubscribed(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not disable");
     } finally {
@@ -234,8 +229,7 @@ function SettingsPage() {
 
   async function handleSignOut() {
     try {
-      if (auth.signOut) await auth.signOut();
-      else await supabase.auth.signOut();
+      await supabase.auth.signOut();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not sign out");
     }
@@ -299,9 +293,9 @@ function SettingsPage() {
                   @{profile.username}
                 </p>
               ) : null}
-              {(profile as { bio?: string | null })?.bio ? (
+              {profile?.bio ? (
                 <p className="max-w-xs text-xs text-muted-foreground">
-                  {(profile as { bio?: string | null }).bio}
+                  {profile.bio}
                 </p>
               ) : null}
             </button>
@@ -486,10 +480,9 @@ function SettingsPage() {
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-medium">Device alerts</p>
             <p className="text-xs text-muted-foreground">
-              {pushStatus?.subscribed
+              {pushSubscribed
                 ? "This device is ready for message and call alerts."
-                : pushStatus?.reason ||
-                  "Turn on to get messages and calls when XUPPIN is closed."}
+                : "Turn on to get messages and calls when XUPPIN is closed."}
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -497,9 +490,9 @@ function SettingsPage() {
                 disabled={pushBusy}
                 onClick={() => void enablePush()}
               >
-                {pushBusy ? "…" : pushStatus?.subscribed ? "Refresh" : "Enable"}
+                {pushBusy ? "…" : pushSubscribed ? "Refresh" : "Enable"}
               </Button>
-              {pushStatus?.subscribed ? (
+              {pushSubscribed ? (
                 <Button
                   size="sm"
                   variant="outline"
