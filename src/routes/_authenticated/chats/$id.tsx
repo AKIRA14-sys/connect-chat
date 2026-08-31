@@ -759,6 +759,13 @@ function ChatRoom() {
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
   const [messageMenu, setMessageMenu] = useState<DeleteMenuState>(null);
+  const [forwardFrom, setForwardFrom] = useState<Message | null>(null);
+  const [forwardList, setForwardList] = useState<
+    { id: string; title: string }[]
+  >([]);
+  const [forwardBusy, setForwardBusy] = useState(false);
+  /** Skip the delayed mouse click that follows a touch (feels like long-press). */
+  const openedMenuByTouchRef = useRef(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipingMessageId, setSwipingMessageId] = useState<string | null>(
     null,
@@ -2767,6 +2774,22 @@ function ChatRoom() {
     });
   }
 
+  function openMessageMenuAt(
+    message: Message,
+    clientX: number,
+    clientY: number,
+  ) {
+    if ((message as { deleted_at?: string | null }).deleted_at) return;
+    const x = Math.min(clientX - 100, window.innerWidth - 220);
+    const y = Math.min(clientY + 8, window.innerHeight - 320);
+    setMessageMenu({
+      message,
+      x: Math.max(8, x),
+      y: Math.max(8, y),
+    });
+    setReactionPicker(null);
+  }
+
   function handleTouchEnd(
     event: React.TouchEvent,
     message: Message,
@@ -2783,7 +2806,7 @@ function ChatRoom() {
     const distanceX = endX - startX;
     const distanceY = Math.abs(endY - meta.y);
 
-    // Swipe right to reply (WhatsApp-like)
+    // Swipe right → reply
     if (distanceX > 56 && distanceY < 36) {
       setSwipingMessageId(message.id);
       startReply(message);
@@ -2791,26 +2814,35 @@ function ChatRoom() {
       return;
     }
 
-    // Tap only → action menu (Reply, Forward, Copy, React, …)
-    // No long-press required
-    if (Math.abs(distanceX) < 18 && distanceY < 18) {
-      if ((message as { deleted_at?: string | null }).deleted_at) return;
+    // Finger barely moved → treat as TAP (not long-press)
+    if (Math.abs(distanceX) < 24 && distanceY < 24) {
       const touch = event.changedTouches[0];
-      const x = Math.min(
-        (touch?.clientX ?? window.innerWidth / 2) - 100,
-        window.innerWidth - 220,
-      );
-      const y = Math.min(
-        (touch?.clientY ?? 120) + 8,
-        window.innerHeight - 280,
-      );
-      setMessageMenu({
+      openedMenuByTouchRef.current = true;
+      openMessageMenuAt(
         message,
-        x: Math.max(8, x),
-        y: Math.max(8, y),
-      });
-      setReactionPicker(null);
+        touch?.clientX ?? endX,
+        touch?.clientY ?? endY,
+      );
+      // Ignore the synthetic click that browsers fire ~300ms later
+      window.setTimeout(() => {
+        openedMenuByTouchRef.current = false;
+      }, 400);
     }
+  }
+
+  function handleMessageClick(
+    event: React.MouseEvent,
+    message: Message,
+  ) {
+    // Touch already opened the menu — do not wait / re-open
+    if (openedMenuByTouchRef.current) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if ((message as { deleted_at?: string | null }).deleted_at) return;
+    if (window.getSelection()?.toString()) return;
+    openMessageMenuAt(message, event.clientX, event.clientY);
   }
 
   async function copyMessageContent(message: Message) {
@@ -2823,8 +2855,10 @@ function ChatRoom() {
       text = sticker.emoji;
     } else if (message.type === "text") {
       text = decodeSpecialMessage(message.content).text;
+    } else if (message.media_url) {
+      text = message.media_url;
     } else {
-      text = message.content ?? message.media_url ?? "";
+      text = message.content ?? "";
     }
     if (!text) {
       toast.error("Nothing to copy");
@@ -2838,30 +2872,123 @@ function ChatRoom() {
     }
   }
 
-  async function forwardMessageContent(message: Message) {
-    const sticker =
-      (message.type as string) === "sticker"
-        ? getSticker(message.content)
-        : null;
-    let text = "";
-    if (sticker) {
-      text = sticker.emoji;
-    } else if (message.type === "text") {
-      text = decodeSpecialMessage(message.content).text;
-    } else {
-      text = message.content ?? message.media_url ?? "";
-    }
-    if (!text) {
-      toast.error("Nothing to forward");
+  async function loadForwardTargets() {
+    if (!user) return;
+    const { data: memberRows, error: memErr } = await supabase
+      .from("conversation_members")
+      .select("conversation_id")
+      .eq("user_id", user.id);
+
+    if (memErr || !memberRows?.length) {
+      setForwardList([]);
       return;
     }
+
+    const ids = memberRows
+      .map((r: { conversation_id: string }) => r.conversation_id)
+      .filter((cid: string) => cid !== id);
+
+    if (!ids.length) {
+      setForwardList([]);
+      return;
+    }
+
+    const { data: convs, error: convErr } = await supabase
+      .from("conversations")
+      .select("id, is_group, title, last_message_at")
+      .in("id", ids)
+      .order("last_message_at", { ascending: false, nullsFirst: false });
+
+    if (convErr || !convs) {
+      setForwardList([]);
+      return;
+    }
+
+    const { data: allMembers } = await supabase
+      .from("conversation_members")
+      .select("conversation_id, user_id")
+      .in("conversation_id", ids);
+
+    const otherIds = [
+      ...new Set(
+        (allMembers ?? [])
+          .filter(
+            (m: { conversation_id: string; user_id: string }) =>
+              m.user_id !== user.id,
+          )
+          .map((m: { user_id: string }) => m.user_id),
+      ),
+    ];
+
+    let nameMap = new Map<string, string>();
+    if (otherIds.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, display_name, username")
+        .in("id", otherIds);
+      for (const p of profiles ?? []) {
+        nameMap.set(
+          p.id,
+          p.display_name || (p.username ? `@${p.username}` : "Chat"),
+        );
+      }
+    }
+
+    const rows: { id: string; title: string }[] = [];
+    for (const c of convs as {
+      id: string;
+      is_group?: boolean;
+      title?: string | null;
+    }[]) {
+      if (c.is_group && c.title) {
+        rows.push({ id: c.id, title: c.title });
+        continue;
+      }
+      const other = (allMembers ?? []).find(
+        (m: { conversation_id: string; user_id: string }) =>
+          m.conversation_id === c.id && m.user_id !== user.id,
+      );
+      const title = other
+        ? nameMap.get(other.user_id) || "Chat"
+        : c.title || "Chat";
+      rows.push({ id: c.id, title });
+    }
+    setForwardList(rows);
+  }
+
+  async function openForwardPicker(message: Message) {
+    setMessageMenu(null);
+    setForwardFrom(message);
+    setForwardList([]);
+    await loadForwardTargets();
+  }
+
+  async function confirmForward(targetConversationId: string) {
+    if (!user || !forwardFrom) return;
+    setForwardBusy(true);
     try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Copied — open another chat and paste to forward");
-    } catch {
-      toast.error("Could not prepare forward");
+      const msg = forwardFrom;
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: targetConversationId,
+        sender_id: user.id,
+        type: msg.type as any,
+        content: msg.content ?? null,
+        media_url: msg.media_url ?? null,
+        media_duration: msg.media_duration ?? null,
+        reply_to: null,
+      });
+      if (error) throw error;
+      toast.success("Forwarded");
+      setForwardFrom(null);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not forward",
+      );
+    } finally {
+      setForwardBusy(false);
     }
   }
+
 
   /* ==========================================================
    * ADD CONTACT
@@ -4075,29 +4202,7 @@ function ChatRoom() {
                   message,
                 )
               }
-              onClick={(event) => {
-                if ((message as { deleted_at?: string | null }).deleted_at)
-                  return;
-                if (
-                  typeof window !== "undefined" &&
-                  window.getSelection()?.toString()
-                )
-                  return;
-                const x = Math.min(
-                  event.clientX - 100,
-                  window.innerWidth - 220,
-                );
-                const y = Math.min(
-                  event.clientY + 8,
-                  window.innerHeight - 280,
-                );
-                setMessageMenu({
-                  message,
-                  x: Math.max(8, x),
-                  y: Math.max(8, y),
-                });
-                setReactionPicker(null);
-              }}
+              onClick={(event) => handleMessageClick(event, message)}
             >
               <div
                 className={`relative max-w-[82%] transition-transform ${
@@ -4543,6 +4648,49 @@ function ChatRoom() {
        * DELETE MENU
        * ====================================================== */}
 
+      {forwardFrom && (
+        <>
+          <button
+            type="button"
+            aria-label="Close forward"
+            className="fixed inset-0 z-[60] cursor-default bg-black/40"
+            onClick={() => !forwardBusy && setForwardFrom(null)}
+          />
+          <div className="fixed inset-x-0 bottom-0 z-[70] mx-auto max-w-2xl rounded-t-2xl border border-border bg-background p-4 shadow-2xl safe-bottom">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">Forward to…</p>
+              <button
+                type="button"
+                className="text-xs text-muted-foreground"
+                disabled={forwardBusy}
+                onClick={() => setForwardFrom(null)}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {forwardList.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No other chats found
+                </p>
+              ) : (
+                forwardList.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    disabled={forwardBusy}
+                    className="flex w-full items-center rounded-xl px-3 py-3 text-left text-sm hover:bg-muted disabled:opacity-50"
+                    onClick={() => void confirmForward(row.id)}
+                  >
+                    {row.title}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
       {messageMenu && (
         <>
           <button
@@ -4570,8 +4718,7 @@ function ChatRoom() {
               type="button"
               className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
               onClick={() => {
-                void forwardMessageContent(messageMenu.message);
-                setMessageMenu(null);
+                void openForwardPicker(messageMenu.message);
               }}
             >
               <Share2 className="h-4 w-4" />
