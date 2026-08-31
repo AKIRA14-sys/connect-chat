@@ -32,9 +32,9 @@ import {
   Eye,
   EyeOff,
   Wand2,
-  Palette,,
+  Palette,
   Share2,
-  Copy
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 
