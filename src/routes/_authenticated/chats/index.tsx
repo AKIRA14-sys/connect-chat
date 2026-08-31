@@ -36,6 +36,7 @@ import {
   type Message,
   type Profile,
 } from "@/lib/whatsxup";
+import { STICKERS } from "@/lib/stickers";
 
 import {
   CHAT_FONTS,
@@ -992,6 +993,19 @@ function ChatsPage() {
 
     if (message.type === "audio") {
       return "🎙️ Voice note";
+    }
+
+    if ((message.type as string) === "sticker") {
+      const raw = (message.content ?? "").trim();
+      if (!raw) return "Sticker";
+      if (raw.startsWith("emoji:")) {
+        return raw.slice("emoji:".length);
+      }
+      // sticker id from catalog → show its emoji
+      const fromCatalog = STICKERS.find((s) => s.id === raw);
+      if (fromCatalog) return fromCatalog.emoji;
+      // raw emoji stored as content
+      return raw;
     }
 
     const content =
