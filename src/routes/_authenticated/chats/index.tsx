@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,8 @@ import {
   Check,
   ChevronDown,
   Image,
+  Upload,
+  Loader2,
   MoreVertical,
   Palette,
   PenSquare,
@@ -29,6 +31,7 @@ import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 import {
   timeLabel,
@@ -49,6 +52,9 @@ import {
   savePageAppearance,
   getChatAppearance,
   saveChatAppearance,
+  getPageWallpaperMedia,
+  setPageWallpaperFile,
+  clearPageWallpaperMedia,
   type ChatAppearance,
 } from "@/lib/chatAppearance";
 
@@ -200,7 +206,14 @@ function ChatsPage() {
       themeId: "default",
       fontId: "font-1",
       wallpaperId: "none",
+      customMedia: null,
     });
+  const [pageMediaUrl, setPageMediaUrl] = useState<string | null>(null);
+  const [pageMediaType, setPageMediaType] = useState<"image" | "video" | null>(
+    null,
+  );
+  const [pageMediaUploading, setPageMediaUploading] = useState(false);
+  const pageMediaInputRef = useRef<HTMLInputElement>(null);
 
   const [appearanceLoading, setAppearanceLoading] =
     useState(false);
@@ -228,15 +241,36 @@ function ChatsPage() {
 
   useEffect(() => {
     let mounted = true;
+    let objectUrl: string | null = null;
 
-    getPageAppearance().then((saved) => {
-      if (mounted) {
+    void (async () => {
+      try {
+        const saved = await getPageAppearance();
+        if (!mounted) return;
         setAppearance(saved);
+
+        const media = await getPageWallpaperMedia();
+        if (!mounted) return;
+        if (media) {
+          objectUrl = URL.createObjectURL(media.blob);
+          setPageMediaUrl(objectUrl);
+          setPageMediaType(media.mediaType);
+          // ensure flag matches stored media
+          if (!saved.customMedia) {
+            setAppearance({
+              ...saved,
+              customMedia: media.mediaType,
+            });
+          }
+        }
+      } catch {
+        /* ignore */
       }
-    });
+    })();
 
     return () => {
       mounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, []);
 
@@ -786,10 +820,22 @@ function ChatsPage() {
   async function updateAppearance(
     changes: Partial<ChatAppearance>,
   ) {
-    const next = {
+    const next: ChatAppearance = {
       ...appearance,
       ...changes,
     };
+
+    if (
+      appearanceTarget?.type === "page" &&
+      changes.wallpaperId &&
+      changes.wallpaperId !== "none"
+    ) {
+      next.customMedia = null;
+      await clearPageWallpaperMedia();
+      if (pageMediaUrl) URL.revokeObjectURL(pageMediaUrl);
+      setPageMediaUrl(null);
+      setPageMediaType(null);
+    }
 
     setAppearance(next);
 
@@ -1093,8 +1139,10 @@ function ChatsPage() {
     fontFamily:
       currentFont.family,
     backgroundImage:
-      currentWallpaper.value ||
-      undefined,
+      pageMediaUrl
+        ? undefined
+        : currentWallpaper.value ||
+          undefined,
     backgroundSize:
       currentWallpaper.id ===
         "dots" ||
@@ -1107,9 +1155,26 @@ function ChatsPage() {
   return (
     <AppShell>
       <div
-        className="min-h-screen"
+        className="relative min-h-screen"
         style={pageStyle}
       >
+        {pageMediaUrl && pageMediaType === "video" ? (
+          <video
+            key={pageMediaUrl}
+            src={pageMediaUrl}
+            className="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-50"
+            autoPlay
+            muted
+            loop
+            playsInline
+          />
+        ) : null}
+        {pageMediaUrl && pageMediaType === "image" ? (
+          <div
+            className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center opacity-50"
+            style={{ backgroundImage: `url("${pageMediaUrl}")` }}
+          />
+        ) : null}
         <PageHeader
           title="Chats"
           action={
@@ -1123,6 +1188,17 @@ function ChatsPage() {
                 aria-label="Customize Chats"
               >
                 <Palette className="h-5 w-5" />
+              </Button>
+
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                aria-label="Transfer files"
+              >
+                <Link to="/transfer">
+                  <Upload className="h-5 w-5" />
+                </Link>
               </Button>
 
               <Button
@@ -1801,6 +1877,95 @@ function ChatsPage() {
                         Wallpaper
                       </h3>
                     </div>
+
+                    {appearanceTarget?.type === "page" ? (
+                      <div className="mb-3 space-y-2">
+                        <input
+                          ref={pageMediaInputRef}
+                          type="file"
+                          accept="image/*,video/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const f = event.target.files?.[0];
+                            event.target.value = "";
+                            if (!f) return;
+                            void (async () => {
+                              setPageMediaUploading(true);
+                              try {
+                                const res = await setPageWallpaperFile(f);
+                                if (!res.ok) {
+                                  if (res.reason === "too-large") {
+                                    toast.error("Max 25MB for page wallpaper");
+                                  } else if (res.reason === "unsupported") {
+                                    toast.error("Use a photo or video file");
+                                  } else {
+                                    toast.error(
+                                      "Could not save wallpaper. Try clearing site data once, then retry.",
+                                    );
+                                  }
+                                  return;
+                                }
+                                if (pageMediaUrl) {
+                                  URL.revokeObjectURL(pageMediaUrl);
+                                }
+                                const url = URL.createObjectURL(f);
+                                setPageMediaUrl(url);
+                                setPageMediaType(
+                                  f.type.startsWith("video/")
+                                    ? "video"
+                                    : "image",
+                                );
+                                const saved = await getPageAppearance();
+                                setAppearance(saved);
+                                toast.success(
+                                  f.type.startsWith("video/")
+                                    ? "Video wallpaper set"
+                                    : "Photo wallpaper set",
+                                );
+                              } finally {
+                                setPageMediaUploading(false);
+                              }
+                            })();
+                          }}
+                        />
+                        <button
+                          type="button"
+                          disabled={pageMediaUploading}
+                          onClick={() => pageMediaInputRef.current?.click()}
+                          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-white/20 bg-white/5 px-3 py-3 text-sm text-white"
+                        >
+                          {pageMediaUploading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Upload className="h-4 w-4" />
+                          )}
+                          {pageMediaUploading
+                            ? "Saving…"
+                            : "Upload photo or video"}
+                        </button>
+                        {pageMediaUrl ? (
+                          <button
+                            type="button"
+                            className="w-full text-xs text-zinc-400 underline"
+                            onClick={() => {
+                              void (async () => {
+                                await clearPageWallpaperMedia();
+                                if (pageMediaUrl) {
+                                  URL.revokeObjectURL(pageMediaUrl);
+                                }
+                                setPageMediaUrl(null);
+                                setPageMediaType(null);
+                                const saved = await getPageAppearance();
+                                setAppearance(saved);
+                                toast.success("Custom wallpaper cleared");
+                              })();
+                            }}
+                          >
+                            Clear photo / video
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
 
                     <div className="grid grid-cols-2 gap-2">
                       {CHAT_WALLPAPERS.map(
