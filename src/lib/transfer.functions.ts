@@ -1,14 +1,10 @@
-// src/lib/transfer.functions.ts
-// Cloud transfer uses GAMING Supabase Storage (service role on server).
-// Auth is still your main chat login via requireSupabaseAuth.
-
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import { gamingSupabaseAdmin } from "@/integrations/gaming-supabase/client.server";
 
 const BUCKET = "transfers";
 const MAX_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB
-const SIGNED_SECS = 60 * 60 * 24 * 7; // 7 days
+const SIGNED_SECS = 60 * 60 * 24 * 7;
 
 export type BeginTransferUploadInput = {
   fileName: string;
@@ -24,63 +20,61 @@ function safeName(name: string) {
   return name.replace(/[^\w.\-()+ ]/g, "_").slice(0, 120) || "file";
 }
 
-/**
- * Returns a signed upload target on the gaming bucket.
- * Browser PUTs the file bytes directly (no main Supabase).
- */
 export const beginGamingTransferUpload = createServerFn({
   method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: BeginTransferUploadInput) => {
-    if (!input?.fileName || typeof input.size !== "number") {
+    if (!input || typeof input !== "object" || !input.fileName) {
       throw new Error("Invalid upload request");
     }
-    if (input.size <= 0 || input.size > MAX_BYTES) {
+    if (typeof input.size !== "number" || input.size <= 0) {
+      throw new Error("Invalid file size");
+    }
+    if (input.size > MAX_BYTES) {
       throw new Error("File too large for cloud transfer (max 5GB).");
     }
-    return input;
+    return {
+      fileName: String(input.fileName),
+      contentType: String(input.contentType || "application/octet-stream"),
+      size: input.size,
+    };
   })
-  .handler(async ({ context, data }) => {
-    const userId = context.user.id;
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
     const path = `transfers/${userId}/${crypto.randomUUID()}_${safeName(data.fileName)}`;
 
-    // Ensure bucket exists is a dashboard/SQL step; upload via signed URL
     const { data: signed, error } = await gamingSupabaseAdmin.storage
       .from(BUCKET)
       .createSignedUploadUrl(path);
 
-    if (error || !signed) {
+    if (error || !signed?.signedUrl) {
       throw new Error(
         error?.message ??
-          "Could not create upload URL. Create bucket `transfers` on gaming Supabase and run storage policies.",
+          'Could not create upload URL. Create private bucket "transfers" on Gaming Supabase.',
       );
     }
 
     return {
       path,
-      token: signed.token,
-      signedUrl: signed.signedUrl,
+      token: signed.token as string,
+      signedUrl: signed.signedUrl as string,
       bucket: BUCKET,
     };
   });
 
-/**
- * After browser upload succeeds, create a 7-day download link.
- */
 export const finishGamingTransferUpload = createServerFn({
   method: "POST",
 })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: FinishTransferUploadInput) => {
-    if (!input?.path || typeof input.path !== "string") {
+    if (!input || typeof input !== "object" || !input.path) {
       throw new Error("Missing path");
     }
-    // Must be under this user's folder
-    return input;
+    return { path: String(input.path) };
   })
-  .handler(async ({ context, data }) => {
-    const userId = context.user.id;
+  .handler(async ({ data, context }) => {
+    const userId = context.userId;
     const prefix = `transfers/${userId}/`;
     if (!data.path.startsWith(prefix)) {
       throw new Error("Invalid transfer path");
@@ -95,7 +89,7 @@ export const finishGamingTransferUpload = createServerFn({
     }
 
     return {
-      url: signed.signedUrl,
+      url: signed.signedUrl as string,
       path: data.path,
       expiresIn: SIGNED_SECS,
     };
