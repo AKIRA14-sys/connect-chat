@@ -32,7 +32,9 @@ import {
   Eye,
   EyeOff,
   Wand2,
-  Palette,
+  Palette,,
+  Share2,
+  Copy
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -756,6 +758,7 @@ function ChatRoom() {
   const [giftCoins, setGiftCoins] = useState(0);
   const [stickerPack, setStickerPack] = useState<StickerPack>("All");
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
+  const [messageMenu, setMessageMenu] = useState<DeleteMenuState>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipingMessageId, setSwipingMessageId] = useState<string | null>(
     null,
@@ -2779,21 +2782,84 @@ function ChatRoom() {
     const endY = event.changedTouches[0]?.clientY ?? meta.y;
     const distanceX = endX - startX;
     const distanceY = Math.abs(endY - meta.y);
-    const held = Date.now() - meta.t;
 
-    // Long-press opens reactions (no under-bubble clutter)
-    if (held >= 450 && Math.abs(distanceX) < 24 && distanceY < 24) {
-      setReactionPicker((cur) =>
-        cur === message.id ? null : message.id,
-      );
-      return;
-    }
-
-    // Swipe right to reply — less sensitive
-    if (distanceX > 120 && distanceY < 40) {
+    // Swipe right to reply (WhatsApp-like)
+    if (distanceX > 56 && distanceY < 36) {
       setSwipingMessageId(message.id);
       startReply(message);
       setTimeout(() => setSwipingMessageId(null), 300);
+      return;
+    }
+
+    // Tap only → action menu (Reply, Forward, Copy, React, …)
+    // No long-press required
+    if (Math.abs(distanceX) < 18 && distanceY < 18) {
+      if ((message as { deleted_at?: string | null }).deleted_at) return;
+      const touch = event.changedTouches[0];
+      const x = Math.min(
+        (touch?.clientX ?? window.innerWidth / 2) - 100,
+        window.innerWidth - 220,
+      );
+      const y = Math.min(
+        (touch?.clientY ?? 120) + 8,
+        window.innerHeight - 280,
+      );
+      setMessageMenu({
+        message,
+        x: Math.max(8, x),
+        y: Math.max(8, y),
+      });
+      setReactionPicker(null);
+    }
+  }
+
+  async function copyMessageContent(message: Message) {
+    const sticker =
+      (message.type as string) === "sticker"
+        ? getSticker(message.content)
+        : null;
+    let text = "";
+    if (sticker) {
+      text = sticker.emoji;
+    } else if (message.type === "text") {
+      text = decodeSpecialMessage(message.content).text;
+    } else {
+      text = message.content ?? message.media_url ?? "";
+    }
+    if (!text) {
+      toast.error("Nothing to copy");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied");
+    } catch {
+      toast.error("Could not copy");
+    }
+  }
+
+  async function forwardMessageContent(message: Message) {
+    const sticker =
+      (message.type as string) === "sticker"
+        ? getSticker(message.content)
+        : null;
+    let text = "";
+    if (sticker) {
+      text = sticker.emoji;
+    } else if (message.type === "text") {
+      text = decodeSpecialMessage(message.content).text;
+    } else {
+      text = message.content ?? message.media_url ?? "";
+    }
+    if (!text) {
+      toast.error("Nothing to forward");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied — open another chat and paste to forward");
+    } catch {
+      toast.error("Could not prepare forward");
     }
   }
 
@@ -3779,7 +3845,7 @@ function ChatRoom() {
        * MESSAGES
        * ====================================================== */}
 
-      <div className="relative flex-1 space-y-2 px-3 py-4">
+      <div className="relative flex-1 space-y-1 px-3 py-3">
         {(wallpaperUrl ||
           effectiveAreaBackground ||
           shopWallpaperActive) && (
@@ -4009,6 +4075,29 @@ function ChatRoom() {
                   message,
                 )
               }
+              onClick={(event) => {
+                if ((message as { deleted_at?: string | null }).deleted_at)
+                  return;
+                if (
+                  typeof window !== "undefined" &&
+                  window.getSelection()?.toString()
+                )
+                  return;
+                const x = Math.min(
+                  event.clientX - 100,
+                  window.innerWidth - 220,
+                );
+                const y = Math.min(
+                  event.clientY + 8,
+                  window.innerHeight - 280,
+                );
+                setMessageMenu({
+                  message,
+                  x: Math.max(8, x),
+                  y: Math.max(8, y),
+                });
+                setReactionPicker(null);
+              }}
             >
               <div
                 className={`relative max-w-[82%] transition-transform ${
@@ -4453,6 +4542,100 @@ function ChatRoom() {
       {/* ======================================================
        * DELETE MENU
        * ====================================================== */}
+
+      {messageMenu && (
+        <>
+          <button
+            type="button"
+            aria-label="Close message menu"
+            className="fixed inset-0 z-40 cursor-default bg-black/20"
+            onClick={() => setMessageMenu(null)}
+          />
+          <div
+            className="fixed z-50 w-52 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl"
+            style={{ left: messageMenu.x, top: messageMenu.y }}
+          >
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                startReply(messageMenu.message);
+                setMessageMenu(null);
+              }}
+            >
+              <Reply className="h-4 w-4" />
+              Reply
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                void forwardMessageContent(messageMenu.message);
+                setMessageMenu(null);
+              }}
+            >
+              <Share2 className="h-4 w-4" />
+              Forward
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                void copyMessageContent(messageMenu.message);
+                setMessageMenu(null);
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              Copy
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
+              onClick={() => {
+                setReactionPicker(messageMenu.message.id);
+                setMessageMenu(null);
+              }}
+            >
+              <span className="text-base leading-none">❤️</span>
+              React
+            </button>
+            {messageMenu.message.sender_id === user?.id &&
+            messageMenu.message.type === "text" &&
+            !(messageMenu.message as { deleted_at?: string | null }).deleted_at ? (
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm hover:bg-muted"
+                onClick={() => {
+                  const decodedMessage = decodeSpecialMessage(
+                    messageMenu.message.content,
+                  );
+                  setEditing(messageMenu.message);
+                  setReplyTo(null);
+                  setSelectedEffect(decodedMessage.effect);
+                  setSecretMode(decodedMessage.secret);
+                  setText(decodedMessage.text);
+                  setMessageMenu(null);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Edit
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 px-3 py-3 text-left text-sm text-destructive hover:bg-muted"
+              onClick={(event) => {
+                const msg = messageMenu.message;
+                setMessageMenu(null);
+                openDeleteMenu(event, msg);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete
+            </button>
+          </div>
+        </>
+      )}
 
       {deleteMenu && (
         <>
