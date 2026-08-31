@@ -68,7 +68,7 @@ export const CHAT_FONTS = Array.from({ length: 200 }, (_, index) => {
 const DB_NAME = "whatsxup-chat-appearance";
 const STORE_NAME = "appearance";
 const MEDIA_STORE = "pageMedia";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const MAX_PAGE_MEDIA_BYTES = 25 * 1024 * 1024;
 
 function openDB(): Promise<IDBDatabase | null> {
