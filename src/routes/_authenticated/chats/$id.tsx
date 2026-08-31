@@ -57,10 +57,13 @@ import {
 import { getFontFamilyCss, loadGoogleFont } from "@/lib/chatFonts";
 import {
   STICKERS,
+  STICKER_PACKS,
   stickerEffectClass,
   stickerEffectForKey,
   type Sticker,
 } from "@/lib/stickers";
+
+type StickerPack = (typeof STICKER_PACKS)[number];
 
 import {
   getEquippedShopCosmeticsLocal,
@@ -5493,7 +5496,11 @@ function ChatRoom() {
                         }
                         className="flex aspect-square items-center justify-center rounded-xl text-4xl transition hover:scale-110 hover:bg-muted active:scale-95"
                       >
-                        {sticker.emoji}
+                        <span
+                          className={`xup-sticker-fx ${stickerEffectClass(sticker.emoji)}`}
+                        >
+                          {sticker.emoji}
+                        </span>
                       </button>
                     ),
                   )}
