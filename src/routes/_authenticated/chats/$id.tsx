@@ -56,6 +56,13 @@ import {
 } from "@/lib/chatCustomization";
 import { getFontFamilyCss, loadGoogleFont } from "@/lib/chatFonts";
 import {
+  STICKERS,
+  stickerEffectClass,
+  stickerEffectForKey,
+  type Sticker,
+} from "@/lib/stickers";
+
+import {
   getEquippedShopCosmeticsLocal,
   type LocalShopCosmetics,
 } from "@/lib/shopCosmetics.local";
@@ -128,46 +135,6 @@ type DeliveryReceipt = {
  * STICKERS
  * ============================================================ */
 
-type Sticker = {
-  id: string;
-  emoji: string;
-  label: string;
-  pack: string;
-};
-
-const STICKERS: Sticker[] = [
-  { id: "love", emoji: "🥰", label: "Love", pack: "Cute" },
-  { id: "kiss", emoji: "😘", label: "Kiss", pack: "Cute" },
-  { id: "heart", emoji: "❤️", label: "Heart", pack: "Cute" },
-  { id: "hug", emoji: "🤗", label: "Hug", pack: "Cute" },
-
-  { id: "laugh", emoji: "😂", label: "Laugh", pack: "Funny" },
-  { id: "lol", emoji: "🤣", label: "LOL", pack: "Funny" },
-  { id: "dead", emoji: "💀", label: "Dead", pack: "Funny" },
-  { id: "sus", emoji: "🤨", label: "Sus", pack: "Funny" },
-
-  { id: "fire", emoji: "🔥", label: "Fire", pack: "Reactions" },
-  { id: "goat", emoji: "🐐", label: "GOAT", pack: "Reactions" },
-  { id: "clap", emoji: "👏", label: "Clap", pack: "Reactions" },
-  { id: "party", emoji: "🎉", label: "Party", pack: "Reactions" },
-
-  { id: "power", emoji: "⚡", label: "Power", pack: "Anime" },
-  { id: "angry", emoji: "😤", label: "Angry", pack: "Anime" },
-  { id: "shock", emoji: "😱", label: "Shock", pack: "Anime" },
-  { id: "cool", emoji: "😎", label: "Cool", pack: "Anime" },
-];
-
-const STICKER_PACKS = [
-  "All",
-  "Cute",
-  "Funny",
-  "Reactions",
-  "Anime",
-] as const;
-
-type StickerPack = (typeof STICKER_PACKS)[number];
-
-
 function isSoloEmojiMessage(text: string): boolean {
   const value = text.trim();
   if (!value || value.length > 16) return false;
@@ -182,7 +149,7 @@ function isSoloEmojiMessage(text: string): boolean {
   }
 }
 
-function getSticker(id: string | null | undefined) {
+function getSticker(id: string | null | undefined): Sticker | null {
   if (!id) return null;
   const found = STICKERS.find((sticker) => sticker.id === id);
   if (found) return found;
@@ -193,11 +160,19 @@ function getSticker(id: string | null | undefined) {
       emoji,
       label: emoji,
       pack: "Emoji",
+      effect: stickerEffectForKey(emoji),
     };
   }
-  // Raw emoji stored as content
   if (isSoloEmojiMessage(id)) {
-    return { id, emoji: id, label: id, pack: "Emoji" };
+    const known = STICKERS.find((s) => s.emoji === id);
+    if (known) return known;
+    return {
+      id: `emoji:${id}`,
+      emoji: id,
+      label: id,
+      pack: "Emoji",
+      effect: stickerEffectForKey(id),
+    };
   }
   return null;
 }
@@ -4306,7 +4281,7 @@ function ChatRoom() {
                   ) : sticker ? (
                     <div className="flex flex-col items-center justify-center px-1 py-1">
                       <span
-                        className="xup-sticker-pop select-none text-7xl leading-none drop-shadow-sm"
+                        className={`xup-sticker-fx ${stickerEffectClass(sticker.emoji)} select-none text-7xl leading-none drop-shadow-sm`}
                         title={sticker.label}
                       >
                         {sticker.emoji}
