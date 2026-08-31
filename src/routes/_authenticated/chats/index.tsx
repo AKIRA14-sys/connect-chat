@@ -1133,8 +1133,9 @@ function ChatsPage() {
    */
 
   const pageStyle = {
-    backgroundColor:
-      currentTheme.background,
+    backgroundColor: pageMediaUrl
+      ? "transparent"
+      : currentTheme.background,
     color: currentTheme.text,
     fontFamily:
       currentFont.family,
@@ -1155,26 +1156,33 @@ function ChatsPage() {
   return (
     <AppShell>
       <div
-        className="relative min-h-screen"
+        className="relative min-h-screen overflow-hidden"
         style={pageStyle}
       >
         {pageMediaUrl && pageMediaType === "video" ? (
-          <video
-            key={pageMediaUrl}
-            src={pageMediaUrl}
-            className="pointer-events-none fixed inset-0 -z-10 h-full w-full object-cover opacity-50"
-            autoPlay
-            muted
-            loop
-            playsInline
-          />
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <video
+              key={pageMediaUrl}
+              src={pageMediaUrl}
+              className="h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
+            <div className="absolute inset-0 bg-black/45" />
+          </div>
         ) : null}
         {pageMediaUrl && pageMediaType === "image" ? (
-          <div
-            className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center opacity-50"
-            style={{ backgroundImage: `url("${pageMediaUrl}")` }}
-          />
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <div
+              className="h-full w-full bg-cover bg-center"
+              style={{ backgroundImage: `url("${pageMediaUrl}")` }}
+            />
+            <div className="absolute inset-0 bg-black/45" />
+          </div>
         ) : null}
+        <div className="relative z-[1] min-h-screen">
         <PageHeader
           title="Chats"
           action={
@@ -2132,6 +2140,7 @@ function ChatsPage() {
             </div>
           </div>
         )}
+        </div>
       </div>
     </AppShell>
   );
