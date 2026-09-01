@@ -62,6 +62,7 @@ import {
   stickerEffectForKey,
   type Sticker,
 } from "@/lib/stickers";
+import { playChatTone } from "@/lib/chatTones";
 
 type StickerPack = (typeof STICKER_PACKS)[number];
 
@@ -1456,11 +1457,16 @@ function ChatRoom() {
         );
       });
 
+      // Per-chat notification tone (local) for incoming messages
+      if (user && row.sender_id && row.sender_id !== user.id) {
+        playChatTone(id);
+      }
+
       void qc.invalidateQueries({
         queryKey: ["chat-list"],
       });
     },
-    [qc, messagesKey],
+    [qc, messagesKey, user, id],
   );
 
   /* ==========================================================
