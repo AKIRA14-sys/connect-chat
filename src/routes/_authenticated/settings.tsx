@@ -9,6 +9,7 @@ import {
   Image as ImageIcon,
   Loader2,
   LogOut,
+  Lock,
   Palette,
   Shield,
   ShieldCheck,
@@ -16,6 +17,15 @@ import {
   User,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  clearAppLock,
+  getLockTimeoutMin,
+  hasPinSet,
+  isAppLockEnabled,
+  lockNow,
+  setLockTimeoutMin,
+  setPin,
+} from "@/lib/appLock";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin, useProfile } from "@/hooks/useProfile";
@@ -74,7 +84,8 @@ type SectionId =
   | "privacy"
   | "alerts"
   | "chat-look"
-  | "showcase";
+  | "showcase"
+  | "app-lock";
 
 function SettingsPage() {
   const { user } = useAuth();
@@ -246,7 +257,9 @@ function SettingsPage() {
             ? "Alerts"
             : section === "chat-look"
               ? "Chat look"
-              : "Showcase";
+              : section === "app-lock"
+                ? "App lock"
+                : "Showcase";
 
   return (
     <AppShell>
@@ -315,6 +328,12 @@ function SettingsPage() {
                 label="Visibility & safety"
                 hint="Active status, read marks, discovery"
                 onClick={() => setSection("privacy")}
+              />
+              <SettingsRow
+                icon={<Lock className="h-4 w-4" />}
+                label="App lock"
+                hint="PIN when opening XUPPIN"
+                onClick={() => setSection("app-lock")}
               />
             </SettingsGroup>
 
@@ -507,6 +526,8 @@ function SettingsPage() {
         ) : null}
 
         {section === "chat-look" ? <GlobalBackdropPanel /> : null}
+
+        {section === "app-lock" ? <AppLockSettings /> : null}
 
         {section === "showcase" ? (
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
@@ -853,6 +874,123 @@ function FeaturedCollectiblePicker() {
       >
         Clear featured
       </Button>
+    </div>
+  );
+}
+
+
+function AppLockSettings() {
+  const [pin, setPinValue] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [timeoutMin, setTimeoutMin] = useState(() => getLockTimeoutMin());
+  const [enabled, setEnabled] = useState(() => isAppLockEnabled() && hasPinSet());
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Lock XUPPIN with a PIN when you leave the app. Stored only on this
+        device — not on Supabase.
+      </p>
+
+      <div className="space-y-2 rounded-2xl border border-border bg-card p-4">
+        <Label>New PIN (4–8 digits)</Label>
+        <Input
+          type="password"
+          inputMode="numeric"
+          maxLength={8}
+          value={pin}
+          onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ""))}
+          placeholder="••••"
+        />
+        <Label>Confirm PIN</Label>
+        <Input
+          type="password"
+          inputMode="numeric"
+          maxLength={8}
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value.replace(/\D/g, ""))}
+          placeholder="••••"
+        />
+        <Button
+          type="button"
+          className="w-full"
+          onClick={() => {
+            if (pin !== confirm) {
+              toast.error("PINs do not match");
+              return;
+            }
+            try {
+              setPin(pin);
+              setEnabled(true);
+              setPinValue("");
+              setConfirm("");
+              toast.success("App lock enabled");
+            } catch (err) {
+              toast.error(
+                err instanceof Error ? err.message : "Could not set PIN",
+              );
+            }
+          }}
+        >
+          Save PIN & enable lock
+        </Button>
+      </div>
+
+      <div className="space-y-2 rounded-2xl border border-border bg-card p-4">
+        <Label>Re-lock after leaving app (minutes)</Label>
+        <Input
+          type="number"
+          min={0}
+          max={60}
+          value={timeoutMin}
+          onChange={(e) => setTimeoutMin(Number(e.target.value) || 0)}
+        />
+        <p className="text-xs text-muted-foreground">
+          0 = lock as soon as you switch away. Default 1 minute.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={() => {
+            setLockTimeoutMin(timeoutMin);
+            toast.success("Timeout saved");
+          }}
+        >
+          Save timeout
+        </Button>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={!enabled}
+          onClick={() => {
+            lockNow();
+            toast.message("Locked — switch apps and return to see the PIN screen");
+          }}
+        >
+          Lock now
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="text-destructive"
+          onClick={() => {
+            clearAppLock();
+            setEnabled(false);
+            toast.success("App lock turned off");
+          }}
+        >
+          Turn off app lock
+        </Button>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Status: {enabled ? "On" : "Off"}
+        {hasPinSet() ? " · PIN set" : " · No PIN yet"}
+      </p>
     </div>
   );
 }
