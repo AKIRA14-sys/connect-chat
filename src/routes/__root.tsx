@@ -16,6 +16,7 @@ import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppSplash } from "@/components/AppSplash";
+import { AppLockGate } from "@/components/AppLockGate";
 
 
 function NotFoundComponent() {
@@ -173,7 +174,9 @@ function RootComponent() {
         <RealtimeProvider>
           <ConnectionBanner />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
-          <Outlet />
+          <AppLockGate>
+            <Outlet />
+          </AppLockGate>
           <Toaster position="top-center" />
         </RealtimeProvider>
       </AuthProvider>
