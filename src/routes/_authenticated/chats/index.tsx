@@ -1159,10 +1159,10 @@ function ChatsPage() {
         className="relative min-h-screen overflow-hidden"
         style={pageStyle}
       >
-        {/* Wallpaper wall (same idea as inside a chat) */}
+        {/* Fixed wall — does not move when scrolling; no blur */}
         {pageMediaUrl ? (
           <div
-            className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+            className="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-0 mx-auto max-w-2xl overflow-hidden"
             aria-hidden
           >
             {pageMediaType === "video" ? (
@@ -1183,12 +1183,10 @@ function ChatsPage() {
                 className="h-full w-full object-cover object-center"
               />
             )}
-            {/* Light dim so list stays readable — wall still visible */}
-            <div className="absolute inset-0 bg-black/25" />
           </div>
         ) : null}
 
-        {/* Chats sit in front of the wall */}
+        {/* Chats in front of the stagnant wall */}
         <div
           className={
             pageMediaUrl
@@ -1392,7 +1390,7 @@ function ChatsPage() {
                     <div
                       className={
                         pageMediaUrl
-                          ? "group flex items-center gap-2 rounded-2xl bg-black/25 backdrop-blur-sm transition-colors hover:bg-black/40"
+                          ? "group flex items-center gap-2 rounded-2xl bg-black/30 transition-colors hover:bg-black/45"
                           : "group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10"
                       }
                     >
