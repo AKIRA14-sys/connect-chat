@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
+  Bell,
   Check,
   ChevronDown,
   Image,
@@ -32,6 +33,13 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import {
+  CHAT_TONES,
+  getChatTone,
+  previewTone,
+  setChatTone,
+  type ChatToneId,
+} from "@/lib/chatTones";
 
 import {
   timeLabel,
@@ -1159,41 +1167,30 @@ function ChatsPage() {
         className="relative min-h-screen overflow-hidden"
         style={pageStyle}
       >
-        {/* Fixed wall — does not move when scrolling; no blur */}
-        {pageMediaUrl ? (
-          <div
-            className="pointer-events-none fixed inset-x-0 top-0 bottom-0 z-0 mx-auto max-w-2xl overflow-hidden"
-            aria-hidden
-          >
-            {pageMediaType === "video" ? (
-              <video
-                key={pageMediaUrl}
-                src={pageMediaUrl}
-                className="h-full w-full object-cover object-center"
-                autoPlay
-                muted
-                loop
-                playsInline
-              />
-            ) : (
-              <img
-                key={pageMediaUrl}
-                src={pageMediaUrl}
-                alt=""
-                className="h-full w-full object-cover object-center"
-              />
-            )}
+        {pageMediaUrl && pageMediaType === "video" ? (
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <video
+              key={pageMediaUrl}
+              src={pageMediaUrl}
+              className="h-full w-full object-cover"
+              autoPlay
+              muted
+              loop
+              playsInline
+            />
+            <div className="absolute inset-0 bg-black/45" />
           </div>
         ) : null}
-
-        {/* Chats in front of the stagnant wall */}
-        <div
-          className={
-            pageMediaUrl
-              ? "relative z-[1] min-h-screen bg-transparent"
-              : "relative z-[1] min-h-screen"
-          }
-        >
+        {pageMediaUrl && pageMediaType === "image" ? (
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <div
+              className="h-full w-full bg-cover bg-center"
+              style={{ backgroundImage: `url("${pageMediaUrl}")` }}
+            />
+            <div className="absolute inset-0 bg-black/45" />
+          </div>
+        ) : null}
+        <div className="relative z-[1] min-h-screen">
         <PageHeader
           title="Chats"
           action={
@@ -1387,13 +1384,7 @@ function ChatsPage() {
                       row.conv.id
                     }
                   >
-                    <div
-                      className={
-                        pageMediaUrl
-                          ? "group flex items-center gap-2 rounded-2xl bg-black/30 transition-colors hover:bg-black/45"
-                          : "group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10"
-                      }
-                    >
+                    <div className="group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10">
                       <Link
                         to="/chats/$id"
                         params={{
@@ -1632,6 +1623,18 @@ function ChatsPage() {
                   type="button"
                   className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-white hover:bg-white/10"
                   onClick={() => {
+                    setToneMenuChatId(menu.row.conv.id);
+                    setMenu(null);
+                  }}
+                >
+                  <Bell className="h-4 w-4" />
+                  <span>Notification sound</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm text-white hover:bg-white/10"
+                  onClick={() => {
                     toggleFavorite(
                       menu.row.conv.id,
                     );
@@ -1773,7 +1776,62 @@ function ChatsPage() {
             APPEARANCE PANEL
         ===================================================== */}
 
-        {appearanceTarget && (
+  
+
+      {toneMenuChatId && (
+        <div
+          className="fixed inset-0 z-[95] flex items-end justify-center bg-black/60 p-3 sm:items-center"
+          onClick={() => setToneMenuChatId(null)}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-zinc-950 p-2 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="px-4 py-3 text-sm font-semibold text-white">
+              Notification sound
+            </p>
+            <p className="px-4 pb-2 text-xs text-zinc-500">
+              Plays in the app when a message arrives in this chat. (System push
+              sound is still controlled by the phone.)
+            </p>
+            {CHAT_TONES.map((tone) => {
+              const selected = getChatTone(toneMenuChatId) === tone.id;
+              return (
+                <button
+                  key={tone.id}
+                  type="button"
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm text-white hover:bg-white/10 ${
+                    selected ? "bg-white/10" : ""
+                  }`}
+                  onClick={() => {
+                    setChatTone(toneMenuChatId, tone.id as ChatToneId);
+                    previewTone(tone.id as ChatToneId);
+                    toast.success(`${tone.name} sound set`);
+                    setToneMenuChatId(null);
+                  }}
+                >
+                  <span>
+                    <span className="font-medium">{tone.name}</span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      {tone.description}
+                    </span>
+                  </span>
+                  {selected ? <Check className="h-4 w-4 text-primary" /> : null}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="mt-1 w-full rounded-2xl px-4 py-3 text-sm text-zinc-400 hover:bg-white/10"
+              onClick={() => setToneMenuChatId(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {appearanceTarget && (
           <div
             className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70 p-3 sm:items-center"
             onClick={() =>
