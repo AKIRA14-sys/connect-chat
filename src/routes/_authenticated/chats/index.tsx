@@ -1159,30 +1159,43 @@ function ChatsPage() {
         className="relative min-h-screen overflow-hidden"
         style={pageStyle}
       >
-        {pageMediaUrl && pageMediaType === "video" ? (
-          <div className="pointer-events-none absolute inset-0 z-0">
-            <video
-              key={pageMediaUrl}
-              src={pageMediaUrl}
-              className="h-full w-full object-cover"
-              autoPlay
-              muted
-              loop
-              playsInline
-            />
-            <div className="absolute inset-0 bg-black/45" />
+        {/* Wallpaper wall (same idea as inside a chat) */}
+        {pageMediaUrl ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+            aria-hidden
+          >
+            {pageMediaType === "video" ? (
+              <video
+                key={pageMediaUrl}
+                src={pageMediaUrl}
+                className="h-full w-full object-cover object-center"
+                autoPlay
+                muted
+                loop
+                playsInline
+              />
+            ) : (
+              <img
+                key={pageMediaUrl}
+                src={pageMediaUrl}
+                alt=""
+                className="h-full w-full object-cover object-center"
+              />
+            )}
+            {/* Light dim so list stays readable — wall still visible */}
+            <div className="absolute inset-0 bg-black/25" />
           </div>
         ) : null}
-        {pageMediaUrl && pageMediaType === "image" ? (
-          <div className="pointer-events-none absolute inset-0 z-0">
-            <div
-              className="h-full w-full bg-cover bg-center"
-              style={{ backgroundImage: `url("${pageMediaUrl}")` }}
-            />
-            <div className="absolute inset-0 bg-black/45" />
-          </div>
-        ) : null}
-        <div className="relative z-[1] min-h-screen">
+
+        {/* Chats sit in front of the wall */}
+        <div
+          className={
+            pageMediaUrl
+              ? "relative z-[1] min-h-screen bg-transparent"
+              : "relative z-[1] min-h-screen"
+          }
+        >
         <PageHeader
           title="Chats"
           action={
@@ -1376,7 +1389,13 @@ function ChatsPage() {
                       row.conv.id
                     }
                   >
-                    <div className="group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10">
+                    <div
+                      className={
+                        pageMediaUrl
+                          ? "group flex items-center gap-2 rounded-2xl bg-black/25 backdrop-blur-sm transition-colors hover:bg-black/40"
+                          : "group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10"
+                      }
+                    >
                       <Link
                         to="/chats/$id"
                         params={{
