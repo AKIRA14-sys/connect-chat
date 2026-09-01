@@ -1,46 +1,61 @@
-// Browser client for Gaming Supabase Realtime (Nearby transfer signaling).
-// Env: VITE_GAMING_SUPABASE_URL + VITE_GAMING_SUPABASE_ANON_KEY
+// Browser client for Gaming Supabase Realtime (Nearby transfer).
+//
+// IMPORTANT:
+// - These are public/browser-safe Supabase values.
+// - NEVER put GAMING_SUPABASE_SERVICE_ROLE_KEY in this file.
+// - Vite requires VITE_* variables to be referenced statically.
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  type SupabaseClient,
+} from "@supabase/supabase-js";
 
-function readEnv(name: string): string {
-  try {
-    const meta = import.meta as ImportMeta & { env?: Record<string, string> };
-    if (meta.env && meta.env[name]) return String(meta.env[name]);
-  } catch {
-    /* ignore */
-  }
-  if (typeof process !== "undefined" && process.env && process.env[name]) {
-    return String(process.env[name]);
-  }
-  return "";
-}
-
-const url =
-  readEnv("VITE_GAMING_SUPABASE_URL") || readEnv("GAMING_SUPABASE_URL");
-const anon =
-  readEnv("VITE_GAMING_SUPABASE_ANON_KEY") ||
-  readEnv("GAMING_SUPABASE_ANON_KEY");
+const url = import.meta.env.VITE_GAMING_SUPABASE_URL;
+const anonKey = import.meta.env.VITE_GAMING_SUPABASE_ANON_KEY;
 
 let client: SupabaseClient | null = null;
 
-export function getGamingSupabaseBrowser(): SupabaseClient {
-  if (client) return client;
-  if (!url || !anon) {
+function getGamingConfig() {
+  const gamingUrl = String(url ?? "").trim();
+  const gamingAnonKey = String(anonKey ?? "").trim();
+
+  if (!gamingUrl || !gamingAnonKey) {
     throw new Error(
-      "Set VITE_GAMING_SUPABASE_URL and VITE_GAMING_SUPABASE_ANON_KEY for Nearby transfer.",
+      "Gaming Supabase is not configured. Make sure VITE_GAMING_SUPABASE_URL and VITE_GAMING_SUPABASE_ANON_KEY are configured in Vercel and redeploy the application.",
     );
   }
-  client = createClient(url, anon, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
+
+  return {
+    url: gamingUrl,
+    anonKey: gamingAnonKey,
+  };
+}
+
+export function getGamingSupabaseBrowser(): SupabaseClient {
+  if (client) {
+    return client;
+  }
+
+  const config = getGamingConfig();
+
+  client = createClient(
+    config.url,
+    config.anonKey,
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
     },
-  });
+  );
+
   return client;
 }
 
 export function isGamingBrowserConfigured(): boolean {
-  return Boolean(url && anon);
+  return Boolean(
+    String(url ?? "").trim() &&
+      String(anonKey ?? "").trim(),
+  );
 }
