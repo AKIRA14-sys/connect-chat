@@ -1,0 +1,55 @@
+/**
+ * Durable auth storage for XUPPIN.
+ * - Web/PWA: localStorage (already persistent)
+ * - Android WebView / APK: still localStorage in Capacitor by default,
+ *   with a safer get/set that never throws (private mode / quota).
+ *
+ * Session is ONLY cleared when the user taps Sign out (supabase.auth.signOut).
+ * Token refresh must NOT log the user out.
+ */
+
+const memory = new Map<string, string>();
+
+function safeLocal(): Storage | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const k = "__xuppin_storage_test__";
+    window.localStorage.setItem(k, "1");
+    window.localStorage.removeItem(k);
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+/** Supabase-compatible auth storage (sync API required by supabase-js). */
+export const durableAuthStorage = {
+  getItem(key: string): string | null {
+    try {
+      const ls = safeLocal();
+      if (ls) {
+        const v = ls.getItem(key);
+        if (v != null) return v;
+      }
+      return memory.get(key) ?? null;
+    } catch {
+      return memory.get(key) ?? null;
+    }
+  },
+  setItem(key: string, value: string): void {
+    try {
+      memory.set(key, value);
+      safeLocal()?.setItem(key, value);
+    } catch {
+      memory.set(key, value);
+    }
+  },
+  removeItem(key: string): void {
+    try {
+      memory.delete(key);
+      safeLocal()?.removeItem(key);
+    } catch {
+      memory.delete(key);
+    }
+  },
+};
