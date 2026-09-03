@@ -10,6 +10,7 @@ import {
   Loader2,
   LogOut,
   Lock,
+  Smartphone,
   Palette,
   Shield,
   ShieldCheck,
@@ -17,6 +18,7 @@ import {
   User,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AndroidSettingsPanel } from "@/components/AndroidSettingsPanel";
 import {
   clearAppLock,
   getLockTimeoutMin,
@@ -85,7 +87,8 @@ type SectionId =
   | "alerts"
   | "chat-look"
   | "showcase"
-  | "app-lock";
+  | "app-lock"
+  | "android";
 
 function SettingsPage() {
   const { user } = useAuth();
@@ -259,6 +262,8 @@ function SettingsPage() {
               ? "Chat look"
               : section === "app-lock"
                 ? "App lock"
+                : section === "android"
+                ? "Android features"
                 : "Showcase";
 
   return (
@@ -528,6 +533,8 @@ function SettingsPage() {
         {section === "chat-look" ? <GlobalBackdropPanel /> : null}
 
         {section === "app-lock" ? <AppLockSettings /> : null}
+
+        {section === "android" ? <AndroidSettingsPanel /> : null}
 
         {section === "showcase" ? (
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
