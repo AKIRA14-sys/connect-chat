@@ -6,27 +6,46 @@ import { pushSupported, subscribeToPush, swAllowed } from "@/lib/pwa";
 import { savePushSubscription } from "@/lib/push.functions";
 import { initNativePush, isNativeAndroid } from "@/lib/nativePush";
 
+function reasonMessage(reason?: string): string {
+  switch (reason) {
+    case "permission_denied":
+      return "Allow notifications in Android Settings → Apps → XUPPIN";
+    case "token_timeout":
+      return "No FCM token (APK needs google-services + rebuild)";
+    case "registration_error":
+      return "FCM registration failed (check google-services in APK)";
+    case "empty_token":
+      return "Empty FCM token from device";
+    case "save_failed":
+      return "Token got but save failed (login / fcm_tokens table)";
+    case "not_android":
+      return "Not running as Android APK";
+    case "exception":
+      return "Push plugin missing in this APK build";
+    default:
+      return "Could not enable notifications";
+  }
+}
+
 export function NotificationPrompt() {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    // APK: try register FCM quietly when already permitted
     if (isNativeAndroid()) {
-      void initNativePush();
-      if (
-        typeof Notification !== "undefined" &&
-        Notification.permission === "granted"
-      ) {
+      void initNativePush().then((r) => {
+        if (r.ok) setVisible(false);
+      });
+      if (window.localStorage.getItem("whatsxup.push.dismissed") === "1") {
         return;
       }
-      if (window.localStorage.getItem("whatsxup.push.dismissed") === "1") return;
       setVisible(true);
       return;
     }
 
     if (!pushSupported() || !swAllowed()) return;
-    if (Notification.permission !== "default") return;
+    if (typeof Notification !== "undefined" && Notification.permission !== "default")
+      return;
     if (window.localStorage.getItem("whatsxup.push.dismissed") === "1") return;
     setVisible(true);
   }, []);
@@ -42,11 +61,7 @@ export function NotificationPrompt() {
           toast.success("Notifications enabled");
           setVisible(false);
         } else {
-          toast.error(
-            r.reason === "permission_denied"
-              ? "Allow notifications in Android settings"
-              : "Could not enable notifications",
-          );
+          toast.error(reasonMessage(r.reason));
         }
         return;
       }
@@ -56,7 +71,7 @@ export function NotificationPrompt() {
         toast.error("Notifications were not enabled.");
       } else {
         await savePushSubscription({ data: sub });
-        toast.success("WHATSXUP notifications enabled");
+        toast.success("Notifications enabled");
         setVisible(false);
       }
     } catch {
@@ -72,13 +87,14 @@ export function NotificationPrompt() {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">Turn on notifications</p>
         <p className="text-xs text-muted-foreground">
-          Get messages and calls even when WHATSXUP is closed.
+          Get messages and calls even when the app is closed.
         </p>
       </div>
       <Button size="sm" disabled={busy} onClick={() => void enable()}>
         {busy ? "…" : "Enable"}
       </Button>
       <button
+        type="button"
         aria-label="Dismiss"
         onClick={() => {
           window.localStorage.setItem("whatsxup.push.dismissed", "1");
