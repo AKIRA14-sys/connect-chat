@@ -136,8 +136,8 @@ function isCodeBased(
   return Boolean(
     item.css ||
       item.bubble_css ||
-      item.metadata?.codeBased === true ||
-      item.metadata?.code_based === true,
+      item.metadata?.['codeBased'] === true ||
+      item.metadata?.['code_based'] === true,
   );
 }
 
