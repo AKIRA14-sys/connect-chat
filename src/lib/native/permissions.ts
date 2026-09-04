@@ -96,7 +96,11 @@ export async function requestPermission(key: PermKey): Promise<PermState> {
       stream.getTracks().forEach((t) => t.stop());
       return "granted";
     }
-  } catch {
+  } catch (err) {
+    console.error(`[permissions] ${key} request failed:`, err);
+    if (typeof window !== "undefined") {
+      alert(`Permission error (${key}): ${err instanceof Error ? err.message : String(err)}`);
+    }
     return "denied";
   }
   return "prompt";
@@ -108,7 +112,7 @@ export async function openAppSettings(): Promise<void> {
   try {
     // App plugin openUrl to package settings
     const { App } = await import("@capacitor/app");
-    // Fallback: users use Settings → Apps from OS
+    // Fallback: users use Settings → Apps → XUPPIN → Permissions
     console.info("[permissions] Open Android Settings → Apps → XUPPIN → Permissions");
     void App;
   } catch {
