@@ -3,18 +3,13 @@ import type { CapacitorConfig } from "@capacitor/cli";
 /**
  * XUPPIN / WHATSXUP Capacitor config
  * Web UI stays the source of truth. Native only for Android capabilities.
- *
- * Package: change appId if you already registered another id.
  */
 const config: CapacitorConfig = {
   appId: "app.xuppin.chat",
   appName: "XUPPIN",
-  webDir: "dist",
+  webDir: ".output/public",
   server: {
-    // Production: serve bundled web assets (use OTA later for UI updates).
-    // Dev only — uncomment to load a live URL:
-    // url: "https://YOUR-DEPLOYED-APP.example",
-    // cleartext: true,
+    url: "https://xuppin.vercel.app",
     androidScheme: "https",
   },
   plugins: {
