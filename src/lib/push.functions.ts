@@ -97,9 +97,10 @@ async function fanout(
   const targets = Array.from(new Set(userIds.filter(Boolean)));
   if (!targets.length) return { sent: 0, expired: 0, failed: 0, skipped: 0 };
 
-  const [{ supabaseAdmin }, { sendWebPush }] = await Promise.all([
+  const [{ supabaseAdmin }, { sendWebPush }, { sendFcm }] = await Promise.all([
     import("@/integrations/supabase/client.server"),
     import("./webpush.server"),
+    import("./fcm.server"),
   ]);
 
   /* Respect each recipient's notification preferences and account status. */
@@ -118,37 +119,89 @@ async function fanout(
   const skipped = targets.length - allowed.length;
   if (!allowed.length) return { sent: 0, expired: 0, failed: 0, skipped };
 
+  const expired: string[] = [];
+  const expiredFcm: string[] = [];
+  let sent = 0;
+  let failed = 0;
+
+  /* Web Push (browser / PWA) */
   const { data: subscriptions, error } = await supabaseAdmin
     .from("push_subscriptions")
     .select("endpoint, p256dh, auth")
     .in("user_id", allowed);
 
-  if (error) throw new Error(`Could not load push subscriptions: ${error.message}`);
-  if (!subscriptions?.length) return { sent: 0, expired: 0, failed: 0, skipped };
-
-  const expired: string[] = [];
-  let sent = 0;
-  let failed = 0;
+  if (error) {
+    console.error("[PUSH] load web subscriptions:", error.message);
+  }
 
   await Promise.all(
-    subscriptions.map(async (subscription) => {
+    (subscriptions ?? []).map(async (subscription) => {
       try {
         const result = await sendWebPush(subscription, payload);
         if (result.expired) expired.push(subscription.endpoint);
         else sent++;
       } catch (err) {
         failed++;
-        console.error("[WHATSXUP PUSH] Delivery failed:", err);
+        console.error("[WHATSXUP PUSH] Web delivery failed:", err);
       }
     }),
   );
 
-  /* Clean up dead subscriptions. */
   if (expired.length) {
-    await supabaseAdmin.from("push_subscriptions").delete().in("endpoint", expired);
+    await supabaseAdmin
+      .from("push_subscriptions")
+      .delete()
+      .in("endpoint", expired);
   }
 
-  return { sent, expired: expired.length, failed, skipped };
+  /* FCM (native Android APK) — was missing before */
+  const { data: fcmRows, error: fcmErr } = await supabaseAdmin
+    .from("fcm_tokens")
+    .select("token")
+    .in("user_id", allowed);
+
+  if (fcmErr) {
+    console.error("[PUSH] load fcm_tokens:", fcmErr.message);
+  }
+
+  const title = String(payload["title"] ?? "XUPPIN");
+  const body = String(payload["body"] ?? "");
+  const tag = payload["tag"] != null ? String(payload["tag"]) : undefined;
+  const data: Record<string, string> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (v == null) continue;
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+      data[k] = String(v);
+    }
+  }
+  if (payload["conversationId"]) {
+    data["to"] = `/chats/${payload["conversationId"]}`;
+  }
+
+  await Promise.all(
+    (fcmRows ?? []).map(async (row) => {
+      try {
+        const result = await sendFcm(row.token, { title, body, data, tag });
+        if (result.expired) expiredFcm.push(row.token);
+        else if (result.ok) sent++;
+        else failed++;
+      } catch (err) {
+        failed++;
+        console.error("[WHATSXUP PUSH] FCM delivery failed:", err);
+      }
+    }),
+  );
+
+  if (expiredFcm.length) {
+    await supabaseAdmin.from("fcm_tokens").delete().in("token", expiredFcm);
+  }
+
+  return {
+    sent,
+    expired: expired.length + expiredFcm.length,
+    failed,
+    skipped,
+  };
 }
 
 /* Signed URL for a private avatar so the service worker can render it. */
