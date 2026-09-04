@@ -17,6 +17,8 @@ import { Route as AuthenticatedCallsRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedContactsRouteImport } from './routes/_authenticated/contacts'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedSetupRouteImport } from './routes/_authenticated/setup'
+import { Route as AuthenticatedShopRouteImport } from './routes/_authenticated/shop'
+import { Route as AuthenticatedTransferRouteImport } from './routes/_authenticated/transfer'
 import { Route as AuthenticatedChatsIndexRouteImport } from './routes/_authenticated/chats/index'
 import { Route as AuthenticatedChatsIdRouteImport } from './routes/_authenticated/chats/$id'
 import { Route as AuthenticatedGroupsIdRouteImport } from './routes/_authenticated/groups/$id'
@@ -62,6 +64,16 @@ const AuthenticatedSetupRoute = AuthenticatedSetupRouteImport.update({
   path: '/setup',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedShopRoute = AuthenticatedShopRouteImport.update({
+  id: '/shop',
+  path: '/shop',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTransferRoute = AuthenticatedTransferRouteImport.update({
+  id: '/transfer',
+  path: '/transfer',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedChatsIndexRoute = AuthenticatedChatsIndexRouteImport.update({
   id: '/chats/',
   path: '/chats/',
@@ -96,6 +108,8 @@ export interface FileRoutesByFullPath {
   '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/setup': typeof AuthenticatedSetupRoute
+  '/shop': typeof AuthenticatedShopRoute
+  '/transfer': typeof AuthenticatedTransferRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
   '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
@@ -110,6 +124,8 @@ export interface FileRoutesByTo {
   '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
   '/setup': typeof AuthenticatedSetupRoute
+  '/shop': typeof AuthenticatedShopRoute
+  '/transfer': typeof AuthenticatedTransferRoute
   '/chats/$id': typeof AuthenticatedChatsIdRoute
   '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
@@ -126,6 +142,8 @@ export interface FileRoutesById {
   '/_authenticated/contacts': typeof AuthenticatedContactsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/setup': typeof AuthenticatedSetupRoute
+  '/_authenticated/shop': typeof AuthenticatedShopRoute
+  '/_authenticated/transfer': typeof AuthenticatedTransferRoute
   '/_authenticated/chats/$id': typeof AuthenticatedChatsIdRoute
   '/_authenticated/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/_authenticated/groups/new': typeof AuthenticatedGroupsNewRoute
@@ -142,6 +160,8 @@ export interface FileRouteTypes {
     | '/contacts'
     | '/settings'
     | '/setup'
+    | '/shop'
+    | '/transfer'
     | '/chats/$id'
     | '/groups/$id'
     | '/groups/new'
@@ -156,6 +176,8 @@ export interface FileRouteTypes {
     | '/contacts'
     | '/settings'
     | '/setup'
+    | '/shop'
+    | '/transfer'
     | '/chats/$id'
     | '/groups/$id'
     | '/groups/new'
@@ -171,6 +193,8 @@ export interface FileRouteTypes {
     | '/_authenticated/contacts'
     | '/_authenticated/settings'
     | '/_authenticated/setup'
+    | '/_authenticated/shop'
+    | '/_authenticated/transfer'
     | '/_authenticated/chats/$id'
     | '/_authenticated/groups/$id'
     | '/_authenticated/groups/new'
@@ -242,6 +266,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSetupRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/shop': {
+      id: '/_authenticated/shop'
+      path: '/shop'
+      fullPath: '/shop'
+      preLoaderRoute: typeof AuthenticatedShopRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/transfer': {
+      id: '/_authenticated/transfer'
+      path: '/transfer'
+      fullPath: '/transfer'
+      preLoaderRoute: typeof AuthenticatedTransferRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/chats/': {
       id: '/_authenticated/chats/'
       path: '/chats'
@@ -286,6 +324,8 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedContactsRoute: typeof AuthenticatedContactsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedSetupRoute: typeof AuthenticatedSetupRoute
+  AuthenticatedShopRoute: typeof AuthenticatedShopRoute
+  AuthenticatedTransferRoute: typeof AuthenticatedTransferRoute
   AuthenticatedChatsIdRoute: typeof AuthenticatedChatsIdRoute
   AuthenticatedGroupsIdRoute: typeof AuthenticatedGroupsIdRoute
   AuthenticatedGroupsNewRoute: typeof AuthenticatedGroupsNewRoute
@@ -299,6 +339,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedContactsRoute: AuthenticatedContactsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedSetupRoute: AuthenticatedSetupRoute,
+  AuthenticatedShopRoute: AuthenticatedShopRoute,
+  AuthenticatedTransferRoute: AuthenticatedTransferRoute,
   AuthenticatedChatsIdRoute: AuthenticatedChatsIdRoute,
   AuthenticatedGroupsIdRoute: AuthenticatedGroupsIdRoute,
   AuthenticatedGroupsNewRoute: AuthenticatedGroupsNewRoute,

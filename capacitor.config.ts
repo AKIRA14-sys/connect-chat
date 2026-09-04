@@ -9,11 +9,11 @@ import type { CapacitorConfig } from "@capacitor/cli";
 const config: CapacitorConfig = {
   appId: "app.xuppin.chat",
   appName: "XUPPIN",
-  webDir: "dist",
+  webDir: ".output/public",
   server: {
     // Production: serve bundled web assets (use OTA later for UI updates).
     // Dev only — uncomment to load a live URL:
-    // url: "https://YOUR-DEPLOYED-APP.example",
+    url: "https://xuppin.vercel.app",
     // cleartext: true,
     androidScheme: "https",
   },
