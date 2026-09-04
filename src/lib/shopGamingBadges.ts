@@ -671,7 +671,7 @@ export function getShopGamingBadgesByCategory(
 ): ShopGamingBadge[] {
   return getAllShopGamingBadges().filter(
     (badge) =>
-      badge.metadata?.category === category,
+      badge.metadata?['category'] === category,
   );
 }
 
@@ -738,10 +738,10 @@ export function shopGamingBadgeFromMetadata(
   }
 
   const id =
-    typeof metadata.badge_id === "string"
-      ? metadata.badge_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+    typeof metadata['badge_id'] === "string"
+      ? metadata['badge_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -749,48 +749,48 @@ export function shopGamingBadgeFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Gaming Badge";
 
   const description =
-    typeof metadata.description === "string"
-      ? metadata.description
+    typeof metadata['description'] === "string"
+      ? metadata['description']
       : "Gaming achievement badge.";
 
   const icon =
-    typeof metadata.icon === "string"
-      ? metadata.icon
+    typeof metadata['icon'] === "string"
+      ? metadata['icon']
       : "🎮";
 
   const rarity =
-    isBadgeRarity(metadata.rarity)
-      ? metadata.rarity
+    isBadgeRarity(metadata['rarity'])
+      ? metadata['rarity']
       : "common";
 
   const background =
-    typeof metadata.background === "string"
-      ? metadata.background
+    typeof metadata['background'] === "string"
+      ? metadata['background']
       : "#374151";
 
   const color =
-    typeof metadata.color === "string"
-      ? metadata.color
+    typeof metadata['color'] === "string"
+      ? metadata['color']
       : "#ffffff";
 
   const border =
-    typeof metadata.border === "string"
-      ? metadata.border
+    typeof metadata['border'] === "string"
+      ? metadata['border']
       : undefined;
 
   const boxShadow =
-    typeof metadata.boxShadow === "string"
-      ? metadata.boxShadow
+    typeof metadata['boxShadow'] === "string"
+      ? metadata['boxShadow']
       : undefined;
 
   const text =
-    typeof metadata.text === "string"
-      ? metadata.text
+    typeof metadata['text'] === "string"
+      ? metadata['text']
       : undefined;
 
   return {
@@ -926,7 +926,7 @@ export function mergeShopGamingBadges(
  * Return a safe fallback badge.
  */
 export function getDefaultShopGamingBadge(): ShopGamingBadge {
-  return SHOP_GAMING_BADGES.rookie;
+  return SHOP_GAMING_BADGES['rookie'];
 }
 
 /**

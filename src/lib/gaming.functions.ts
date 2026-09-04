@@ -1889,7 +1889,7 @@ function getCosmeticType(
   }
 
   const value = (metadata as Record<string, unknown>)
-    .cosmetic_type;
+    ['cosmetic_type'];
 
   if (
     value === "theme" ||
@@ -2485,53 +2485,53 @@ export type SendGiftInput = {
 
 function mapGiftDefinition(row: Record<string, unknown>): GiftDefinition {
   return {
-    gift_id: String(row.gift_id ?? ""),
-    gift_key: String(row.gift_key ?? ""),
-    name: String(row.name ?? "Gift"),
-    value_x_coins: Number(row.value_x_coins ?? 0) || 0,
-    convertible: Boolean(row.convertible ?? true),
-    conversion_bps: Number(row.conversion_bps ?? 8000) || 8000,
-    limited: Boolean(row.limited ?? false),
+    gift_id: String(row['gift_id'] ?? ""),
+    gift_key: String(row['gift_key'] ?? ""),
+    name: String(row['name'] ?? "Gift"),
+    value_x_coins: Number(row['value_x_coins'] ?? 0) || 0,
+    convertible: Boolean(row['convertible'] ?? true),
+    conversion_bps: Number(row['conversion_bps'] ?? 8000) || 8000,
+    limited: Boolean(row['limited'] ?? false),
     max_supply:
-      row.max_supply == null ? null : Number(row.max_supply) || null,
+      row['max_supply'] == null ? null : Number(row['max_supply']) || null,
     metadata:
-      row.metadata && typeof row.metadata === "object"
-        ? (row.metadata as Record<string, unknown>)
+      row['metadata'] && typeof row['metadata'] === "object"
+        ? (row['metadata'] as Record<string, unknown>)
         : null,
-    available: Boolean(row.available ?? true),
+    available: Boolean(row['available'] ?? true),
   };
 }
 
 function mapCollectible(row: Record<string, unknown>): GiftCollectible {
   const gift =
-    (row.gift_definitions as Record<string, unknown> | undefined) ||
-    (row.gift as Record<string, unknown> | undefined);
+    (row['gift_definitions'] as Record<string, unknown> | undefined) ||
+    (row['gift'] as Record<string, unknown> | undefined);
 
   return {
-    collectible_id: String(row.collectible_id ?? ""),
-    gift_id: String(row.gift_id ?? ""),
-    owner_id: String(row.owner_id ?? ""),
-    sender_id: row.sender_id == null ? null : String(row.sender_id),
+    collectible_id: String(row['collectible_id'] ?? ""),
+    gift_id: String(row['gift_id'] ?? ""),
+    owner_id: String(row['owner_id'] ?? ""),
+    sender_id: row['sender_id'] == null ? null : String(row['sender_id']),
     serial_number:
-      row.serial_number == null ? null : Number(row.serial_number),
+      row['serial_number'] == null ? null : Number(row['serial_number']),
     serial_total:
-      row.serial_total == null ? null : Number(row.serial_total),
-    status: String(row.status ?? "owned"),
-    received_at: row.received_at == null ? null : String(row.received_at),
+      row['serial_total'] == null ? null : Number(row['serial_total']),
+    status: String(row['status'] ?? "owned"),
+    received_at: row['received_at'] == null ? null : String(row['received_at']),
     converted_at:
-      row.converted_at == null ? null : String(row.converted_at),
-    featured: Boolean(row.featured ?? false),
+      row['converted_at'] == null ? null : String(row['converted_at']),
+    featured: Boolean(row['featured'] ?? false),
     metadata:
-      row.metadata && typeof row.metadata === "object"
-        ? (row.metadata as Record<string, unknown>)
+      row['metadata'] && typeof row['metadata'] === "object"
+        ? (row['metadata'] as Record<string, unknown>)
         : null,
-    gift_name: gift?.name == null ? null : String(gift.name),
-    gift_key: gift?.gift_key == null ? null : String(gift.gift_key),
+    gift_name: gift?['name'] == null ? null : String(gift['name']),
+    gift_key: gift?['gift_key'] == null ? null : String(gift['gift_key']),
     value_x_coins:
-      gift?.value_x_coins == null
+      gift?['value_x_coins'] == null
         ? null
-        : Number(gift.value_x_coins) || null,
-    limited: gift?.limited == null ? null : Boolean(gift.limited),
+        : Number(gift['value_x_coins']) || null,
+    limited: gift?['limited'] == null ? null : Boolean(gift['limited']),
     personal_message: null,
   };
 }
@@ -2660,7 +2660,7 @@ export const getMyCollectibles = createServerFn({
 
       const giftIds = [
         ...new Set(
-          rows.map((r) => String(r.gift_id ?? "")).filter(Boolean),
+          rows.map((r) => String(r['gift_id'] ?? "")).filter(Boolean),
         ),
       ];
 
@@ -2673,10 +2673,10 @@ export const getMyCollectibles = createServerFn({
         if (!defs.error && defs.data) {
           const map = new Map<string, Record<string, unknown>>();
           for (const d of defs.data as Record<string, unknown>[]) {
-            map.set(String(d.gift_id), d);
+            map.set(String(d['gift_id']), d);
           }
           rows = rows.map((row) => {
-            const def = map.get(String(row.gift_id ?? ""));
+            const def = map.get(String(row['gift_id'] ?? ""));
             return def ? { ...row, gift_definitions: def } : row;
           });
         }

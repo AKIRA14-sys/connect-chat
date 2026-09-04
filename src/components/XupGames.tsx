@@ -4377,23 +4377,23 @@ function useGamingMatchSession({
             : {};
 
         const rewardObj =
-          data.reward && typeof data.reward === "object"
-            ? (data.reward as Record<string, unknown>)
+          data['reward'] && typeof data['reward'] === "object"
+            ? (data['reward'] as Record<string, unknown>)
             : {};
 
         const coins = Number(
-          rewardObj.x_coins_awarded ??
-            rewardObj.xCoinsAwarded ??
-            data.x_coins_awarded ??
-            data.x_coins ??
+          rewardObj['x_coins_awarded'] ??
+            rewardObj['xCoinsAwarded'] ??
+            data['x_coins_awarded'] ??
+            data['x_coins'] ??
             0,
         );
 
         const xp = Number(
-          rewardObj.xp_awarded ??
-            rewardObj.xpAwarded ??
-            data.xp_awarded ??
-            data.xp ??
+          rewardObj['xp_awarded'] ??
+            rewardObj['xpAwarded'] ??
+            data['xp_awarded'] ??
+            data['xp'] ??
             0,
         );
 

@@ -466,10 +466,10 @@ export function shopFontFromMetadata(
   }
 
   const id =
-    typeof metadata.font_id === "string"
-      ? metadata.font_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+    typeof metadata['font_id'] === "string"
+      ? metadata['font_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -477,33 +477,33 @@ export function shopFontFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Shop Font";
 
   const description =
-    typeof metadata.description === "string"
-      ? metadata.description
+    typeof metadata['description'] === "string"
+      ? metadata['description']
       : "A Shop font.";
 
   const fontFamily =
-    typeof metadata.font_family === "string"
-      ? metadata.font_family
+    typeof metadata['font_family'] === "string"
+      ? metadata['font_family']
       : "ui-sans-serif, system-ui, sans-serif";
 
   const fontWeight =
-    typeof metadata.font_weight === "number"
-      ? metadata.font_weight
+    typeof metadata['font_weight'] === "number"
+      ? metadata['font_weight']
       : 400;
 
   const letterSpacing =
-    typeof metadata.letter_spacing === "string"
-      ? metadata.letter_spacing
+    typeof metadata['letter_spacing'] === "string"
+      ? metadata['letter_spacing']
       : "normal";
 
   const readable =
-    typeof metadata.readable === "boolean"
-      ? metadata.readable
+    typeof metadata['readable'] === "boolean"
+      ? metadata['readable']
       : true;
 
   return {
@@ -597,5 +597,5 @@ export function mergeShopFonts(
  * Safe fallback font.
  */
 export function getDefaultShopFont(): ShopFont {
-  return SHOP_FONTS.default;
+  return SHOP_FONTS['default'];
 }

@@ -1128,8 +1128,8 @@ function ChatRoom() {
         });
         if (!res || typeof res !== "object") return null;
         const root = res as Record<string, unknown>;
-        if (root.profile && typeof root.profile === "object") {
-          return root.profile as Record<string, unknown>;
+        if (root['profile'] && typeof root['profile'] === "object") {
+          return root['profile'] as Record<string, unknown>;
         }
         return null;
       } catch {
@@ -5900,8 +5900,8 @@ function ChatRoom() {
                     <p className="text-[10px] text-muted-foreground">Level</p>
                     <p className="text-lg font-bold">
                       {Number(
-                        otherGamingProfile.current_level ??
-                          otherGamingProfile.level ??
+                        otherGamingProfile['current_level'] ??
+                          otherGamingProfile['level'] ??
                           1,
                       ) || 1}
                     </p>
@@ -5909,25 +5909,25 @@ function ChatRoom() {
                   <div className="rounded-2xl border border-border bg-card p-3">
                     <p className="text-[10px] text-muted-foreground">XP</p>
                     <p className="text-lg font-bold">
-                      {Number(otherGamingProfile.total_xp ?? 0) || 0}
+                      {Number(otherGamingProfile['total_xp'] ?? 0) || 0}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-border bg-card p-3">
                     <p className="text-[10px] text-muted-foreground">Wins</p>
                     <p className="text-lg font-bold">
-                      {Number(otherGamingProfile.wins ?? 0) || 0}
+                      {Number(otherGamingProfile['wins'] ?? 0) || 0}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-border bg-card p-3">
                     <p className="text-[10px] text-muted-foreground">Games</p>
                     <p className="text-lg font-bold">
-                      {Number(otherGamingProfile.games_played ?? 0) || 0}
+                      {Number(otherGamingProfile['games_played'] ?? 0) || 0}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-border bg-card p-3">
                     <p className="text-[10px] text-muted-foreground">Streak</p>
                     <p className="text-lg font-bold">
-                      {Number(otherGamingProfile.current_streak ?? 0) || 0}
+                      {Number(otherGamingProfile['current_streak'] ?? 0) || 0}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-border bg-card p-3">
@@ -5935,7 +5935,7 @@ function ChatRoom() {
                       Best streak
                     </p>
                     <p className="text-lg font-bold">
-                      {Number(otherGamingProfile.longest_streak ?? 0) || 0}
+                      {Number(otherGamingProfile['longest_streak'] ?? 0) || 0}
                     </p>
                   </div>
                 </div>

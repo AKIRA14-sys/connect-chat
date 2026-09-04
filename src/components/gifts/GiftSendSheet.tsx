@@ -109,13 +109,13 @@ export function GiftSendSheet({
 
       const payload: GiftMessagePayload = {
         gift_transaction_id:
-          result.gift_transaction_id == null
+          result['gift_transaction_id'] == null
             ? null
-            : String(result.gift_transaction_id),
+            : String(result['gift_transaction_id']),
         collectible_id:
-          result.collectible_id == null
+          result['collectible_id'] == null
             ? null
-            : String(result.collectible_id),
+            : String(result['collectible_id']),
         gift_id: selected.gift_id,
         gift_key: selected.gift_key,
         gift_name: selected.name,
@@ -123,13 +123,13 @@ export function GiftSendSheet({
         message: message.trim() || null,
         limited: selected.limited,
         serial_number:
-          result.serial_number == null
+          result['serial_number'] == null
             ? null
-            : Number(result.serial_number),
+            : Number(result['serial_number']),
         serial_total:
-          result.serial_total == null
+          result['serial_total'] == null
             ? selected.max_supply
-            : Number(result.serial_total),
+            : Number(result['serial_total']),
         emoji: giftEmoji(selected.gift_key || selected.name),
       };
 
