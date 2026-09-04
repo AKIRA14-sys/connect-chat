@@ -36,25 +36,6 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Prepare Capacitor web assets
-        run: |
-          mkdir -p .output/public
-          if [ ! -f .output/public/index.html ]; then
-            cat > .output/public/index.html <<'HTML'
-          <!doctype html>
-          <html>
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width,initial-scale=1">
-            <title>XUPPIN</title>
-          </head>
-          <body>
-            <div id="root"></div>
-          </body>
-          </html>
-          HTML
-          fi
-
       - name: Sync Capacitor
         run: npx cap sync android
 
