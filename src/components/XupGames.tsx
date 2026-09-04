@@ -201,13 +201,13 @@ const RPS_CHOICES: {
 ========================================================= */
 
 function getRandomItem<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
+  return items[Math.floor(Math.random() * items.length)]!;
 }
 
 function checkTicTacToeWinner(
   board: Mark[],
 ): Mark | "draw" | null {
-  const combinations = [
+  const combinations: [number, number, number][] = [
     [0, 1, 2],
     [3, 4, 5],
     [6, 7, 8],
@@ -235,7 +235,7 @@ function checkTicTacToeWinner(
 function getRpsResult(
   player: RpsChoice,
   opponent: RpsChoice,
-): "win" | "lose" | "draw" {
+): "win" | "loss" | "draw" {
   if (player === opponent) return "draw";
 
   if (
@@ -246,7 +246,7 @@ function getRpsResult(
     return "win";
   }
 
-  return "lose";
+  return "loss";
 }
 
 /* =========================================================
