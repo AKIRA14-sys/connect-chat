@@ -10,8 +10,8 @@ import {
   type SupabaseClient,
 } from "@supabase/supabase-js";
 
-const url = import.meta.env.VITE_GAMING_SUPABASE_URL;
-const anonKey = import.meta.env.VITE_GAMING_SUPABASE_ANON_KEY;
+const url = import.meta.env['VITE_GAMING_SUPABASE_URL'];
+const anonKey = import.meta.env['VITE_GAMING_SUPABASE_ANON_KEY'];
 
 let client: SupabaseClient | null = null;
 

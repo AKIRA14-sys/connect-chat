@@ -52,15 +52,15 @@ export function UserAvatar({
 
         const root = res as Record<string, unknown>;
         const profileRaw =
-          root.profile ??
-          root.data ??
-          (root.current_level != null || root.level != null ? root : null);
+          root['profile'] ??
+          root['data'] ??
+          (root['current_level'] != null || root['level'] != null ? root : null);
 
         if (!profileRaw || typeof profileRaw !== "object") return null;
 
         const profile = profileRaw as Record<string, unknown>;
         const n = Number(
-          profile.current_level ?? profile.level ?? profile.lvl ?? 0,
+          profile['current_level'] ?? profile['level'] ?? profile['lvl'] ?? 0,
         );
         if (!Number.isFinite(n) || n < 1) return null;
         return n;

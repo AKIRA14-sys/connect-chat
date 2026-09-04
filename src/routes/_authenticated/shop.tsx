@@ -140,16 +140,16 @@ function getItemImage(item: ShopItem): string | null {
         const obj = parsed as Record<string, unknown>;
 
         const candidates = [
-          obj.image_url,
-          obj.imageUrl,
-          obj.preview_url,
-          obj.previewUrl,
-          obj.hero_url,
-          obj.heroUrl,
-          obj.thumbnail_url,
-          obj.thumbnailUrl,
-          obj.cover_url,
-          obj.coverUrl,
+          obj['image_url'],
+          obj['imageUrl'],
+          obj['preview_url'],
+          obj['previewUrl'],
+          obj['hero_url'],
+          obj['heroUrl'],
+          obj['thumbnail_url'],
+          obj['thumbnailUrl'],
+          obj['cover_url'],
+          obj['coverUrl'],
         ];
 
         const found = candidates.find(
@@ -177,16 +177,16 @@ function getItemImage(item: ShopItem): string | null {
       metadata as Record<string, unknown>;
 
     const candidates = [
-      obj.image_url,
-      obj.imageUrl,
-      obj.preview_url,
-      obj.previewUrl,
-      obj.hero_url,
-      obj.heroUrl,
-      obj.thumbnail_url,
-      obj.thumbnailUrl,
-      obj.cover_url,
-      obj.coverUrl,
+      obj['image_url'],
+      obj['imageUrl'],
+      obj['preview_url'],
+      obj['previewUrl'],
+      obj['hero_url'],
+      obj['heroUrl'],
+      obj['thumbnail_url'],
+      obj['thumbnailUrl'],
+      obj['cover_url'],
+      obj['coverUrl'],
     ];
 
     const found = candidates.find(

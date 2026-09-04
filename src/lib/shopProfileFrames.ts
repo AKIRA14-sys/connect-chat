@@ -758,10 +758,10 @@ export function shopProfileFrameFromMetadata(
   }
 
   const id =
-    typeof metadata.frame_id === "string"
-      ? metadata.frame_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+    typeof metadata['frame_id'] === "string"
+      ? metadata['frame_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -769,18 +769,18 @@ export function shopProfileFrameFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Shop Profile Frame";
 
   const description =
-    typeof metadata.description === "string"
-      ? metadata.description
+    typeof metadata['description'] === "string"
+      ? metadata['description']
       : "Custom Shop profile frame.";
 
   const frame =
-    isProfileFrameStyle(metadata.frame)
-      ? metadata.frame
+    isProfileFrameStyle(metadata['frame'])
+      ? metadata['frame']
       : {
           border:
             "2px solid #e5e7eb",
@@ -789,15 +789,15 @@ export function shopProfileFrameFromMetadata(
         };
 
   const avatar =
-    isProfileFrameStyle(metadata.avatar)
-      ? metadata.avatar
+    isProfileFrameStyle(metadata['avatar'])
+      ? metadata['avatar']
       : undefined;
 
   const indicator =
     isIndicatorStyle(
-      metadata.indicator,
+      metadata['indicator'],
     )
-      ? metadata.indicator
+      ? metadata['indicator']
       : undefined;
 
   return {
@@ -944,8 +944,8 @@ function isIndicatorStyle(
     value as Record<string, unknown>;
 
   return (
-    typeof indicator.background === "string" &&
-    typeof indicator.color === "string"
+    typeof indicator['background'] === "string" &&
+    typeof indicator['color'] === "string"
   );
 }
 
@@ -953,5 +953,5 @@ function isIndicatorStyle(
  * Safe fallback.
  */
 export function getDefaultShopProfileFrame(): ShopProfileFrame {
-  return SHOP_PROFILE_FRAMES.default;
+  return SHOP_PROFILE_FRAMES['default'];
 }

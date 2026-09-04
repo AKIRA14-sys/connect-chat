@@ -863,10 +863,10 @@ export function shopBubbleFromMetadata(
   }
 
   const id =
-    typeof metadata.bubble_id === "string"
-      ? metadata.bubble_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+    typeof metadata['bubble_id'] === "string"
+      ? metadata['bubble_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -874,18 +874,18 @@ export function shopBubbleFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Shop Bubble";
 
   const description =
-    typeof metadata.description === "string"
-      ? metadata.description
+    typeof metadata['description'] === "string"
+      ? metadata['description']
       : "Custom Shop bubble.";
 
   const mine =
-    isShopBubbleStyle(metadata.mine)
-      ? metadata.mine
+    isShopBubbleStyle(metadata['mine'])
+      ? metadata['mine']
       : {
           background: "#2563eb",
           color: "#ffffff",
@@ -893,8 +893,8 @@ export function shopBubbleFromMetadata(
         };
 
   const theirs =
-    isShopBubbleStyle(metadata.theirs)
-      ? metadata.theirs
+    isShopBubbleStyle(metadata['theirs'])
+      ? metadata['theirs']
       : {
           background: "#e5e7eb",
           color: "#111827",
@@ -996,8 +996,8 @@ function isShopBubbleStyle(
     value as Record<string, unknown>;
 
   return (
-    typeof style.background === "string" &&
-    typeof style.color === "string"
+    typeof style['background'] === "string" &&
+    typeof style['color'] === "string"
   );
 }
 
@@ -1005,5 +1005,5 @@ function isShopBubbleStyle(
  * Safe fallback bubble.
  */
 export function getDefaultShopBubble(): ShopBubble {
-  return SHOP_BUBBLES.default;
+  return SHOP_BUBBLES['default'];
 }

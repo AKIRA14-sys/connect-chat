@@ -28,6 +28,7 @@ import {
 } from "@/lib/native/mediaSettings";
 import { isAndroid, isNative } from "@/lib/native/platform";
 import { initNativePush } from "@/lib/native/pushNative";
+import { saveFcmToken } from "@/lib/push.functions";
 
 const PERMS: { key: PermKey; label: string }[] = [
   { key: "notifications", label: "Notifications" },
@@ -98,7 +99,13 @@ export function AndroidSettingsPanel() {
                   const s = await requestPermission(p.key);
                   setStates((prev) => ({ ...prev, [p.key]: s }));
                   if (s === "granted" && p.key === "notifications") {
-                    await initNativePush();
+                    await initNativePush(async (token) => {
+                      try {
+                        await saveFcmToken({ data: { token } });
+                      } catch (err) {
+                        console.error("[push] failed to save FCM token", err);
+                      }
+                    });
                     toast.success("Notifications enabled");
                   }
                 }}
