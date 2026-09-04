@@ -38,6 +38,17 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
+      - name: Add Google Services plugin to project build.gradle
+        run: |
+          sed -i "s|dependencies {|dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'|" android/build.gradle
+
+      - name: Apply Google Services plugin in app build.gradle
+        run: |
+          echo "apply plugin: 'com.google.gms.google-services'" >> android/app/build.gradle
+
+      - name: Copy Firebase config into app module
+        run: cp google-services.json android/app/google-services.json
+
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
