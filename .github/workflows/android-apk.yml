@@ -38,6 +38,10 @@ jobs:
       - name: Add Android platform
         run: npx cap add android
 
+      - name: Add required Android permissions
+        run: |
+          sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />|' android/app/src/main/AndroidManifest.xml
+
       - name: Add Google Services plugin to project build.gradle
         run: |
           sed -i "s|dependencies {|dependencies {\n        classpath 'com.google.gms:google-services:4.4.2'|" android/build.gradle
