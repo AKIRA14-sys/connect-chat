@@ -582,7 +582,7 @@ export function getShopStickerPacksByCategory(
 ): ShopStickerPack[] {
   return getAllShopStickerPacks().filter(
     (pack) =>
-      pack.metadata?['category'] ===
+      pack.metadata.?['category'] ===
       category,
   );
 }
