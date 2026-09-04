@@ -4,12 +4,27 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { pushSupported, subscribeToPush, swAllowed } from "@/lib/pwa";
 import { savePushSubscription } from "@/lib/push.functions";
+import { initNativePush, isNativeAndroid } from "@/lib/nativePush";
 
 export function NotificationPrompt() {
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // APK: try register FCM quietly when already permitted
+    if (isNativeAndroid()) {
+      void initNativePush();
+      if (
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted"
+      ) {
+        return;
+      }
+      if (window.localStorage.getItem("whatsxup.push.dismissed") === "1") return;
+      setVisible(true);
+      return;
+    }
+
     if (!pushSupported() || !swAllowed()) return;
     if (Notification.permission !== "default") return;
     if (window.localStorage.getItem("whatsxup.push.dismissed") === "1") return;
@@ -21,6 +36,21 @@ export function NotificationPrompt() {
   async function enable() {
     setBusy(true);
     try {
+      if (isNativeAndroid()) {
+        const r = await initNativePush();
+        if (r.ok) {
+          toast.success("Notifications enabled");
+          setVisible(false);
+        } else {
+          toast.error(
+            r.reason === "permission_denied"
+              ? "Allow notifications in Android settings"
+              : "Could not enable notifications",
+          );
+        }
+        return;
+      }
+
       const sub = await subscribeToPush();
       if (!sub) {
         toast.error("Notifications were not enabled.");
@@ -41,7 +71,9 @@ export function NotificationPrompt() {
       <Bell className="h-5 w-5 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">Turn on notifications</p>
-        <p className="text-xs text-muted-foreground">Get messages and calls even when WHATSXUP is closed.</p>
+        <p className="text-xs text-muted-foreground">
+          Get messages and calls even when WHATSXUP is closed.
+        </p>
       </div>
       <Button size="sm" disabled={busy} onClick={() => void enable()}>
         {busy ? "…" : "Enable"}
