@@ -284,26 +284,26 @@ type ChessStatus =
   | "checkmate"
   | "stalemate";
 
-const CHESS_ROOK_DIRS = [
+const CHESS_ROOK_DIRS: [number, number][] = [
   [-1, 0],
   [1, 0],
   [0, -1],
   [0, 1],
 ];
 
-const CHESS_BISHOP_DIRS = [
+const CHESS_BISHOP_DIRS: [number, number][] = [
   [-1, -1],
   [-1, 1],
   [1, -1],
   [1, 1],
 ];
 
-const CHESS_QUEEN_DIRS = [
+const CHESS_QUEEN_DIRS: [number, number][] = [
   ...CHESS_ROOK_DIRS,
   ...CHESS_BISHOP_DIRS,
 ];
 
-const CHESS_KNIGHT_OFFSETS = [
+const CHESS_KNIGHT_OFFSETS: [number, number][] = [
   [-2, -1],
   [-2, 1],
   [-1, -2],
