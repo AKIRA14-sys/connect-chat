@@ -16,6 +16,7 @@ import { RealtimeProvider } from "@/components/RealtimeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppSplash } from "@/components/AppSplash";
+import { initNativePush } from "@/lib/nativePush";
 import { AppLockGate } from "@/components/AppLockGate";
 
 
@@ -166,6 +167,10 @@ function RootComponent() {
     navigator.serviceWorker.addEventListener("message", onMessage);
     return () => navigator.serviceWorker.removeEventListener("message", onMessage);
   }, [router]);
+
+  useEffect(() => {
+    void initNativePush();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>
