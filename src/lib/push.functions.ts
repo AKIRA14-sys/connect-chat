@@ -55,6 +55,26 @@ export const removePushSubscription = createServerFn({ method: "POST" })
   });
 
 /* =========================================================
+ * SAVE FCM TOKEN (native Android push)
+ * ========================================================= */
+
+export const saveFcmToken = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: unknown) => z.object({ token: z.string().min(20) }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("fcm_tokens").upsert(
+      {
+        user_id: context.userId,
+        token: data.token,
+      },
+      { onConflict: "token" },
+    );
+
+    if (error) throw new Error(`Could not save FCM token: ${error.message}`);
+    return { ok: true };
+  });
+
+/* =========================================================
  * FANOUT
  *
  * Runs with the service role so it can read the recipients'
