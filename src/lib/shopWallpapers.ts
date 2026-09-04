@@ -528,11 +528,11 @@ export function shopWallpaperFromMetadata(
   }
 
   const id =
-    typeof metadata.wallpaper_id ===
+    typeof metadata['wallpaper_id'] ===
     "string"
-      ? metadata.wallpaper_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+      ? metadata['wallpaper_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -540,77 +540,77 @@ export function shopWallpaperFromMetadata(
   }
 
   const name =
-    typeof metadata.name ===
+    typeof metadata['name'] ===
     "string"
-      ? metadata.name
+      ? metadata['name']
       : "Shop Wallpaper";
 
   const description =
-    typeof metadata.description ===
+    typeof metadata['description'] ===
     "string"
-      ? metadata.description
+      ? metadata['description']
       : "Shop chat wallpaper.";
 
   const type =
     isWallpaperType(
-      metadata.wallpaper_type,
+      metadata['wallpaper_type'],
     )
-      ? metadata.wallpaper_type
+      ? metadata['wallpaper_type']
       : "image";
 
   const rarity =
     isWallpaperRarity(
-      metadata.rarity,
+      metadata['rarity'],
     )
-      ? metadata.rarity
+      ? metadata['rarity']
       : "common";
 
   const imageUrl =
-    typeof metadata.image_url ===
+    typeof metadata['image_url'] ===
     "string"
-      ? metadata.image_url
+      ? metadata['image_url']
       : undefined;
 
   const videoUrl =
-    typeof metadata.video_url ===
+    typeof metadata['video_url'] ===
     "string"
-      ? metadata.video_url
+      ? metadata['video_url']
       : undefined;
 
   const css =
-    typeof metadata.css ===
+    typeof metadata['css'] ===
     "string"
-      ? metadata.css
+      ? metadata['css']
       : undefined;
 
   const previewImageUrl =
-    typeof metadata.preview_image_url ===
+    typeof metadata['preview_image_url'] ===
     "string"
-      ? metadata.preview_image_url
+      ? metadata['preview_image_url']
       : undefined;
 
   const backgroundPosition =
-    typeof metadata.background_position ===
+    typeof metadata['background_position'] ===
     "string"
-      ? metadata.background_position
+      ? metadata['background_position']
       : undefined;
 
   const backgroundSize =
-    typeof metadata.background_size ===
+    typeof metadata['background_size'] ===
     "string"
-      ? metadata.background_size
+      ? metadata['background_size']
       : undefined;
 
   const backgroundRepeat =
-    typeof metadata.background_repeat ===
+    typeof metadata['background_repeat'] ===
     "string"
-      ? metadata.background_repeat
+      ? metadata['background_repeat']
       : undefined;
 
   const overlay =
-    typeof metadata.overlay ===
+    typeof metadata['overlay'] ===
     "string"
-      ? metadata.overlay
+      ? metadata['overlay']
       : undefined;
 
   return {
@@ -847,7 +847,7 @@ export function getShopWallpapersByCategory(
 ): ShopWallpaper[] {
   return getAllShopCodeWallpapers().filter(
     (wallpaper) =>
-      wallpaper.metadata?.category ===
+      wallpaper.metadata?.['category'] ===
       category,
   );
 }
@@ -935,28 +935,28 @@ export function getShopWallpaperStyle(
     );
 
   if (background) {
-    style.background =
+    style['background'] =
       background;
   }
 
   if (
     wallpaper.backgroundPosition
   ) {
-    style.backgroundPosition =
+    style['backgroundPosition'] =
       wallpaper.backgroundPosition;
   }
 
   if (
     wallpaper.backgroundSize
   ) {
-    style.backgroundSize =
+    style['backgroundSize'] =
       wallpaper.backgroundSize;
   }
 
   if (
     wallpaper.backgroundRepeat
   ) {
-    style.backgroundRepeat =
+    style['backgroundRepeat'] =
       wallpaper.backgroundRepeat;
   }
 

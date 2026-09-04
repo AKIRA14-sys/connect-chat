@@ -856,8 +856,8 @@ export function shopThemeFromMetadata(
   }
 
   const themeId =
-    typeof metadata.theme_id === "string"
-      ? metadata.theme_id
+    typeof metadata['theme_id'] === "string"
+      ? metadata['theme_id']
       : null;
 
   if (themeId && hasShopTheme(themeId)) {
@@ -865,73 +865,73 @@ export function shopThemeFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Shop Theme";
 
   const background =
-    typeof metadata.background === "string"
-      ? metadata.background
+    typeof metadata['background'] === "string"
+      ? metadata['background']
       : "#111827";
 
   const messageAreaBackground =
-    typeof metadata.message_area_background === "string"
-      ? metadata.message_area_background
+    typeof metadata['message_area_background'] === "string"
+      ? metadata['message_area_background']
       : background;
 
   const bubbleMine =
-    typeof metadata.bubble_mine === "string"
-      ? metadata.bubble_mine
+    typeof metadata['bubble_mine'] === "string"
+      ? metadata['bubble_mine']
       : "#22c55e";
 
   const bubbleTheirs =
-    typeof metadata.bubble_theirs === "string"
-      ? metadata.bubble_theirs
+    typeof metadata['bubble_theirs'] === "string"
+      ? metadata['bubble_theirs']
       : "#1f2937";
 
   const text =
-    typeof metadata.text === "string"
-      ? metadata.text
+    typeof metadata['text'] === "string"
+      ? metadata['text']
       : "#ffffff";
 
   const secondaryText =
-    typeof metadata.secondary_text === "string"
-      ? metadata.secondary_text
+    typeof metadata['secondary_text'] === "string"
+      ? metadata['secondary_text']
       : "#cbd5e1";
 
   const accent =
-    typeof metadata.accent === "string"
-      ? metadata.accent
+    typeof metadata['accent'] === "string"
+      ? metadata['accent']
       : "#22c55e";
 
   const border =
-    typeof metadata.border === "string"
-      ? metadata.border
+    typeof metadata['border'] === "string"
+      ? metadata['border']
       : "rgba(255,255,255,0.15)";
 
   const inputBackground =
-    typeof metadata.input_background === "string"
-      ? metadata.input_background
+    typeof metadata['input_background'] === "string"
+      ? metadata['input_background']
       : "rgba(15,23,42,0.95)";
 
   const inputText =
-    typeof metadata.input_text === "string"
-      ? metadata.input_text
+    typeof metadata['input_text'] === "string"
+      ? metadata['input_text']
       : "#ffffff";
 
   const shadow =
-    typeof metadata.shadow === "string"
-      ? metadata.shadow
+    typeof metadata['shadow'] === "string"
+      ? metadata['shadow']
       : undefined;
 
   const glow =
-    typeof metadata.glow === "string"
-      ? metadata.glow
+    typeof metadata['glow'] === "string"
+      ? metadata['glow']
       : undefined;
 
   const dark =
-    typeof metadata.dark === "boolean"
-      ? metadata.dark
+    typeof metadata['dark'] === "boolean"
+      ? metadata['dark']
       : true;
 
   return {

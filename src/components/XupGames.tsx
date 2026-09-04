@@ -201,13 +201,13 @@ const RPS_CHOICES: {
 ========================================================= */
 
 function getRandomItem<T>(items: T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
+  return items[Math.floor(Math.random() * items.length)]!;
 }
 
 function checkTicTacToeWinner(
   board: Mark[],
 ): Mark | "draw" | null {
-  const combinations = [
+  const combinations: [number, number, number][] = [
     [0, 1, 2],
     [3, 4, 5],
     [6, 7, 8],
@@ -235,7 +235,7 @@ function checkTicTacToeWinner(
 function getRpsResult(
   player: RpsChoice,
   opponent: RpsChoice,
-): "win" | "lose" | "draw" {
+): "win" | "loss" | "draw" {
   if (player === opponent) return "draw";
 
   if (
@@ -246,7 +246,7 @@ function getRpsResult(
     return "win";
   }
 
-  return "lose";
+  return "loss";
 }
 
 /* =========================================================
@@ -284,26 +284,26 @@ type ChessStatus =
   | "checkmate"
   | "stalemate";
 
-const CHESS_ROOK_DIRS = [
+const CHESS_ROOK_DIRS: [number, number][] = [
   [-1, 0],
   [1, 0],
   [0, -1],
   [0, 1],
 ];
 
-const CHESS_BISHOP_DIRS = [
+const CHESS_BISHOP_DIRS: [number, number][] = [
   [-1, -1],
   [-1, 1],
   [1, -1],
   [1, 1],
 ];
 
-const CHESS_QUEEN_DIRS = [
+const CHESS_QUEEN_DIRS: [number, number][] = [
   ...CHESS_ROOK_DIRS,
   ...CHESS_BISHOP_DIRS,
 ];
 
-const CHESS_KNIGHT_OFFSETS = [
+const CHESS_KNIGHT_OFFSETS: [number, number][] = [
   [-2, -1],
   [-2, 1],
   [-1, -2],
@@ -4377,23 +4377,23 @@ function useGamingMatchSession({
             : {};
 
         const rewardObj =
-          data.reward && typeof data.reward === "object"
-            ? (data.reward as Record<string, unknown>)
+          data['reward'] && typeof data['reward'] === "object"
+            ? (data['reward'] as Record<string, unknown>)
             : {};
 
         const coins = Number(
-          rewardObj.x_coins_awarded ??
-            rewardObj.xCoinsAwarded ??
-            data.x_coins_awarded ??
-            data.x_coins ??
+          rewardObj['x_coins_awarded'] ??
+            rewardObj['xCoinsAwarded'] ??
+            data['x_coins_awarded'] ??
+            data['x_coins'] ??
             0,
         );
 
         const xp = Number(
-          rewardObj.xp_awarded ??
-            rewardObj.xpAwarded ??
-            data.xp_awarded ??
-            data.xp ??
+          rewardObj['xp_awarded'] ??
+            rewardObj['xpAwarded'] ??
+            data['xp_awarded'] ??
+            data['xp'] ??
             0,
         );
 

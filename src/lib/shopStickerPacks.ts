@@ -582,7 +582,7 @@ export function getShopStickerPacksByCategory(
 ): ShopStickerPack[] {
   return getAllShopStickerPacks().filter(
     (pack) =>
-      pack.metadata?.category ===
+      pack.metadata?.['category'] ===
       category,
   );
 }
@@ -656,11 +656,11 @@ export function shopStickerPackFromMetadata(
   }
 
   const id =
-    typeof metadata.sticker_pack_id ===
+    typeof metadata['sticker_pack_id'] ===
     "string"
-      ? metadata.sticker_pack_id
-      : typeof metadata.id === "string"
-        ? metadata.id
+      ? metadata['sticker_pack_id']
+      : typeof metadata['id'] === "string"
+        ? metadata['id']
         : null;
 
   if (!id) {
@@ -668,32 +668,32 @@ export function shopStickerPackFromMetadata(
   }
 
   const name =
-    typeof metadata.name === "string"
-      ? metadata.name
+    typeof metadata['name'] === "string"
+      ? metadata['name']
       : "Shop Sticker Pack";
 
   const description =
-    typeof metadata.description ===
+    typeof metadata['description'] ===
     "string"
-      ? metadata.description
+      ? metadata['description']
       : "Shop sticker pack.";
 
   const rarity =
     isStickerPackRarity(
-      metadata.rarity,
+      metadata['rarity'],
     )
-      ? metadata.rarity
+      ? metadata['rarity']
       : "common";
 
   const previewImageUrl =
-    typeof metadata.preview_image_url ===
+    typeof metadata['preview_image_url'] ===
     "string"
-      ? metadata.preview_image_url
+      ? metadata['preview_image_url']
       : undefined;
 
   const rawStickers =
-    Array.isArray(metadata.stickers)
-      ? metadata.stickers
+    Array.isArray(metadata['stickers'])
+      ? metadata['stickers']
       : [];
 
   const stickers: ShopSticker[] =
@@ -813,7 +813,7 @@ export function mergeShopStickerPacks(
 export function getDefaultShopStickerPack(): ShopStickerPack {
   return (
     SHOP_STICKER_PACKS
-      .anime_reactions
+      ['anime_reactions']
   );
 }
 
@@ -848,34 +848,34 @@ function parseShopSticker(
     value as Record<string, unknown>;
 
   if (
-    typeof sticker.id !== "string" ||
-    typeof sticker.name !== "string"
+    typeof sticker['id'] !== "string" ||
+    typeof sticker['name'] !== "string"
   ) {
     return null;
   }
 
   const imageUrl =
-    typeof sticker.image_url ===
+    typeof sticker['image_url'] ===
     "string"
-      ? sticker.image_url
-      : typeof sticker.imageUrl ===
+      ? sticker['image_url']
+      : typeof sticker['imageUrl'] ===
           "string"
-        ? sticker.imageUrl
+        ? sticker['imageUrl']
         : "";
 
   const fallbackEmoji =
-    typeof sticker.fallback_emoji ===
+    typeof sticker['fallback_emoji'] ===
     "string"
-      ? sticker.fallback_emoji
-      : typeof sticker.fallbackEmoji ===
+      ? sticker['fallback_emoji']
+      : typeof sticker['fallbackEmoji'] ===
           "string"
-        ? sticker.fallbackEmoji
+        ? sticker['fallbackEmoji']
         : undefined;
 
   return {
-    id: sticker.id,
+    id: sticker['id'],
 
-    name: sticker.name,
+    name: sticker['name'],
 
     imageUrl,
 
