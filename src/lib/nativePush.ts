@@ -1,35 +1,42 @@
 /**
  * Native Android push (FCM via Capacitor).
- * Web Push (service worker) stays separate — APK needs this path.
+ * No static @capacitor imports.
  */
-import { Capacitor } from "@capacitor/core";
-import { saveFcmToken } from "@/lib/push.functions";
 
 export function isNativeAndroid(): boolean {
   try {
+    const C = (
+      globalThis as {
+        Capacitor?: {
+          isNativePlatform?: () => boolean;
+          getPlatform?: () => string;
+        };
+      }
+    ).Capacitor;
     return (
-      Capacitor.isNativePlatform() && Capacitor.getPlatform() === "android"
+      C?.isNativePlatform?.() === true && C?.getPlatform?.() === "android"
     );
   } catch {
     return false;
   }
 }
 
-/**
- * Request permission, register with FCM, save token to Supabase.
- * Safe to call multiple times (idempotent).
- */
-export async function initNativePush(): Promise<{ ok: boolean; reason?: string }> {
+export async function initNativePush(): Promise<{
+  ok: boolean;
+  reason?: string;
+}> {
   if (!isNativeAndroid()) {
     return { ok: false, reason: "not_android" };
   }
 
   try {
-    const { PushNotifications } = await import(
-      "@capacitor/push-notifications"
-    );
+    const mod = await import("@capacitor/push-notifications");
+    const PushNotifications = mod.PushNotifications;
 
-    const perm = await PushNotifications.requestPermissions();
+    let perm = await PushNotifications.checkPermissions();
+    if (perm.receive !== "granted") {
+      perm = await PushNotifications.requestPermissions();
+    }
     if (perm.receive !== "granted") {
       return { ok: false, reason: "permission_denied" };
     }
@@ -37,45 +44,63 @@ export async function initNativePush(): Promise<{ ok: boolean; reason?: string }
     await PushNotifications.register();
 
     return await new Promise((resolve) => {
+      let settled = false;
+      const done = (result: { ok: boolean; reason?: string }) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(result);
+      };
+
       const timeout = window.setTimeout(() => {
-        resolve({ ok: false, reason: "token_timeout" });
-      }, 15000);
+        done({ ok: false, reason: "token_timeout" });
+      }, 20000);
 
-      void PushNotifications.addListener("registration", (t) => {
-        window.clearTimeout(timeout);
-        const token = t.value;
-        if (!token || token.length < 20) {
-          resolve({ ok: false, reason: "empty_token" });
-          return;
-        }
-        void saveFcmToken({ data: { token } })
-          .then(() => resolve({ ok: true }))
-          .catch((err) => {
-            console.error("[nativePush] saveFcmToken failed", err);
-            resolve({ ok: false, reason: "save_failed" });
-          });
-      });
+      void PushNotifications.addListener(
+        "registration",
+        (t: { value: string }) => {
+          const token = t?.value;
+          console.info(
+            "[nativePush] got token length",
+            token ? token.length : 0,
+          );
+          if (!token || token.length < 20) {
+            done({ ok: false, reason: "empty_token" });
+            return;
+          }
 
-      void PushNotifications.addListener("registrationError", (err) => {
-        window.clearTimeout(timeout);
-        console.error("[nativePush] registrationError", err);
-        resolve({ ok: false, reason: "registration_error" });
-      });
+          void import("@/lib/push.functions")
+            .then(({ saveFcmToken }) =>
+              saveFcmToken({ data: { token } } as { data: { token: string } }),
+            )
+            .then(() => done({ ok: true }))
+            .catch((err: unknown) => {
+              console.error("[nativePush] saveFcmToken failed", err);
+              done({ ok: false, reason: "save_failed" });
+            });
+        },
+      );
+
+      void PushNotifications.addListener(
+        "registrationError",
+        (err: unknown) => {
+          console.error("[nativePush] registrationError", err);
+          done({ ok: false, reason: "registration_error" });
+        },
+      );
 
       void PushNotifications.addListener(
         "pushNotificationActionPerformed",
-        (action) => {
-          const data = action.notification.data as
-            | { conversationId?: string; to?: string }
-            | undefined;
+        (action: {
+          notification: { data?: { conversationId?: string; to?: string } };
+        }) => {
+          const data = action?.notification?.data;
           const to =
             data?.to ||
             (data?.conversationId
               ? `/chats/${data.conversationId}`
               : undefined);
-          if (to && typeof window !== "undefined") {
-            window.location.href = to;
-          }
+          if (to) window.location.href = to;
         },
       );
     });
