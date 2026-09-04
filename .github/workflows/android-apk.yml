@@ -1,7 +1,9 @@
 name: Build Android APK
 
 on:
-  workflow_dispatch: {}
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -20,9 +22,10 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK 35         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Install Node.js
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -33,42 +36,29 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Ensure Capacitor web assets
+      - name: Prepare Capacitor web assets
         run: |
           mkdir -p .output/public
           if [ ! -f .output/public/index.html ]; then
-            cat > .output/public/index.html <<'EOF'
+            cat > .output/public/index.html <<'HTML'
           <!doctype html>
           <html>
-            <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width,initial-scale=1">
-              <title>XUPPIN</title>
-            </head>
-            <body>
-              <div id="root"></div>
-            </body>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>XUPPIN</title>
+          </head>
+          <body>
+            <div id="root"></div>
+          </body>
           </html>
-          EOF
+          HTML
           fi
 
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Build Debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: XUPPIN-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Sync Capacitor
-        run: npx cap sync android
-
-      - name: Build Debug APK
+      - name: Build APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon
 
