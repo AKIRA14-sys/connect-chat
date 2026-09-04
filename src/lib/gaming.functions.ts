@@ -2525,13 +2525,13 @@ function mapCollectible(row: Record<string, unknown>): GiftCollectible {
       row['metadata'] && typeof row['metadata'] === "object"
         ? (row['metadata'] as Record<string, unknown>)
         : null,
-    gift_name: gift.?['name'] == null ? null : String(gift['name']),
-    gift_key: gift.?['gift_key'] == null ? null : String(gift['gift_key']),
+    gift_name: gift?.['name'] == null ? null : String(gift['name']),
+    gift_key: gift?.['gift_key'] == null ? null : String(gift['gift_key']),
     value_x_coins:
-      gift.?['value_x_coins'] == null
+      gift?.['value_x_coins'] == null
         ? null
         : Number(gift['value_x_coins']) || null,
-    limited: gift.?['limited'] == null ? null : Boolean(gift['limited']),
+    limited: gift?.['limited'] == null ? null : Boolean(gift['limited']),
     personal_message: null,
   };
 }

@@ -847,7 +847,7 @@ export function getShopWallpapersByCategory(
 ): ShopWallpaper[] {
   return getAllShopCodeWallpapers().filter(
     (wallpaper) =>
-      wallpaper.metadata.?['category'] ===
+      wallpaper.metadata?.['category'] ===
       category,
   );
 }

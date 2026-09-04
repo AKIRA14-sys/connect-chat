@@ -376,7 +376,7 @@ export function resolveThemeStyles(
       "areaBackground",
       "chatBackground",
     ]) ||
-    pick(asRecord(meta.?['colors']), "background", "messageAreaBackground", "bg");
+    pick(asRecord(meta?.['colors']), "background", "messageAreaBackground", "bg");
 
   const bubbleMine =
     pickDeep(meta, [
@@ -386,13 +386,13 @@ export function resolveThemeStyles(
       "bubbleCss",
       "bubble_css",
     ]) ||
-    pick(asRecord(meta.?['colors']), "bubbleMine", "bubble_mine", "mine") ||
-    pick(asRecord(meta.?['css']), "mine", "bubbleMine", "background");
+    pick(asRecord(meta?.['colors']), "bubbleMine", "bubble_mine", "mine") ||
+    pick(asRecord(meta?.['css']), "mine", "bubbleMine", "background");
 
   const bubbleOther =
     pickDeep(meta, ["bubbleOther", "bubble_other", "other"]) ||
-    pick(asRecord(meta.?['colors']), "bubbleOther", "other") ||
-    pick(asRecord(meta.?['css']), "other", "bubbleOther");
+    pick(asRecord(meta?.['colors']), "bubbleOther", "other") ||
+    pick(asRecord(meta?.['css']), "other", "bubbleOther");
 
   const emojiFromMeta =
     pickDeep(meta, ["emoji", "overlayEmoji", "patternEmoji"]) ||
@@ -441,7 +441,7 @@ export function resolveBubbleStyles(
   }
 
   const meta = asRecord(cosmetic.metadata);
-  const css = asRecord(meta.?['css']) ?? meta;
+  const css = asRecord(meta?.['css']) ?? meta;
 
   const mine =
     pick(css, "mine", "bubbleMine", "background", "bg") ||
@@ -483,7 +483,7 @@ export function resolveWallpaperStyles(
   if (!cosmetic) return { kind: null, url: null, css: null };
 
   const meta = asRecord(cosmetic.metadata);
-  const media = asRecord(meta.?['media']);
+  const media = asRecord(meta?.['media']);
 
   const url =
     pick(media, "url", "image_url", "src", "wallpaper_url") ||
@@ -491,7 +491,7 @@ export function resolveWallpaperStyles(
 
   const css =
     pick(meta, "css", "background", "bg") ||
-    pick(asRecord(meta.?['colors']), "background", "css") ||
+    pick(asRecord(meta?.['colors']), "background", "css") ||
     pickDeep(meta, ["background", "css"]);
 
   if (css && !url) {
@@ -521,7 +521,7 @@ export function resolveProfileFrameStyle(
   if (!cosmetic) return undefined;
 
   const meta = asRecord(cosmetic.metadata);
-  const style = asRecord(meta.?['style']) ?? meta;
+  const style = asRecord(meta?.['style']) ?? meta;
 
   const ring =
     pick(style, "ring", "border", "outline", "color") ||

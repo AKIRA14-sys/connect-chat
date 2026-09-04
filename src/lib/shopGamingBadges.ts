@@ -671,7 +671,7 @@ export function getShopGamingBadgesByCategory(
 ): ShopGamingBadge[] {
   return getAllShopGamingBadges().filter(
     (badge) =>
-      badge.metadata.?['category'] === category,
+      badge.metadata?.['category'] === category,
   );
 }
 
