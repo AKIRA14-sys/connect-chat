@@ -202,7 +202,7 @@ function SettingsPage() {
       const payload = await subscribeToPush();
       if (!payload) {
         toast.error(
-          Notification.permission === "denied"
+          typeof Notification !== "undefined" && Notification.permission === "denied"
             ? "Notifications are blocked in browser settings"
             : "Could not enable alerts on this device",
         );

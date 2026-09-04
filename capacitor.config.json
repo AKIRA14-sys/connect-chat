@@ -1,0 +1,9 @@
+{
+  "appId": "app.xuppin.chat",
+  "appName": "XUPPIN",
+  "webDir": ".output/public",
+  "server": {
+    "url": "https://xuppin.vercel.app",
+    "androidScheme": "https"
+  }
+}
