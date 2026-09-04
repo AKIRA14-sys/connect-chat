@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "90598759205",
+    "project_id": "xuppin-5f158",
+    "storage_bucket": "xuppin-5f158.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:90598759205:android:55d207837c5b3ee14718cc",
+        "android_client_info": {
+          "package_name": "app.xuppin.chat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAuFMIZAhXAbC0ilHtXVib4ZOXK5rHwQMw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
