@@ -1856,6 +1856,51 @@ function XupsPage() {
       activeXup,
     ]);
 
+  async function reshareXup() {
+    if (!user || !activeXup) {
+      return;
+    }
+
+    const original = activeXup;
+
+    const { error } =
+      await supabase
+        .from("xups")
+        .insert({
+          user_id: user.id,
+          kind: original.kind,
+          content:
+            original.content ??
+            null,
+          media_url:
+            original.media_url ??
+            null,
+          caption:
+            original.caption ??
+            null,
+          background:
+            original.background ??
+            null,
+          audience: "contacts",
+          reshared_from:
+            original.reshared_from ??
+            original.id,
+        });
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success(
+      "XUP reshared to your contacts.",
+    );
+
+    await qc.invalidateQueries({
+      queryKey: ["xups"],
+    });
+  }
+
   async function submitComment() {
     if (
       !user ||
