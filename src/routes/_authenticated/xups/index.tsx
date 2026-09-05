@@ -1871,7 +1871,10 @@ function XupsPage() {
         .from("xups")
         .insert({
           user_id: user.id,
-          kind: original.kind,
+          kind: original.kind as
+            | "text"
+            | "image"
+            | "video",
           content:
             original.content ??
             null,
