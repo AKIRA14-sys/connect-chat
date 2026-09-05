@@ -2750,6 +2750,8 @@ function ChatRoom() {
   const touchMeta = useRef<
     Map<string, { x: number; y: number; t: number }>
   >(new Map());
+  const longPressTimers = useRef<Map<string, number>>(new Map());
+  const longPressFired = useRef<Map<string, boolean>>(new Map());
 
   useEffect(() => {
     const onWall = () => {
@@ -2760,17 +2762,12 @@ function ChatRoom() {
   }, []);
 
 
-  function handleTouchStart(
-    event: React.TouchEvent,
-    messageId: string,
-  ) {
-    const touch = event.touches[0];
-    touchStartX.current.set(messageId, touch?.clientX ?? 0);
-    touchMeta.current.set(messageId, {
-      x: touch?.clientX ?? 0,
-      y: touch?.clientY ?? 0,
-      t: Date.now(),
-    });
+  function clearLongPress(messageId: string) {
+    const timer = longPressTimers.current.get(messageId);
+    if (timer != null) {
+      window.clearTimeout(timer);
+      longPressTimers.current.delete(messageId);
+    }
   }
 
   function openMessageMenuAt(
@@ -2789,59 +2786,98 @@ function ChatRoom() {
     setReactionPicker(null);
   }
 
+  function handleTouchStart(
+    event: React.TouchEvent,
+    message: Message,
+  ) {
+    const touch = event.touches[0];
+    const x = touch?.clientX ?? 0;
+    const y = touch?.clientY ?? 0;
+    touchStartX.current.set(message.id, x);
+    touchMeta.current.set(message.id, { x, y, t: Date.now() });
+    longPressFired.current.set(message.id, false);
+    clearLongPress(message.id);
+
+    // Long-press anywhere on the bubble → menu (reply / copy / edit / …)
+    const timer = window.setTimeout(() => {
+      longPressFired.current.set(message.id, true);
+      openedMenuByTouchRef.current = true;
+      openMessageMenuAt(message, x, y);
+      window.setTimeout(() => {
+        openedMenuByTouchRef.current = false;
+      }, 500);
+    }, 480);
+    longPressTimers.current.set(message.id, timer);
+  }
+
+  function handleTouchMove(
+    event: React.TouchEvent,
+    messageId: string,
+  ) {
+    const meta = touchMeta.current.get(messageId);
+    if (!meta) return;
+    const touch = event.touches[0];
+    const dx = Math.abs((touch?.clientX ?? 0) - meta.x);
+    const dy = Math.abs((touch?.clientY ?? 0) - meta.y);
+    // Moving finger cancels long-press (allows swipe-to-reply)
+    if (dx > 12 || dy > 12) {
+      clearLongPress(messageId);
+    }
+  }
+
   function handleTouchEnd(
     event: React.TouchEvent,
     message: Message,
   ) {
+    clearLongPress(message.id);
+
     const startX = touchStartX.current.get(message.id);
     const meta = touchMeta.current.get(message.id);
+    const fired = longPressFired.current.get(message.id);
     touchStartX.current.delete(message.id);
     touchMeta.current.delete(message.id);
+    longPressFired.current.delete(message.id);
 
     if (startX == null || !meta) return;
+    if (fired) {
+      // Menu already opened by long-press — don't also swipe
+      event.preventDefault();
+      return;
+    }
 
     const endX = event.changedTouches[0]?.clientX ?? startX;
     const endY = event.changedTouches[0]?.clientY ?? meta.y;
     const distanceX = endX - startX;
     const distanceY = Math.abs(endY - meta.y);
 
-    // Swipe right → reply
+    // Swipe right → reply (WhatsApp-style)
     if (distanceX > 56 && distanceY < 36) {
       setSwipingMessageId(message.id);
       startReply(message);
       setTimeout(() => setSwipingMessageId(null), 300);
-      return;
     }
+    // Short tap → do nothing (no menu)
+  }
 
-    // Finger barely moved → treat as TAP (not long-press)
-    if (Math.abs(distanceX) < 24 && distanceY < 24) {
-      const touch = event.changedTouches[0];
-      openedMenuByTouchRef.current = true;
-      openMessageMenuAt(
-        message,
-        touch?.clientX ?? endX,
-        touch?.clientY ?? endY,
-      );
-      // Ignore the synthetic click that browsers fire ~300ms later
-      window.setTimeout(() => {
-        openedMenuByTouchRef.current = false;
-      }, 400);
-    }
+  function handleMessageContextMenu(
+    event: React.MouseEvent,
+    message: Message,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    if ((message as { deleted_at?: string | null }).deleted_at) return;
+    openMessageMenuAt(message, event.clientX, event.clientY);
   }
 
   function handleMessageClick(
     event: React.MouseEvent,
     message: Message,
   ) {
-    // Touch already opened the menu — do not wait / re-open
+    // Menu is long-press / context-menu only — ignore simple clicks
     if (openedMenuByTouchRef.current) {
       event.preventDefault();
       event.stopPropagation();
-      return;
     }
-    if ((message as { deleted_at?: string | null }).deleted_at) return;
-    if (window.getSelection()?.toString()) return;
-    openMessageMenuAt(message, event.clientX, event.clientY);
   }
 
   async function copyMessageContent(message: Message) {
@@ -4190,18 +4226,21 @@ function ChatRoom() {
                   : "justify-start"
               }`}
               onTouchStart={(event) =>
-                handleTouchStart(
-                  event,
-                  message.id,
-                )
+                handleTouchStart(event, message)
+              }
+              onTouchMove={(event) =>
+                handleTouchMove(event, message.id)
               }
               onTouchEnd={(event) =>
-                handleTouchEnd(
-                  event,
-                  message,
-                )
+                handleTouchEnd(event, message)
               }
-              onClick={(event) => handleMessageClick(event, message)}
+              onContextMenu={(event) =>
+                handleMessageContextMenu(event, message)
+              }
+              onClick={(event) =>
+                handleMessageClick(event, message)
+              }
+              style={{ WebkitTouchCallout: "none", userSelect: "none" }}
             >
               <div
                 className={`relative max-w-[82%] transition-transform ${
@@ -4258,12 +4297,28 @@ function ChatRoom() {
                 >
                   {conv?.type ===
                     "group" &&
-                    !mine &&
-                    !sticker && (
-                      <p className="mb-1 text-[11px] font-semibold text-primary">
-                        {sender?.display_name ||
-                          "Unknown"}
-                      </p>
+                    !mine && (
+                      <div className="mb-1 flex items-center gap-1.5">
+                        <UserAvatar
+                          path={
+                            sender?.avatar_url ??
+                            null
+                          }
+                          name={
+                            sender?.display_name ||
+                            sender?.username ||
+                            "User"
+                          }
+                          size="sm"
+                          className="!h-6 !w-6 shrink-0 text-[9px]"
+                          userId={message.sender_id}
+                        />
+                        <p className="truncate text-[11px] font-semibold text-primary">
+                          {sender?.display_name ||
+                            sender?.username ||
+                            "Unknown"}
+                        </p>
+                      </div>
                     )}
 
                   {parent && (
