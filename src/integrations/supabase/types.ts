@@ -188,6 +188,13 @@ export type Database = {
             referencedRelation: "conversations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "conversation_members_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       conversations: {
@@ -425,6 +432,13 @@ export type Database = {
             referencedRelation: "messages"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "messages_sender_profile_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
         ]
       }
       profiles: {
@@ -579,7 +593,7 @@ export type Database = {
       }
       xup_comments: {
         Row: {
-          content: string
+          comment: string
           created_at: string
           id: string
           parent_id: string | null
@@ -587,7 +601,7 @@ export type Database = {
           xup_id: string
         }
         Insert: {
-          content: string
+          comment: string
           created_at?: string
           id?: string
           parent_id?: string | null
@@ -595,7 +609,7 @@ export type Database = {
           xup_id: string
         }
         Update: {
-          content?: string
+          comment?: string
           created_at?: string
           id?: string
           parent_id?: string | null
@@ -608,6 +622,13 @@ export type Database = {
             columns: ["parent_id"]
             isOneToOne: false
             referencedRelation: "xup_comments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "xup_comments_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
           {
@@ -663,6 +684,13 @@ export type Database = {
           xup_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "xup_reactions_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "xup_reactions_xup_id_fkey"
             columns: ["xup_id"]
@@ -721,6 +749,13 @@ export type Database = {
           xup_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "xup_views_viewer_profile_fkey"
+            columns: ["viewer_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "xup_views_xup_id_fkey"
             columns: ["xup_id"]
@@ -782,6 +817,13 @@ export type Database = {
             columns: ["reshared_from"]
             isOneToOne: false
             referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "xups_user_profile_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
