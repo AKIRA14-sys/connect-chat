@@ -47,12 +47,15 @@ type Xup = {
   user_id: string;
   kind: string;
   content: string | null;
+  media_url?: string | null;
+  caption?: string | null;
   background: string | null;
   audience: string;
   audience_ids: string[] | null;
   created_at: string;
   expires_at: string;
   deleted_at: string | null;
+  reshared_from?: string | null;
 };
 
 type Profile = {
