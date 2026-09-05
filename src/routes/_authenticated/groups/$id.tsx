@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, LogOut, ShieldMinus, ShieldPlus, UserMinus } from "lucide-react";
+import { ArrowLeft, LogOut, ShieldMinus, ShieldPlus, Trash2, UserMinus } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -79,11 +79,46 @@ function GroupPage() {
 
   async function leave() {
     if (!me) return;
+    if (!window.confirm("Leave this group? You will not see new messages until someone adds you again.")) {
+      return;
+    }
     const { error } = await supabase.from("conversation_members").delete().eq("id", me.id);
     if (error) {
       toast.error(error.message);
       return;
     }
+    toast.success("You left the group");
+    void navigate({ to: "/chats" });
+  }
+
+  async function deleteGroup() {
+    if (!isOwner) {
+      toast.error("Only the group owner can delete the group");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Delete this group for everyone? Messages stay in the database but the group will be removed from all members' chat lists.",
+      )
+    ) {
+      return;
+    }
+    // Remove all members first, then the conversation
+    const { error: memErr } = await supabase
+      .from("conversation_members")
+      .delete()
+      .eq("conversation_id", id);
+    if (memErr) {
+      toast.error(memErr.message);
+      return;
+    }
+    const { error } = await supabase.from("conversations").delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Group deleted");
+    void qc.invalidateQueries({ queryKey: ["chat-list"] });
     void navigate({ to: "/chats" });
   }
 
@@ -158,6 +193,7 @@ function GroupPage() {
                   <p className="truncate text-sm font-medium">{m.profiles.display_name}</p>
                   <p className="truncate text-xs capitalize text-muted-foreground">
                     @{m.profiles.username} · {m.role}
+                    {m.user_id === conv?.created_by ? " · creator" : ""}
                   </p>
                 </div>
                 {isOwner && m.user_id !== user?.id && (
@@ -180,9 +216,23 @@ function GroupPage() {
           </ul>
         </div>
 
-        <Button variant="destructive" className="w-full" onClick={() => void leave()}>
-          <LogOut className="h-4 w-4" /> Leave group
-        </Button>
+        <div className="space-y-2">
+          <Button variant="outline" className="w-full gap-2" onClick={() => void leave()}>
+            <LogOut className="h-4 w-4" /> Leave group
+          </Button>
+          {isOwner ? (
+            <Button
+              variant="destructive"
+              className="w-full gap-2"
+              onClick={() => void deleteGroup()}
+            >
+              <Trash2 className="h-4 w-4" /> Delete group for everyone
+            </Button>
+          ) : null}
+          <p className="text-center text-xs text-muted-foreground">
+            Owner / admins manage members above. Leaving only removes the group from your chat list.
+          </p>
+        </div>
       </div>
     </div>
   );
