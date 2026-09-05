@@ -1495,9 +1495,12 @@ function ChatRoom() {
       (payload) => {
         const row = (payload.new ?? payload.old) as Message | undefined;
 
-        if (!row) return;
+        if (!row?.id) return;
 
-        if (payload.eventType === "DELETE") {
+        if (
+          payload.eventType === "DELETE" ||
+          (row as Message).deleted_at
+        ) {
           qc.setQueryData<Message[]>(messagesKey, (prev = []) =>
             prev.filter((message) => message.id !== row.id),
           );
@@ -1505,17 +1508,27 @@ function ChatRoom() {
           return;
         }
 
-        applyMessage(row);
+        applyMessage(row as Message);
       },
     );
 
     ch.on(
       "broadcast",
       { event: "message_upsert" },
-      ({ payload }) => {
-        const row = payload?.message as Message | undefined;
+      (raw) => {
+        // Supabase may nest payload differently across versions
+        const envelope = (raw ?? {}) as {
+          payload?: { message?: Message } & Message;
+          message?: Message;
+        };
+        const inner = envelope.payload ?? envelope;
+        const row = (
+          (inner as { message?: Message }).message ??
+          (inner as Message)
+        ) as Message | undefined;
 
-        if (!row) return;
+        if (!row?.id || !row.conversation_id) return;
+        if (row.conversation_id !== id) return;
 
         applyMessage(row);
       },
@@ -1585,7 +1598,7 @@ function ChatRoom() {
         name: string;
       };
 
-      if (p.userId === user.id) return;
+      if (!p?.userId || p.userId === user.id) return;
 
       setTypingUsers((prev) =>
         prev.includes(p.name) ? prev : [...prev, p.name],
@@ -1601,6 +1614,10 @@ function ChatRoom() {
         );
 
         typingTimeouts.current.delete(p.userId);
+
+        // Safety net: if postgres_changes / message broadcast was missed,
+        // pull messages when the other person stops "typing".
+        void qc.invalidateQueries({ queryKey: messagesKey });
       }, 3500);
 
       typingTimeouts.current.set(p.userId, timer);
@@ -1608,9 +1625,7 @@ function ChatRoom() {
 
     ch.subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        void qc.invalidateQueries({
-          queryKey: ["messages", id],
-        });
+        void qc.invalidateQueries({ queryKey: messagesKey });
       }
     });
 
