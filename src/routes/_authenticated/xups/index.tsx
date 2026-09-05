@@ -47,12 +47,15 @@ type Xup = {
   user_id: string;
   kind: string;
   content: string | null;
+  media_url?: string | null;
+  caption?: string | null;
   background: string | null;
   audience: string;
   audience_ids: string[] | null;
   created_at: string;
   expires_at: string;
   deleted_at: string | null;
+  reshared_from?: string | null;
 };
 
 type Profile = {
@@ -1856,6 +1859,54 @@ function XupsPage() {
       activeXup,
     ]);
 
+  async function reshareXup() {
+    if (!user || !activeXup) {
+      return;
+    }
+
+    const original = activeXup;
+
+    const { error } =
+      await supabase
+        .from("xups")
+        .insert({
+          user_id: user.id,
+          kind: original.kind as
+            | "text"
+            | "image"
+            | "video",
+          content:
+            original.content ??
+            null,
+          media_url:
+            original.media_url ??
+            null,
+          caption:
+            original.caption ??
+            null,
+          background:
+            original.background ??
+            null,
+          audience: "contacts",
+          reshared_from:
+            original.reshared_from ??
+            original.id,
+        });
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success(
+      "XUP reshared to your contacts.",
+    );
+
+    await qc.invalidateQueries({
+      queryKey: ["xups"],
+    });
+  }
+
   async function submitComment() {
     if (
       !user ||
@@ -2774,13 +2825,11 @@ function XupsPage() {
                   type="button"
                   className="w-full px-4 py-3 text-left text-sm hover:bg-muted"
                   onClick={() => {
-                    toast.info(
-                      "XUP resharing will be connected to Supabase.",
-                    );
-
                     setShowSettings(
                       false,
                     );
+
+                    void reshareXup();
                   }}
                 >
                   🔁 Reshare XUP
