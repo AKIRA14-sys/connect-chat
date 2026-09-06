@@ -1821,8 +1821,12 @@ function ChatRoom() {
         `push dbg: sent=${res?.sent ?? "?"} failed=${res?.failed ?? "?"} skipped=${res?.skipped ?? "?"} expired=${res?.expired ?? "?"}${res?.lastError ? ` err=${res.lastError}` : ""}`,
         { duration: 8000 },
       );
-    } catch {
-      // Best effort.
+    } catch (e) {
+      // TEMP diagnostic — surface call failures too.
+      toast(
+        `push dbg: call failed (${e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160)})`,
+        { duration: 8000 },
+      );
     }
   }
 
