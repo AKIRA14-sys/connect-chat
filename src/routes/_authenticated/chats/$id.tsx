@@ -2480,11 +2480,22 @@ function ChatRoom() {
     } catch (error) {
       const name =
         (error as DOMException)?.name;
+      const message =
+        error instanceof Error
+          ? error.message
+          : String(error);
+
+      if (name !== "NotAllowedError") {
+        console.error(
+          "[WHATSXUP VOICE] startRecording failed:",
+          error,
+        );
+      }
 
       toast.error(
         name === "NotAllowedError"
           ? "Microphone permission denied. Enable it in your browser settings."
-          : "Could not start recording.",
+          : `Could not start recording. (${name || "Error"}: ${message})`,
       );
     }
   }

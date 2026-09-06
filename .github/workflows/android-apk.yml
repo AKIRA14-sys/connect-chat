@@ -35,36 +35,10 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Add Android platform
-        run: npx cap add android
-
-      - name: Add required Android permissions
-        run: |
-          sed -i 's|<uses-permission android:name="android.permission.INTERNET" />|<uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.VIBRATE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />\n    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />\n    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />|' android/app/src/main/AndroidManifest.xml
-
-      - name: Fix WebView getUserMedia permission bridging
-        run: |
-          cat > android/app/src/main/java/app/xuppin/chat/MainActivity.java << 'JAVAEOF'
-          package app.xuppin.chat;
-
-          import android.os.Bundle;
-          import android.webkit.PermissionRequest;
-          import android.webkit.WebChromeClient;
-          import com.getcapacitor.BridgeActivity;
-
-          public class MainActivity extends BridgeActivity {
-              @Override
-              public void onCreate(Bundle savedInstanceState) {
-                  super.onCreate(savedInstanceState);
-                  this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
-                      @Override
-                      public void onPermissionRequest(final PermissionRequest request) {
-                          runOnUiThread(() -> request.grant(request.getResources()));
-                      }
-                  });
-              }
-          }
-          JAVAEOF
+      - name: Sync web assets into committed Android platform
+        # android/ is committed with native customizations (permissions,
+        # MainActivity bridging, launcher icons) — sync only, never re-add.
+        run: npx cap sync android
 
       - name: Add Google Services plugin to project build.gradle
         run: |
