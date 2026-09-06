@@ -43,6 +43,17 @@ function AuthPage() {
       toast.error(error.message);
       return;
     }
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_JOIN_KEY);
+      if (pending) sessionStorage.removeItem(PENDING_JOIN_KEY);
+    } catch {
+      /* ignore */
+    }
+    if (pending && pending.startsWith("/g/")) {
+      window.location.assign(pending);
+      return;
+    }
     void navigate({ to: "/chats" });
   }
 
