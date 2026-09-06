@@ -24,6 +24,7 @@ import { Route as AuthenticatedChatsIdRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedGroupsIdRouteImport } from './routes/_authenticated/groups/$id'
 import { Route as AuthenticatedGroupsNewRouteImport } from './routes/_authenticated/groups/new'
 import { Route as AuthenticatedXupsIndexRouteImport } from './routes/_authenticated/xups/index'
+import { Route as GSlugJoinRouteImport } from './routes/g.$slug.join'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -99,6 +100,11 @@ const AuthenticatedXupsIndexRoute = AuthenticatedXupsIndexRouteImport.update({
   path: '/xups/',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const GSlugJoinRoute = GSlugJoinRouteImport.update({
+  id: '/g/$slug/join',
+  path: '/g/$slug/join',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -113,6 +119,7 @@ export interface FileRoutesByFullPath {
   '/chats/$id': typeof AuthenticatedChatsIdRoute
   '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
+  '/g/$slug/join': typeof GSlugJoinRoute
   '/chats/': typeof AuthenticatedChatsIndexRoute
   '/xups/': typeof AuthenticatedXupsIndexRoute
 }
@@ -129,6 +136,7 @@ export interface FileRoutesByTo {
   '/chats/$id': typeof AuthenticatedChatsIdRoute
   '/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/groups/new': typeof AuthenticatedGroupsNewRoute
+  '/g/$slug/join': typeof GSlugJoinRoute
   '/chats': typeof AuthenticatedChatsIndexRoute
   '/xups': typeof AuthenticatedXupsIndexRoute
 }
@@ -147,6 +155,7 @@ export interface FileRoutesById {
   '/_authenticated/chats/$id': typeof AuthenticatedChatsIdRoute
   '/_authenticated/groups/$id': typeof AuthenticatedGroupsIdRoute
   '/_authenticated/groups/new': typeof AuthenticatedGroupsNewRoute
+  '/g/$slug/join': typeof GSlugJoinRoute
   '/_authenticated/chats/': typeof AuthenticatedChatsIndexRoute
   '/_authenticated/xups/': typeof AuthenticatedXupsIndexRoute
 }
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/chats/$id'
     | '/groups/$id'
     | '/groups/new'
+    | '/g/$slug/join'
     | '/chats/'
     | '/xups/'
   fileRoutesByTo: FileRoutesByTo
@@ -181,6 +191,7 @@ export interface FileRouteTypes {
     | '/chats/$id'
     | '/groups/$id'
     | '/groups/new'
+    | '/g/$slug/join'
     | '/chats'
     | '/xups'
   id:
@@ -198,6 +209,7 @@ export interface FileRouteTypes {
     | '/_authenticated/chats/$id'
     | '/_authenticated/groups/$id'
     | '/_authenticated/groups/new'
+    | '/g/$slug/join'
     | '/_authenticated/chats/'
     | '/_authenticated/xups/'
   fileRoutesById: FileRoutesById
@@ -206,6 +218,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  GSlugJoinRoute: typeof GSlugJoinRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -315,6 +328,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedXupsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/g/$slug/join': {
+      id: '/g/$slug/join'
+      path: '/g/$slug/join'
+      fullPath: '/g/$slug/join'
+      preLoaderRoute: typeof GSlugJoinRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -355,6 +375,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  GSlugJoinRoute: GSlugJoinRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

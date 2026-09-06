@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PENDING_JOIN_KEY } from "@/lib/groupExtras";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -41,6 +42,17 @@ function AuthPage() {
     setBusy(false);
     if (error) {
       toast.error(error.message);
+      return;
+    }
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(PENDING_JOIN_KEY);
+      if (pending) sessionStorage.removeItem(PENDING_JOIN_KEY);
+    } catch {
+      /* ignore */
+    }
+    if (pending && pending.startsWith("/g/")) {
+      window.location.assign(pending);
       return;
     }
     void navigate({ to: "/chats" });
