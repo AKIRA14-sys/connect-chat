@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PENDING_JOIN_KEY } from "@/lib/groupExtras";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
