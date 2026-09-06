@@ -37,6 +37,10 @@ import {
   Copy,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  loadCachedMessages,
+  saveCachedMessages,
+} from "@/lib/offlineCache";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -1166,6 +1170,9 @@ function ChatRoom() {
 
   const { data: messages = [], isFetching: fetchingMessages } = useQuery({
     queryKey: messagesKey,
+    // Offline: show last-loaded messages instantly while refetching.
+    placeholderData: () =>
+      loadCachedMessages<Message[]>(id) as Message[] | undefined,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("messages")
@@ -1179,6 +1186,11 @@ function ChatRoom() {
       return ((data ?? []) as Message[]).slice().reverse();
     },
   });
+
+  // Offline: snapshot last-loaded messages for offline viewing.
+  useEffect(() => {
+    if (messages.length) saveCachedMessages(id, messages);
+  }, [messages, id]);
 
   /* ==========================================================
    * PROFILES

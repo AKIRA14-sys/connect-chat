@@ -32,6 +32,10 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import {
+  loadCachedChatList,
+  saveCachedChatList,
+} from "@/lib/offlineCache";
 
 import {
   timeLabel,
@@ -322,6 +326,10 @@ function ChatsPage() {
     refetchOnWindowFocus: true,
 
     enabled: !!user,
+
+    // Offline: show last-loaded list instantly while refetching.
+    placeholderData: () =>
+      loadCachedChatList<Row[]>(user?.id) as Row[] | undefined,
 
     queryFn: async (): Promise<Row[]> => {
       if (!user) return [];
@@ -630,6 +638,11 @@ function ChatsPage() {
       });
     },
   });
+
+  // Offline: snapshot last-loaded list for offline viewing.
+  useEffect(() => {
+    if (rows.length) saveCachedChatList(user?.id, rows);
+  }, [rows, user?.id]);
 
   /*
    * ---------------------------------------------------------
