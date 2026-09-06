@@ -199,42 +199,63 @@ export type Database = {
       }
       conversations: {
         Row: {
+          announce_only: boolean
           avatar_url: string | null
           created_at: string
           created_by: string
           description: string | null
+          disappear_seconds: number
           id: string
+          invite_enabled: boolean
+          invite_slug: string | null
           is_suspended: boolean
+          join_approval_required: boolean
           last_message_at: string
           name: string | null
           only_admins_add_members: boolean
           only_admins_edit_info: boolean
+          pinned_message_id: string | null
+          slow_mode_seconds: number
           type: Database["public"]["Enums"]["conv_type"]
         }
         Insert: {
+          announce_only?: boolean
           avatar_url?: string | null
           created_at?: string
           created_by: string
           description?: string | null
+          disappear_seconds?: number
           id?: string
+          invite_enabled?: boolean
+          invite_slug?: string | null
           is_suspended?: boolean
+          join_approval_required?: boolean
           last_message_at?: string
           name?: string | null
           only_admins_add_members?: boolean
           only_admins_edit_info?: boolean
+          pinned_message_id?: string | null
+          slow_mode_seconds?: number
           type?: Database["public"]["Enums"]["conv_type"]
         }
         Update: {
+          announce_only?: boolean
           avatar_url?: string | null
           created_at?: string
           created_by?: string
           description?: string | null
+          disappear_seconds?: number
           id?: string
+          invite_enabled?: boolean
+          invite_slug?: string | null
           is_suspended?: boolean
+          join_approval_required?: boolean
           last_message_at?: string
           name?: string | null
           only_admins_add_members?: boolean
           only_admins_edit_info?: boolean
+          pinned_message_id?: string | null
+          slow_mode_seconds?: number
           type?: Database["public"]["Enums"]["conv_type"]
         }
         Relationships: []
@@ -292,6 +313,91 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      group_bans: {
+        Row: {
+          banned_by: string | null
+          conversation_id: string
+          created_at: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          banned_by?: string | null
+          conversation_id: string
+          created_at?: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          banned_by?: string | null
+          conversation_id?: string
+          created_at?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_bans_banned_by_fkey"
+            columns: ["banned_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bans_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bans_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_join_requests: {
+        Row: {
+          conversation_id: string
+          created_at: string
+          id: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          conversation_id: string
+          created_at?: string
+          id?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_join_requests_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_join_requests_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       message_deletions: {
         Row: {
