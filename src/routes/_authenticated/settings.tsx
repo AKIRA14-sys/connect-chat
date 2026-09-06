@@ -28,6 +28,12 @@ import {
   setLockTimeoutMin,
   setPin,
 } from "@/lib/appLock";
+import {
+  authenticateBiometric,
+  isBiometricAvailable,
+  isBiometricEnabled,
+  setBiometricEnabled,
+} from "@/lib/native/biometrics";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin, useProfile } from "@/hooks/useProfile";
@@ -891,6 +897,19 @@ function AppLockSettings() {
   const [confirm, setConfirm] = useState("");
   const [timeoutMin, setTimeoutMin] = useState(() => getLockTimeoutMin());
   const [enabled, setEnabled] = useState(() => isAppLockEnabled() && hasPinSet());
+  const [bioOn, setBioOn] = useState(() => isBiometricEnabled());
+  const [bioSupported, setBioSupported] = useState<boolean | null>(null);
+  const [bioBusy, setBioBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void isBiometricAvailable().then((ok) => {
+      if (!cancelled) setBioSupported(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -986,6 +1005,8 @@ function AppLockSettings() {
           className="text-destructive"
           onClick={() => {
             clearAppLock();
+            setBiometricEnabled(false);
+            setBioOn(false);
             setEnabled(false);
             toast.success("App lock turned off");
           }}
@@ -997,7 +1018,47 @@ function AppLockSettings() {
       <p className="text-xs text-muted-foreground">
         Status: {enabled ? "On" : "Off"}
         {hasPinSet() ? " · PIN set" : " · No PIN yet"}
+        {bioOn ? " · Fingerprint on" : ""}
       </p>
+
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4">
+        <div>
+          <p className="text-sm font-medium">Unlock with fingerprint</p>
+          <p className="text-xs text-muted-foreground">
+            {bioSupported === null
+              ? "Checking this device…"
+              : bioSupported
+                ? "Use fingerprint instead of typing the PIN."
+                : "Not available on this device (no fingerprint enrolled)."}
+          </p>
+        </div>
+        <Switch
+          checked={bioOn}
+          disabled={!enabled || bioSupported !== true || bioBusy}
+          onCheckedChange={(on) => {
+            if (!on) {
+              setBiometricEnabled(false);
+              setBioOn(false);
+              toast.success("Fingerprint unlock off");
+              return;
+            }
+            // Verify a real fingerprint before enabling.
+            setBioBusy(true);
+            void authenticateBiometric("Enable fingerprint unlock").then(
+              (ok) => {
+                setBioBusy(false);
+                if (ok) {
+                  setBiometricEnabled(true);
+                  setBioOn(true);
+                  toast.success("Fingerprint unlock on");
+                } else {
+                  toast.error("Fingerprint not verified — try again");
+                }
+              },
+            );
+          }}
+        />
+      </div>
     </div>
   );
 }

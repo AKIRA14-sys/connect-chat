@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Lock } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Fingerprint, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -7,10 +7,16 @@ import {
   hasPinSet,
   isUnlocked,
   unlockWithPin,
+  unlockSession,
   shouldRelockFromBackground,
   lockNow,
   touchActivity,
 } from "@/lib/appLock";
+import {
+  authenticateBiometric,
+  isBiometricAvailable,
+  isBiometricEnabled,
+} from "@/lib/native/biometrics";
 
 /**
  * Full-screen PIN gate when app lock is enabled.
@@ -20,6 +26,9 @@ export function AppLockGate({ children }: { children: React.ReactNode }) {
   const [locked, setLocked] = useState(false);
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
+  const [bioOffered, setBioOffered] = useState(false);
+  const [bioBusy, setBioBusy] = useState(false);
+  const bioTried = useRef(false);
 
   useEffect(() => {
     const sync = () => {
@@ -52,8 +61,45 @@ export function AppLockGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!locked) touchActivity();
+    if (!locked) {
+      touchActivity();
+      bioTried.current = false;
+      return;
+    }
+    // Offer fingerprint when the user enabled it and hardware exists.
+    // Auto-prompt once per lock; PIN stays as fallback.
+    let cancelled = false;
+    if (isBiometricEnabled()) {
+      void isBiometricAvailable().then((ok) => {
+        if (cancelled) return;
+        setBioOffered(ok);
+        if (ok && !bioTried.current) {
+          bioTried.current = true;
+          void tryBiometric();
+        }
+      });
+    } else {
+      setBioOffered(false);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locked]);
+
+  async function tryBiometric() {
+    setBioBusy(true);
+    setError("");
+    try {
+      if (await authenticateBiometric("Unlock XUPPIN")) {
+        unlockSession();
+        setPin("");
+        setLocked(false);
+      }
+    } finally {
+      setBioBusy(false);
+    }
+  }
 
   if (!locked) return <>{children}</>;
 
@@ -106,6 +152,18 @@ export function AppLockGate({ children }: { children: React.ReactNode }) {
       >
         Unlock
       </Button>
+      {bioOffered ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="min-w-[160px]"
+          disabled={bioBusy}
+          onClick={() => void tryBiometric()}
+        >
+          <Fingerprint className="mr-2 h-4 w-4" />
+          {bioBusy ? "Waiting for fingerprint…" : "Use fingerprint"}
+        </Button>
+      ) : null}
     </div>
   );
 }

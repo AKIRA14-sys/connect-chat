@@ -2,55 +2,83 @@ import { isNative } from "./platform";
 
 /**
  * Biometric unlock for App Lock.
- * Uses WebAuthn/platform authenticator when available; native APK can swap in
- * a Capacitor biometrics plugin without changing callers.
- *
- * Backend remains Supabase — no Firebase Auth.
+ * Native APK: device fingerprint / face via native biometric plugin.
+ * Web: platform authenticator probe (PIN remains the fallback everywhere).
  */
+
+async function nativeBio(): Promise<{
+  checkBiometry: () => Promise<{ isAvailable?: boolean }>;
+  authenticate: (options?: Record<string, unknown>) => Promise<void>;
+} | null> {
+  try {
+    const mod = await import("@aparajita/capacitor-biometric-auth");
+    return mod.BiometricAuth ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export async function isBiometricAvailable(): Promise<boolean> {
   if (typeof window === "undefined") return false;
+  if (isNative()) {
+    try {
+      const bio = await nativeBio();
+      if (!bio) return false;
+      const r = await bio.checkBiometry();
+      return r?.isAvailable === true;
+    } catch {
+      return false;
+    }
+  }
   try {
     if (!window.PublicKeyCredential) return false;
     const ok =
       await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable?.();
     return Boolean(ok);
   } catch {
-    return isNative(); // may still have device biometrics via future plugin
+    return false;
   }
 }
 
 /**
  * Prompt user verification (fingerprint / face / device credential).
- * Returns true if verified. Falls back to false (caller uses PIN).
+ * Returns true if verified. Caller falls back to PIN on false.
  */
 export async function authenticateBiometric(
   reason = "Unlock XUPPIN",
 ): Promise<boolean> {
-  try {
-    // Lightweight user-verification challenge via WebAuthn if credential exists.
-    // First-time setup stores a local flag; full credential registration is optional.
-    if (!window.PublicKeyCredential) return false;
-
-    // Without a stored credential, we cannot complete WebAuthn.
-    // Native Wave B can inject @capgo/capacitor-native-biometric here.
-    const flag = localStorage.getItem("xuppin-biometric-ready");
-    if (flag !== "1") {
-      // Mark "available to enable" only — actual enroll in Settings
-      return false;
+  if (typeof window === "undefined") return false;
+  if (isNative()) {
+    try {
+      const bio = await nativeBio();
+      if (!bio) return false;
+      await bio.authenticate({
+        reason,
+        allowDeviceCredential: true,
+        cancelTitle: "Use PIN",
+      });
+      return true;
+    } catch {
+      return false; // user cancelled, locked out, or no hardware
     }
+  }
+  return false; // web: PIN only for now
+}
 
-    // Placeholder: successful path when native plugin is wired
-    return false;
+const ENABLED_KEY = "xuppin-biometric-enabled";
+
+export function setBiometricEnabled(on: boolean) {
+  try {
+    localStorage.setItem(ENABLED_KEY, on ? "1" : "0");
   } catch {
-    return false;
+    /* ignore */
   }
 }
 
-export function setBiometricEnabled(on: boolean) {
-  localStorage.setItem("xuppin-biometric-enabled", on ? "1" : "0");
-}
-
 export function isBiometricEnabled(): boolean {
-  return localStorage.getItem("xuppin-biometric-enabled") === "1";
+  try {
+    return localStorage.getItem(ENABLED_KEY) === "1";
+  } catch {
+    return false;
+  }
 }

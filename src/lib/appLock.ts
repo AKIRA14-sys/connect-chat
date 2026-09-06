@@ -59,9 +59,14 @@ export function verifyPin(pin: string): boolean {
 
 export function unlockWithPin(pin: string): boolean {
   if (!verifyPin(pin)) return false;
+  unlockSession();
+  return true;
+}
+
+/** Mark this tab session unlocked (PIN or biometric verified). */
+export function unlockSession() {
   sessionStorage.setItem(UNLOCKED_KEY, "1");
   touchActivity();
-  return true;
 }
 
 export function lockNow() {
