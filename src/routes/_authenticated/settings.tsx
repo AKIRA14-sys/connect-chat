@@ -903,9 +903,13 @@ function AppLockSettings() {
 
   useEffect(() => {
     let cancelled = false;
-    void isBiometricAvailable().then((ok) => {
-      if (!cancelled) setBioSupported(ok);
-    });
+    void isBiometricAvailable()
+      .then((ok) => {
+        if (!cancelled) setBioSupported(ok);
+      })
+      .catch(() => {
+        if (!cancelled) setBioSupported(false);
+      });
     return () => {
       cancelled = true;
     };

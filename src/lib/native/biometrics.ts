@@ -18,13 +18,20 @@ async function nativeBio(): Promise<{
   }
 }
 
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  return Promise.race([
+    p,
+    new Promise<undefined>((resolve) => window.setTimeout(() => resolve(undefined), ms)),
+  ]);
+}
+
 export async function isBiometricAvailable(): Promise<boolean> {
   if (typeof window === "undefined") return false;
   if (isNative()) {
     try {
-      const bio = await nativeBio();
+      const bio = await withTimeout(nativeBio(), 6000);
       if (!bio) return false;
-      const r = await bio.checkBiometry();
+      const r = await withTimeout(bio.checkBiometry(), 6000);
       return r?.isAvailable === true;
     } catch {
       return false;
