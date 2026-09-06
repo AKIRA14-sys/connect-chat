@@ -26,15 +26,37 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
+  return (await getBiometryStatus()).available;
+}
+
+/** Availability plus the plugin's own reason/code when unavailable. */
+export async function getBiometryStatus(): Promise<{
+  available: boolean;
+  reason?: string;
+  code?: string;
+}> {
+  if (typeof window === "undefined") return { available: false };
   if (isNative()) {
     try {
       const bio = await withTimeout(nativeBio(), 6000);
-      if (!bio) return false;
-      const r = await withTimeout(bio.checkBiometry(), 6000);
-      return r?.isAvailable === true;
+      if (!bio) return { available: false, reason: "plugin missing in APK" };
+      const r = (await withTimeout(bio.checkBiometry(), 6000)) as
+        | {
+            isAvailable?: boolean;
+            reason?: string;
+            code?: string | number;
+            biometryType?: string | number;
+          }
+        | undefined;
+      if (!r) return { available: false, reason: "check timed out" };
+      if (r.isAvailable === true) return { available: true };
+      return {
+        available: false,
+        reason: r.reason || "unknown",
+        code: r.code != null ? String(r.code) : undefined,
+      };
     } catch {
-      return false;
+      return { available: false, reason: "check threw" };
     }
   }
   try {

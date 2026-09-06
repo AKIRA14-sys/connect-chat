@@ -30,7 +30,7 @@ import {
 } from "@/lib/appLock";
 import {
   authenticateBiometric,
-  isBiometricAvailable,
+  getBiometryStatus,
   isBiometricEnabled,
   setBiometricEnabled,
 } from "@/lib/native/biometrics";
@@ -899,16 +899,27 @@ function AppLockSettings() {
   const [enabled, setEnabled] = useState(() => isAppLockEnabled() && hasPinSet());
   const [bioOn, setBioOn] = useState(() => isBiometricEnabled());
   const [bioSupported, setBioSupported] = useState<boolean | null>(null);
+  const [bioWhy, setBioWhy] = useState("");
   const [bioBusy, setBioBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    void isBiometricAvailable()
-      .then((ok) => {
-        if (!cancelled) setBioSupported(ok);
+    void getBiometryStatus()
+      .then((s) => {
+        if (cancelled) return;
+        setBioSupported(s.available);
+        setBioWhy(
+          s.available
+            ? ""
+            : [s.reason, s.code].filter(Boolean).join(" · ") ||
+                "unavailable",
+        );
       })
       .catch(() => {
-        if (!cancelled) setBioSupported(false);
+        if (!cancelled) {
+          setBioSupported(false);
+          setBioWhy("check threw");
+        }
       });
     return () => {
       cancelled = true;
@@ -1033,7 +1044,7 @@ function AppLockSettings() {
               ? "Checking this device…"
               : bioSupported
                 ? "Use fingerprint instead of typing the PIN."
-                : "Not available on this device (no fingerprint enrolled)."}
+                : `Not available on this device${bioWhy ? ` (${bioWhy})` : ""}.`}
           </p>
         </div>
         <Switch
