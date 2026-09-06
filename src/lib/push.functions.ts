@@ -123,6 +123,7 @@ async function fanout(
   const expiredFcm: string[] = [];
   let sent = 0;
   let failed = 0;
+  let lastError = "";
 
   /* Web Push (browser / PWA) */
   const { data: subscriptions, error } = await supabaseAdmin
@@ -184,7 +185,10 @@ async function fanout(
         const result = await sendFcm(row.token, { title, body, data, tag });
         if (result.expired) expiredFcm.push(row.token);
         else if (result.ok) sent++;
-        else failed++;
+        else {
+          failed++;
+          if (result.error) lastError = result.error;
+        }
       } catch (err) {
         failed++;
         console.error("[WHATSXUP PUSH] FCM delivery failed:", err);
@@ -201,6 +205,7 @@ async function fanout(
     expired: expired.length + expiredFcm.length,
     failed,
     skipped,
+    lastError,
   };
 }
 

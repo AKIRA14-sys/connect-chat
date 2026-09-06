@@ -1794,7 +1794,7 @@ function ChatRoom() {
         ? profileMap.get(user.id)
         : null;
 
-      await notifyNewMessage({
+      const res = (await notifyNewMessage({
         data: {
           conversationId: id,
           title:
@@ -1809,7 +1809,18 @@ function ChatRoom() {
                 )
               : preview.slice(0, 160),
         },
-      });
+      })) as unknown as {
+        sent?: number;
+        failed?: number;
+        skipped?: number;
+        expired?: number;
+        lastError?: string;
+      };
+      // TEMP diagnostic — shows what the server did with this push.
+      toast(
+        `push dbg: sent=${res?.sent ?? "?"} failed=${res?.failed ?? "?"} skipped=${res?.skipped ?? "?"} expired=${res?.expired ?? "?"}${res?.lastError ? ` err=${res.lastError}` : ""}`,
+        { duration: 8000 },
+      );
     } catch {
       // Best effort.
     }
