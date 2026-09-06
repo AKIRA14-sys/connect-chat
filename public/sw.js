@@ -112,13 +112,13 @@ self.addEventListener("push", (event) => {
   try {
     data = event.data ? event.data.json() : {};
   } catch {
-    data = { kind: "message", title: "WHATSXUP", body: event.data ? event.data.text() : "" };
+    data = { kind: "message", title: "XUPPIN", body: event.data ? event.data.text() : "" };
   }
 
   const kind = data.kind || "message";
   const isCall = kind === "call";
 
-  let title = data.title || "WHATSXUP";
+  let title = data.title || "XUPPIN";
   let body = data.body || "";
 
   if (kind === "message") {
