@@ -1,19 +1,14 @@
 package app.xuppin.chat;
 
-import android.os.Bundle;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
 import com.getcapacitor.BridgeActivity;
 
-public class MainActivity extends BridgeActivity {
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        this.bridge.getWebView().setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> request.grant(request.getResources()));
-            }
-        });
-    }
-}
+/**
+ * Plain BridgeActivity on purpose.
+ *
+ * Capacitor's own BridgeWebChromeClient already handles WebView permission
+ * requests (CAMERA / RECORD_AUDIO runtime grant) AND the file chooser used
+ * by <input type=file> gallery attachment. A custom WebChromeClient here
+ * would replace it and silently break gallery picking, JS dialogs and
+ * geolocation — so don't add one.
+ */
+public class MainActivity extends BridgeActivity {}

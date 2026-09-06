@@ -6,25 +6,34 @@ import { pushSupported, subscribeToPush, swAllowed } from "@/lib/pwa";
 import { savePushSubscription } from "@/lib/push.functions";
 import { initNativePush, isNativeAndroid } from "@/lib/nativePush";
 
-function reasonMessage(reason?: string): string {
+function reasonMessage(reason?: string, detail?: string): string {
+  let base: string;
   switch (reason) {
     case "permission_denied":
-      return "Allow notifications in Android Settings → Apps → XUPPIN";
+      base = "Allow notifications in Android Settings → Apps → XUPPIN";
+      break;
     case "token_timeout":
-      return "No FCM token (APK needs google-services + rebuild)";
+      base = "No FCM token (APK needs google-services + rebuild)";
+      break;
     case "registration_error":
-      return "FCM registration failed (check google-services in APK)";
+      base = "FCM registration failed (check google-services in APK)";
+      break;
     case "empty_token":
-      return "Empty FCM token from device";
+      base = "Empty FCM token from device";
+      break;
     case "save_failed":
-      return "Token got but save failed (login / fcm_tokens table)";
+      base = "Token got but save failed (login / fcm_tokens table)";
+      break;
     case "not_android":
-      return "Not running as Android APK";
+      base = "Not running as Android APK";
+      break;
     case "exception":
-      return "Push plugin missing in this APK build";
+      base = "Push plugin missing in this APK build";
+      break;
     default:
-      return "Could not enable notifications";
+      base = "Could not enable notifications";
   }
+  return detail ? `${base} [${detail}]` : base;
 }
 
 export function NotificationPrompt() {
@@ -61,7 +70,7 @@ export function NotificationPrompt() {
           toast.success("Notifications enabled");
           setVisible(false);
         } else {
-          toast.error(reasonMessage(r.reason));
+          toast.error(reasonMessage(r.reason, r.detail));
         }
         return;
       }

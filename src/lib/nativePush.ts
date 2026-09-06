@@ -24,6 +24,7 @@ export function isNativeAndroid(): boolean {
 export async function initNativePush(): Promise<{
   ok: boolean;
   reason?: string;
+  detail?: string;
 }> {
   if (!isNativeAndroid()) {
     return { ok: false, reason: "not_android" };
@@ -32,6 +33,13 @@ export async function initNativePush(): Promise<{
   try {
     const mod = await import("@capacitor/push-notifications");
     const PushNotifications = mod.PushNotifications;
+
+    // Drop stale listeners from earlier attempts (e.g. retried Enable taps)
+    try {
+      await PushNotifications.removeAllListeners();
+    } catch {
+      /* older plugins */
+    }
 
     let perm = await PushNotifications.checkPermissions();
     if (perm.receive !== "granted") {
@@ -52,9 +60,10 @@ export async function initNativePush(): Promise<{
         resolve(result);
       };
 
+      // First token fetch can be slow (Play Services / FIS handshake) — 60s.
       const timeout = window.setTimeout(() => {
         done({ ok: false, reason: "token_timeout" });
-      }, 20000);
+      }, 60000);
 
       void PushNotifications.addListener(
         "registration",
@@ -85,7 +94,16 @@ export async function initNativePush(): Promise<{
         "registrationError",
         (err: unknown) => {
           console.error("[nativePush] registrationError", err);
-          done({ ok: false, reason: "registration_error" });
+          let detail = "";
+          try {
+            detail =
+              typeof err === "string"
+                ? err
+                : JSON.stringify(err)?.slice(0, 300) ?? String(err);
+          } catch {
+            detail = String(err);
+          }
+          done({ ok: false, reason: "registration_error", detail });
         },
       );
 
