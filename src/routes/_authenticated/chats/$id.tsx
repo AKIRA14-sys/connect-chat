@@ -469,11 +469,11 @@ type DeleteMenuState = {
 export const Route = createFileRoute("/_authenticated/chats/$id")({
   head: () => ({
     meta: [
-      { title: "Conversation — WHATSXUP" },
+      { title: "Conversation — XUPPIN" },
       {
         name: "description",
         content:
-          "A private real-time WHATSXUP conversation with text, media, stickers, voice notes and calls.",
+          "A private real-time XUPPIN conversation with text, media, stickers, voice notes and calls.",
       },
     ],
   }),
@@ -1811,8 +1811,8 @@ function ChatRoom() {
           conversationId: id,
           title:
             conv?.type === "group"
-              ? conv.name ?? "WHATSXUP group"
-              : meProfile?.display_name ?? "WHATSXUP",
+              ? conv.name ?? "XUPPIN group"
+              : meProfile?.display_name ?? "XUPPIN",
           preview:
             conv?.type === "group"
               ? `${meProfile?.display_name ?? "Someone"}: ${preview}`.slice(
@@ -2514,7 +2514,7 @@ function ChatRoom() {
 
       if (name !== "NotAllowedError") {
         console.error(
-          "[WHATSXUP VOICE] startRecording failed:",
+          "[XUPPIN VOICE] startRecording failed:",
           error,
         );
       }
@@ -5279,7 +5279,7 @@ function ChatRoom() {
                 <div className="mb-2 flex items-center justify-between px-1">
                   <div>
                     <p className="text-sm font-semibold">
-                      WHATSXUP+
+                      XUPPIN+
                     </p>
 
                     <p className="text-[10px] text-muted-foreground">

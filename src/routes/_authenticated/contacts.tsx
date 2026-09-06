@@ -16,12 +16,12 @@ import type { Profile } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/contacts")({
   head: () => ({
     meta: [
-      { title: "Contacts — WHATSXUP" },
+      { title: "Contacts — XUPPIN" },
       {
         name: "description",
-        content: "Find WHATSXUP people by username, message them instantly and manage your contact list.",
+        content: "Find XUPPIN people by username, message them instantly and manage your contact list.",
       },
-      { property: "og:title", content: "Contacts — WHATSXUP" },
+      { property: "og:title", content: "Contacts — XUPPIN" },
       { property: "og:description", content: "Search usernames and start chatting instantly — no requests needed." },
     ],
   }),
@@ -139,7 +139,7 @@ function ContactsPage() {
 
   return (
     <AppShell>
-      <PageHeader title="Contacts" subtitle="Find anyone by their WHATSXUP username" />
+      <PageHeader title="Contacts" subtitle="Find anyone by their XUPPIN username" />
       <div className="p-4">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

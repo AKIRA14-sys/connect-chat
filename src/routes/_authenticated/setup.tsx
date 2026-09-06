@@ -14,9 +14,9 @@ import { USERNAME_RE } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/setup")({
   head: () => ({
     meta: [
-      { title: "Choose your username — WHATSXUP" },
-      { name: "description", content: "Pick a unique WHATSXUP username so friends can find you without sharing your email." },
-      { property: "og:title", content: "Choose your username — WHATSXUP" },
+      { title: "Choose your username — XUPPIN" },
+      { name: "description", content: "Pick a unique XUPPIN username so friends can find you without sharing your email." },
+      { property: "og:title", content: "Choose your username — XUPPIN" },
       { property: "og:description", content: "Pick a unique username so friends can find you." },
     ],
   }),
@@ -71,7 +71,7 @@ function SetupPage() {
       <div className="mx-auto w-full max-w-sm">
         <h1 className="text-2xl font-bold tracking-tight">Pick your username</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          This is how friends find you on WHATSXUP. Your email stays private.
+          This is how friends find you on XUPPIN. Your email stays private.
         </p>
         <form onSubmit={submit} className="mt-8 space-y-4 rounded-3xl border border-border bg-card p-6 shadow-panel">
           <div className="space-y-2">

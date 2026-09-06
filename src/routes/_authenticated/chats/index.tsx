@@ -65,15 +65,15 @@ import {
 export const Route = createFileRoute("/_authenticated/chats/")({
   head: () => ({
     meta: [
-      { title: "Chats — WHATSXUP" },
+      { title: "Chats — XUPPIN" },
       {
         name: "description",
         content:
-          "All your WHATSXUP conversations and groups in one fast, real-time inbox.",
+          "All your XUPPIN conversations and groups in one fast, real-time inbox.",
       },
       {
         property: "og:title",
-        content: "Chats — WHATSXUP",
+        content: "Chats — XUPPIN",
       },
       {
         property: "og:description",

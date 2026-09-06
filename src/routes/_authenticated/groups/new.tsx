@@ -17,9 +17,9 @@ import type { Profile } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/groups/new")({
   head: () => ({
     meta: [
-      { title: "New group — WHATSXUP" },
-      { name: "description", content: "Create a WHATSXUP group, name it and invite friends to chat together." },
-      { property: "og:title", content: "New group — WHATSXUP" },
+      { title: "New group — XUPPIN" },
+      { name: "description", content: "Create a XUPPIN group, name it and invite friends to chat together." },
+      { property: "og:title", content: "New group — XUPPIN" },
       { property: "og:description", content: "Create a group and invite your friends." },
     ],
   }),

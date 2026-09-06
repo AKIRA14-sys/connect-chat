@@ -31,11 +31,11 @@ import { signedUrl } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/xups/")({
   head: () => ({
     meta: [
-      { title: "XUPs — WHATSXUP" },
+      { title: "XUPs — XUPPIN" },
       {
         name: "description",
         content:
-          "Share photos, videos and moments with your WHATSXUP audience.",
+          "Share photos, videos and moments with your XUPPIN audience.",
       },
     ],
   }),

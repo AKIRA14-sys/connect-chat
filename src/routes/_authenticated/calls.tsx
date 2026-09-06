@@ -10,9 +10,9 @@ import { timeLabel, type Profile } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/calls")({
   head: () => ({
     meta: [
-      { title: "Calls — WHATSXUP" },
-      { name: "description", content: "Your WHATSXUP voice and video call history, including missed calls." },
-      { property: "og:title", content: "Calls — WHATSXUP" },
+      { title: "Calls — XUPPIN" },
+      { name: "description", content: "Your XUPPIN voice and video call history, including missed calls." },
+      { property: "og:title", content: "Calls — XUPPIN" },
       { property: "og:description", content: "Voice and video call history." },
     ],
   }),

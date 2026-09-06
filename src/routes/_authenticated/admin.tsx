@@ -12,9 +12,9 @@ import type { Profile } from "@/lib/whatsxup";
 export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
-      { title: "Admin panel — WHATSXUP" },
-      { name: "description", content: "Master admin dashboard for WHATSXUP moderation, users, groups and reports." },
-      { property: "og:title", content: "Admin panel — WHATSXUP" },
+      { title: "Admin panel — XUPPIN" },
+      { name: "description", content: "Master admin dashboard for XUPPIN moderation, users, groups and reports." },
+      { property: "og:title", content: "Admin panel — XUPPIN" },
       { property: "og:description", content: "Moderation dashboard for users, groups and reports." },
     ],
   }),
@@ -90,7 +90,7 @@ function AdminPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 app-gradient px-8 text-center">
         <h1 className="text-2xl font-semibold">Not authorised</h1>
-        <p className="text-sm text-muted-foreground">This area is restricted to the WHATSXUP master admin.</p>
+        <p className="text-sm text-muted-foreground">This area is restricted to the XUPPIN master admin.</p>
         <Button onClick={() => void navigate({ to: "/chats" })}>Back to chats</Button>
       </div>
     );

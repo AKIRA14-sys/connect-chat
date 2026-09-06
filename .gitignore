@@ -30,3 +30,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+whatsxup\.json\|google-services\.json

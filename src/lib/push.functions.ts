@@ -143,7 +143,7 @@ async function fanout(
         else sent++;
       } catch (err) {
         failed++;
-        console.error("[WHATSXUP PUSH] Web delivery failed:", err);
+        console.error("[XUPPIN PUSH] Web delivery failed:", err);
       }
     }),
   );
@@ -191,7 +191,7 @@ async function fanout(
         }
       } catch (err) {
         failed++;
-        console.error("[WHATSXUP PUSH] FCM delivery failed:", err);
+        console.error("[XUPPIN PUSH] FCM delivery failed:", err);
       }
     }),
   );
@@ -264,7 +264,7 @@ export const notifyNewMessage = createServerFn({ method: "POST" })
         .maybeSingle(),
     ]);
 
-    const senderName = me?.display_name?.trim() || (me?.username ? `@${me.username}` : "WHATSXUP");
+    const senderName = me?.display_name?.trim() || (me?.username ? `@${me.username}` : "XUPPIN");
     const isGroup = conv?.type === "group";
     const title = isGroup ? conv?.name?.trim() || "Group" : senderName;
     const body = isGroup ? `${senderName}: ${data.preview}` : data.preview;
@@ -315,7 +315,7 @@ export const notifyIncomingCall = createServerFn({ method: "POST" })
     const callerName =
       data.callerName?.trim() ||
       me?.display_name?.trim() ||
-      (me?.username ? `@${me.username}` : "WHATSXUP");
+      (me?.username ? `@${me.username}` : "XUPPIN");
 
     const icon = await avatarUrl(data.callerAvatar ?? me?.avatar_url);
 

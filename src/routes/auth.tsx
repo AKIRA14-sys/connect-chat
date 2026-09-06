@@ -11,10 +11,10 @@ export const Route = createFileRoute("/auth")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Sign in — WHATSXUP" },
-      { name: "description", content: "Create your WHATSXUP account with an email and password and start chatting instantly." },
-      { property: "og:title", content: "Sign in — WHATSXUP" },
-      { property: "og:description", content: "Create your WHATSXUP account and start chatting instantly." },
+      { title: "Sign in — XUPPIN" },
+      { name: "description", content: "Create your XUPPIN account with an email and password and start chatting instantly." },
+      { property: "og:title", content: "Sign in — XUPPIN" },
+      { property: "og:description", content: "Create your XUPPIN account and start chatting instantly." },
     ],
   }),
   component: AuthPage,
@@ -62,8 +62,8 @@ function AuthPage() {
     <main className="flex min-h-screen flex-col justify-center app-gradient px-6 py-12">
       <div className="mx-auto w-full max-w-sm">
         <div className="mb-10 text-center">
-          <img src="/icons/icon-192.png" alt="WHATSXUP" width={72} height={72} className="mx-auto rounded-2xl" />
-          <h1 className="mt-5 text-3xl font-bold tracking-tight">WHATSXUP</h1>
+          <img src="/icons/icon-192.png" alt="XUPPIN" width={72} height={72} className="mx-auto rounded-2xl" />
+          <h1 className="mt-5 text-3xl font-bold tracking-tight">XUPPIN</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Real-time messaging. No phone number required.
           </p>
@@ -99,7 +99,7 @@ function AuthPage() {
             {busy ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
-            {mode === "signup" ? "Already have an account?" : "New to WHATSXUP?"}{" "}
+            {mode === "signup" ? "Already have an account?" : "New to XUPPIN?"}{" "}
             <button
               type="button"
               className="font-medium text-primary underline-offset-4 hover:underline"

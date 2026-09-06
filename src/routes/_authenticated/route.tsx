@@ -38,7 +38,7 @@ function AuthedLayout() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 app-gradient px-8 text-center">
         <h1 className="text-2xl font-semibold">Account banned</h1>
         <p className="text-sm text-muted-foreground">
-          This account has been permanently banned for violating the WHATSXUP community rules.
+          This account has been permanently banned for violating the XUPPIN community rules.
         </p>
       </div>
     );
