@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { GroupAdminPanel } from "@/components/GroupAdminPanel";
 import { uploadChatMedia, type Conversation, type Profile } from "@/lib/whatsxup";
 
 export const Route = createFileRoute("/_authenticated/groups/$id")({
@@ -493,6 +494,21 @@ function GroupPage() {
             />
           </div>
         </div>
+
+        <GroupAdminPanel
+          conversationId={id}
+          groupName={conv.name}
+          inviteSlug={conv.invite_slug ?? null}
+          inviteEnabled={!!conv.invite_enabled}
+          joinApprovalRequired={!!conv.join_approval_required}
+          slowModeSeconds={conv.slow_mode_seconds ?? 0}
+          disappearSeconds={conv.disappear_seconds ?? 0}
+          announceOnly={!!conv.announce_only}
+          isAdmin={isAdmin}
+          onChanged={refresh}
+        />
+
+
 
         {/* Add by username — not only contacts */}
         {canAddMembers ? (
