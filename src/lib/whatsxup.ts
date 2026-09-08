@@ -50,6 +50,13 @@ export type Conversation = {
   only_admins_edit_info: boolean;
   is_suspended: boolean;
   last_message_at: string;
+  invite_slug?: string | null;
+  invite_enabled?: boolean;
+  join_approval_required?: boolean;
+  slow_mode_seconds?: number;
+  disappear_seconds?: number;
+  announce_only?: boolean;
+  pinned_message_id?: string | null;
 };
 
 const signedCache = new Map<string, { url: string; expires: number }>();
