@@ -126,8 +126,9 @@ export function GroupAdminPanel(props: Props) {
     setBusy(true);
     const { error } = await supabase
       .from("conversations")
-      .update(patch)
+      .update(patch as never)
       .eq("id", conversationId);
+
     setBusy(false);
     if (error) toast.error(error.message);
     else refreshAll();
