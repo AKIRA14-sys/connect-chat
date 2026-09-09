@@ -39,10 +39,11 @@ function ContactsPage() {
     queryKey: ["contacts", user?.id],
     enabled: !!user,
     queryFn: async () => {
+      if (!user) return [];
       const { data, error } = await supabase
         .from("contacts")
         .select("id, contact_id, profiles:contact_id(*)")
-        .eq("owner_id", user!.id);
+        .eq("owner_id", user.id);
       if (error) throw error;
       return (data ?? []) as unknown as { id: string; contact_id: string; profiles: Profile }[];
     },
@@ -52,10 +53,11 @@ function ContactsPage() {
     queryKey: ["blocks", user?.id],
     enabled: !!user,
     queryFn: async () => {
+      if (!user) return [];
       const { data, error } = await supabase
         .from("blocks")
         .select("id, blocked_id, profiles:blocked_id(*)")
-        .eq("blocker_id", user!.id);
+        .eq("blocker_id", user.id);
       if (error) throw error;
       return (data ?? []) as unknown as { id: string; blocked_id: string; profiles: Profile }[];
     },
@@ -63,7 +65,7 @@ function ContactsPage() {
 
   const { data: results = [], isFetching } = useQuery({
     queryKey: ["user-search", term],
-    enabled: term.trim().length >= 2,
+    enabled: term.trim().length >= 2 && !!user,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("profiles")
@@ -85,7 +87,8 @@ function ContactsPage() {
 
   const addContact = useMutation({
     mutationFn: async (contactId: string) => {
-      const { error } = await supabase.from("contacts").insert({ owner_id: user!.id, contact_id: contactId });
+      if (!user) throw new Error("User not authenticated");
+      const { error } = await supabase.from("contacts").insert({ owner_id: user.id, contact_id: contactId });
       if (error) throw error;
     },
     onSuccess: () => {

@@ -2189,11 +2189,11 @@ function XupsPage() {
                 </div>
               </div>
             </div>
-            {activeXup.background && (
-              <div className="absolute inset-x-4 bottom-24 z-20 flex justify-center">
-                <div className="bg-black/30 backdrop-blur-md rounded-2xl px-4 py-2 text-white border border-white/10 shadow-xl">
-                  <p className="text-sm text-center">
-                    {activeXup.background}
+            {activeXup.caption && (
+              <div className="absolute inset-x-6 bottom-24 z-20 flex justify-center">
+                <div className="bg-black/40 backdrop-blur-lg rounded-2xl px-5 py-3 text-white border border-white/20 shadow-2xl max-w-md">
+                  <p className="text-sm text-center font-medium leading-relaxed">
+                    {activeXup.caption}
                   </p>
                 </div>
               </div>
