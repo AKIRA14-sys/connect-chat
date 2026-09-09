@@ -17,6 +17,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppSplash } from "@/components/AppSplash";
 import { initNativePush } from "@/lib/nativePush";
+import { initDeepLinks } from "@/lib/native/deepLinks";
+
 import { AppLockGate } from "@/components/AppLockGate";
 
 
@@ -171,6 +173,18 @@ function RootComponent() {
   useEffect(() => {
     void initNativePush();
   }, []);
+
+  // Opening a shared xuppin link on a phone with the app installed routes in-app.
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void initDeepLinks((path) => {
+      void router.navigate({ to: path as never });
+    }).then((d) => {
+      dispose = d;
+    });
+    return () => dispose?.();
+  }, [router]);
+
 
   return (
     <QueryClientProvider client={queryClient}>
