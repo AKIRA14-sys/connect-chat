@@ -2978,3 +2978,65 @@ export const setFeaturedGift = createServerFn({
 
     return { success: true, result: resultData };
   });
+
+export type GamingLeaderboardEntry = {
+  user_id: string;
+  display_name: string | null;
+  username: string | null;
+  avatar_url: string | null;
+  total_xp: number;
+  level: number;
+  wins: number;
+  rank: number;
+};
+
+export const getGamingLeaderboard =
+  createServerFn({
+    method: "POST",
+  })
+    .middleware([requireSupabaseAuth])
+    .inputValidator((input: { limit?: number }) => {
+      return {
+        limit: input?.limit ? Math.min(Math.max(1, Math.floor(input.limit)), 100) : 10,
+      };
+    })
+    .handler(async ({ data }) => {
+      const {
+        data: rows,
+        error,
+      } = await gamingSupabaseAdmin
+        .from("gaming_profiles")
+        .select(`
+          user_id,
+          total_xp,
+          current_level,
+          profiles (
+            display_name,
+            username,
+            avatar_url
+          )
+        `)
+        .order("total_xp", { ascending: false })
+        .limit(data.limit);
+
+      if (error) {
+        console.error("Failed to load gaming leaderboard:", error);
+        throw new Error("Unable to load leaderboard");
+      }
+
+      const leaderboard = (rows ?? []).map((row, index) => ({
+        user_id: row.user_id,
+        total_xp: Number(row.total_xp ?? 0),
+        level: Number(row.current_level ?? 1),
+        display_name: row.profiles?.display_name ?? null,
+        username: row.profiles?.username ?? null,
+        avatar_url: row.profiles?.avatar_url ?? null,
+        wins: 0, 
+        rank: index + 1,
+      }));
+
+      return {
+        success: true,
+        leaderboard,
+      };
+    });

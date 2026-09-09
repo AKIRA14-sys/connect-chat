@@ -10,16 +10,21 @@ import {
   Crown,
   RotateCcw,
   X,
+  Trophy,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+
 
 import { supabase } from "@/integrations/supabase/client";
 import {
   completeGamingMatch,
+  getGamingLeaderboard,
   getGamingMatchReward,
   startGamingMatch,
 } from "@/lib/gaming.functions";
 import type { Message } from "@/lib/whatsxup";
 import { GameRewardModal } from "@/components/gaming/GameRewardModal";
+import { UserAvatar } from "@/components/UserAvatar";
 
 type Game =
   | "menu"
@@ -29,7 +34,8 @@ type Game =
   | "reaction"
   | "chess"
   | "checkers"
-  | "ludo";
+  | "ludo"
+  | "leaderboard";
 
 type Mark = "X" | "O" | null;
 
@@ -1152,6 +1158,68 @@ function CoinFlip({
    GAME MENU
 ========================================================= */
 
+function Leaderboard({ onBack }: { onBack: () => void }) {
+  const { data: leaderboard = [], isLoading } = useQuery({
+    queryKey: ["gaming-leaderboard"],
+    queryFn: async () => {
+      const response = await getGamingLeaderboard({ data: {} });
+      return (response as any) || [];
+    },
+  });
+
+  return (
+    <div className="w-full">
+      <GameHeader
+        title="🏆 Hall of Fame"
+        onBack={onBack}
+        status="Top XP Earners"
+      />
+
+      <div className="mx-auto max-w-xs space-y-3">
+        {isLoading ? (
+          <div className="flex h-40 items-center justify-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border p-8 text-center">
+            <Trophy className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">No legends yet. Start playing!</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {leaderboard.map((player: any, index: number) => (
+              <div
+                key={player.id}
+                className={`flex items-center gap-3 rounded-2xl border bg-card p-3 transition ${
+                  index === 0 ? "border-yellow-500/50 bg-yellow-500/5" : ""
+                }`}
+              >
+                <div className="flex h-8 w-8 items-center justify-center font-black text-sm">
+                  {index === 0 ? (
+                    <Crown className="h-5 w-5 text-yellow-500" />
+                  ) : (
+                    <span>{index + 1}</span>
+                  )}
+                </div>
+                <UserAvatar
+                  path={player.avatar_url ?? null}
+                  name={player.display_name ?? player.username ?? "Unknown"}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold">{player.display_name ?? player.username}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-blue-600">{player.xp} XP</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function GameMenu({
   onSelect,
   peerPresent,
@@ -1164,6 +1232,12 @@ function GameMenu({
   hasPeer: boolean;
 }) {
   const games = [
+    {
+      id: "leaderboard" as Game,
+      emoji: "🏆",
+      title: "Leaderboard",
+      description: "See top players",
+    },
     {
       id: "tictactoe" as Game,
       emoji: "❌⭕",
@@ -4597,7 +4671,8 @@ export default function XupGames({
             peerName={peerName}
           />
         );
-
+      case "leaderboard":
+        return <Leaderboard onBack={goBack} />;
       default:
         return (
           <GameMenu

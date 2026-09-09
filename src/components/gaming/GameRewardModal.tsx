@@ -7,6 +7,8 @@ import {
 } from "lucide-react";
 
 import { XCoinIcon } from "@/components/gaming/XCoinIcon";
+import { GamingBadge } from "./GamingBadge";
+import type { ShopGamingBadge } from "@/lib/shopGamingBadges";
 
 export type GameRewardResult =
   | "win"
@@ -18,6 +20,7 @@ export type GameRewardModalProps = {
   result: GameRewardResult;
   xCoins?: number;
   xp?: number;
+  badge?: ShopGamingBadge;
   onClose: () => void;
 };
 
@@ -26,6 +29,7 @@ export function GameRewardModal({
   result,
   xCoins = 0,
   xp = 0,
+  badge,
   onClose,
 }: GameRewardModalProps) {
   if (!open) {

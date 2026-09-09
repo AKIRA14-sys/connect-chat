@@ -56,6 +56,11 @@ type Xup = {
   expires_at: string;
   deleted_at: string | null;
   reshared_from?: string | null;
+  interaction?: {
+    type: "poll" | "question";
+    question: string;
+    options?: string[];
+  };
 };
 
 type Profile = {
@@ -84,6 +89,14 @@ type XupComment = {
   xup_id: string;
   user_id: string;
   comment: string;
+  created_at: string;
+};
+
+type XupPollVote = {
+  id: string;
+  xup_id: string;
+  user_id: string;
+  option_index: number;
   created_at: string;
 };
 
@@ -289,6 +302,15 @@ function XupsPage() {
 
   const [uploading, setUploading] =
     useState(false);
+
+  const [interactionType, setInteractionType] =
+    useState<"none" | "poll" | "question">("none");
+
+  const [interactionQuestion, setInteractionQuestion] =
+    useState("");
+
+  const [interactionOptions, setInteractionOptions] =
+    useState<string[]>(["", ""]);
 
   const [audienceMode, setAudienceMode] =
     useState<AudienceMode>(
@@ -553,6 +575,24 @@ function XupsPage() {
      ========================================================= */
 
   const {
+    data: pollVotes = [],
+  } = useQuery({
+    queryKey: ["xup-poll-votes", xupIds.join(",")],
+    enabled: xupIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("xup_poll_votes")
+        .select("*")
+        .in("xup_id", xupIds);
+      if (error) {
+        console.error("Could not load XUP poll votes:", error);
+        return [];
+      }
+      return (data ?? []) as XupPollVote[];
+    },
+  });
+
+  const {
     data: comments = [],
   } = useQuery({
     queryKey: [
@@ -592,6 +632,26 @@ function XupsPage() {
       return (data ??
         []) as XupComment[];
     },
+  });
+
+  const votePoll = useMutation({
+    mutationFn: async ({ xupId, optionIndex }: { xupId: string; optionIndex: number }) => {
+      if (!user) throw new Error("User not authenticated");
+      const { error } = await supabase
+        .from("xup_poll_votes")
+        .upsert({
+          xup_id: xupId,
+          user_id: user.id,
+          option_index: optionIndex,
+        }, {
+          onConflict: "xup_id,user_id"
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["xup-poll-votes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   /* =========================================================
@@ -853,6 +913,11 @@ function XupsPage() {
             audienceIds,
           expires_at:
             expiresAt,
+          interaction: interactionType !== "none" ? {
+            type: interactionType,
+            question: interactionQuestion,
+            options: interactionType === "poll" ? interactionOptions.filter(o => o.trim()) : undefined,
+          } : null,
         });
 
       if (insertError) {
@@ -1952,6 +2017,24 @@ function XupsPage() {
      VIEWERS
      ========================================================= */
 
+  const pollResults = useMemo(() => {
+    if (!activeXup?.interaction || activeXup.interaction.type !== "poll") return null;
+    const votes = pollVotes.filter((v) => v.xup_id === activeXup.id);
+    const total = votes.length;
+    const counts = new Array(activeXup.interaction.options?.length || 0).fill(0);
+    for (const v of votes) {
+      if (v.option_index < counts.length) {
+        counts[v.option_index]++;
+      }
+    }
+    return { total, counts };
+  }, [activeXup, pollVotes]);
+
+  const hasVoted = useMemo(() => {
+    if (!activeXup) return false;
+    return pollVotes.some((v) => v.xup_id === activeXup.id && v.user_id === user?.id);
+  }, [activeXup, pollVotes, user]);
+
   const activeViewers =
     useMemo(() => {
       if (!activeXup) {
@@ -2360,6 +2443,85 @@ function XupsPage() {
                   )}
                 </div>
 
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold">Add Interaction</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={interactionType === "none" ? "default" : "outline"}
+                        onClick={() => setInteractionType("none")}
+                      >
+                        None
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={interactionType === "poll" ? "default" : "outline"}
+                        onClick={() => setInteractionType("poll")}
+                      >
+                        Poll
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={interactionType === "question" ? "default" : "outline"}
+                        onClick={() => setInteractionType("question")}
+                      >
+                        Question
+                      </Button>
+                    </div>
+
+                    {interactionType !== "none" && (
+                      <div className="space-y-3 pt-2">
+                        <Input
+                          value={interactionQuestion}
+                          onChange={(e) => setInteractionQuestion(e.target.value)}
+                          placeholder="Ask something..."
+                          className="rounded-xl h-10"
+                        />
+                        {interactionType === "poll" && (
+                          <div className="space-y-2">
+                            {interactionOptions.map((opt, idx) => (
+                              <Input
+                                key={idx}
+                                value={opt}
+                                onChange={(e) => {
+                                  const next = [...interactionOptions];
+                                  next[idx] = e.target.value;
+                                  setInteractionOptions(next);
+                                }}
+                                placeholder={`Option ${idx + 1}...`}
+                                className="rounded-xl h-10"
+                              />
+                            ))}
+                            <div className="flex gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => setInteractionOptions([...interactionOptions, "")]}
+                                disabled={interactionOptions.length >= 4}
+                              >
+                                + Add Option
+                              </Button>
+                              {interactionOptions.length > 2 && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setInteractionOptions(interactionOptions.slice(0, -1))}
+                                >
+                                  - Remove
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                 <Input
                   value={
                     caption
@@ -2742,6 +2904,69 @@ function XupsPage() {
                 </div>
               </div>
             </div>
+
+            {/* =================================================
+                INTERACTION
+                ================================================= */}
+
+            {activeXup.interaction && (
+              <div className="absolute inset-x-0 bottom-40 z-20 flex flex-col items-center justify-center px-6 text-center text-white">
+                <div className="rounded-3xl bg-black/40 backdrop-blur-md p-6 shadow-2xl border border-white/10 w-full max-w-sm">
+                  <p className="mb-4 text-lg font-medium leading-tight">
+                    {activeXup.interaction.question}
+                  </p>
+
+                  {activeXup.interaction.type === "poll" && activeXup.interaction.options && (
+                    <div className="grid gap-2">
+                      {activeXup.interaction.options.map((option, idx) => {
+                        const count = pollResults?.counts[idx] ?? 0;
+                        const percent = pollResults?.total
+                          ? Math.round((count / pollResults.total) * 100)
+                          : 0;
+                        return (
+                          <button
+                            key={idx}
+                            type="button"
+                            disabled={hasVoted}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void votePoll.mutate({
+                                xupId: activeXup.id,
+                                optionIndex: idx,
+                              });
+                            }}
+                            className="relative w-full overflow-hidden rounded-xl border border-white/20 bg-white/10 text-white transition-all hover:bg-white/20 disabled:cursor-default"
+                          >
+                            <div
+                              className="absolute inset-y-0 left-0 bg-blue-600/40 transition-all duration-500"
+                              style={{ width: `${percent}%` }}
+                            />
+                            <div className="relative flex items-center justify-between px-3 py-2">
+                              <span className="truncate font-medium">{option}</span>
+                              {hasVoted && (
+                                <span className="text-xs font-bold">{percent}%</span>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {activeXup.interaction.type === "question" && (
+                    <Button
+                      className="w-full rounded-xl bg-white text-black hover:bg-white/90 transition-all"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowComments(true);
+                      }}
+                    >
+                      Reply to Question
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* =================================================
                 CAPTION
