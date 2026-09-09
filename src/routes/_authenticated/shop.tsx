@@ -1958,7 +1958,7 @@ function ShopItemCard({
     <button
       type="button"
       onClick={onOpen}
-      className="group overflow-hidden rounded-2xl border border-border bg-card text-left transition hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg"
+      className="group overflow-hidden rounded-2xl border border-border bg-card text-left transition-all duration-200 active:scale-95 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl"
     >
       {/* Preview */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">

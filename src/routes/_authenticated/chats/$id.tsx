@@ -4294,12 +4294,12 @@ function ChatRoom() {
                 )}
 
                 <div
-                  className={`rounded-2xl px-3 py-2 text-sm shadow-panel ${
+                  className={`rounded-2xl px-3 py-2 text-sm transition-all duration-200 ${
                     sticker
                       ? "bg-transparent px-1 py-1 shadow-none"
                       : mine
                         ? "text-primary-foreground"
-                        : "bg-surface"
+                        : "bg-surface text-foreground"
                   } ${
                     hasSpecialEffect &&
                     !sticker
@@ -4309,7 +4309,7 @@ function ChatRoom() {
                       : ""
                   } ${
                     mine && !sticker && !effectiveBubbleMine
-                      ? "bg-primary"
+                      ? "bg-gradient-to-br from-primary to-primary/80"
                       : ""
                   }`}
                   style={
@@ -4317,7 +4317,7 @@ function ChatRoom() {
                       ? {
                           background: effectiveBubbleMine,
                           boxShadow:
-                            effectiveBubbleMineShadow || undefined,
+                            effectiveBubbleMineShadow || "0 2px 8px rgba(0,0,0,0.1)",
                           borderRadius:
                             shopBubble.borderRadius || "18px",
                         }
@@ -4325,8 +4325,7 @@ function ChatRoom() {
                         ? {
                             background: effectiveBubbleOther,
                             boxShadow:
-                              effectiveBubbleOtherShadow ||
-                              undefined,
+                              effectiveBubbleOtherShadow || "0 2px 8px rgba(0,0,0,0.05)",
                             borderRadius:
                               shopBubble.borderRadius || "18px",
                           }

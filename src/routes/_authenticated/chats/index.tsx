@@ -1260,8 +1260,8 @@ function ChatsPage() {
         <NotificationPrompt />
 
         <div className="px-4 pb-3 pt-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50" />
+          <div className="relative group">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 opacity-50 transition-colors group-focus-within:text-primary" />
 
             <Input
               value={search}
@@ -1271,7 +1271,7 @@ function ChatsPage() {
                 )
               }
               placeholder="Search chats and messages..."
-              className="h-11 rounded-2xl border-white/10 bg-black/10 pl-10"
+              className="h-11 rounded-2xl border-white/10 bg-black/10 pl-10 transition-all duration-300 focus:bg-black/20 focus:ring-2 focus:ring-primary/20"
             />
 
             {search && (
@@ -1280,10 +1280,10 @@ function ChatsPage() {
                 onClick={() =>
                   setSearch("")
                 }
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 opacity-60 hover:bg-white/10"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-1 text-muted-foreground hover:bg-white/20 transition-colors"
                 aria-label="Clear search"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3 w-3" />
               </button>
             )}
           </div>
