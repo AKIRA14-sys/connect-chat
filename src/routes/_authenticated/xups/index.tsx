@@ -1030,9 +1030,11 @@ function XupsPage() {
       },
     );
   }
+  /*
      TAP LEFT/RIGHT = SAME PERSON'S XUPS.
      AT THE EDGES, ROLLS OVER INTO THE
      PREVIOUS/NEXT PERSON'S STORY.
+  */
   function tapNextXup() {
     if (
       !activeUserId
@@ -1098,8 +1100,10 @@ function XupsPage() {
     // Start of this person's story — roll back to the previous person.
     swipePreviousUser();
   }
+  /*
      USED BY: THE 20s PHOTO TIMER AND
      THE VIDEO onEnded HANDLER.
+  */
   function advanceStory() {
     if (
       !activeUserId
@@ -1172,8 +1176,10 @@ function XupsPage() {
     // No more people either — close the viewer.
     closeViewer();
   }
+  /*
      SWIPE LEFT = NEXT PERSON
      SWIPE RIGHT = PREVIOUS PERSON
+  */
   function swipeNextUser() {
     if (
       !activeUserId
@@ -1374,8 +1380,10 @@ function XupsPage() {
       );
     }
   }
+  /*
      TAP RIGHT HALF = NEXT XUP (ROLLS OVER TO NEXT PERSON)
      TAP LEFT HALF = PREVIOUS XUP (ROLLS OVER TO PREVIOUS PERSON)
+  */
   function handleViewerClick(
     event: React.MouseEvent<HTMLDivElement>,
   ) {
@@ -1676,8 +1684,10 @@ function XupsPage() {
     activeIndex,
     groupedXups,
   ]);
+  /*
      PHOTO AUTO-ADVANCE TIMER (20s)
      onEnded HANDLER PASSED TO XupMedia.
+  */
   useEffect(() => {
     if (!activeXup) {
       return;
@@ -1709,7 +1719,7 @@ function XupsPage() {
     <AppShell>
       <PageHeader title="XUPs" />
       <div className="flex flex-1 flex-col">
-        {/* CREATE_XUP_START
+        {/* CREATE_XUP_START */}
         <section className="border-b border-border/60 p-4">
           <Drawer>
             <DrawerTrigger asChild>
