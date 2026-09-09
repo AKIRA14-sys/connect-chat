@@ -19,12 +19,14 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { AppShell, PageHeader } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { UserAvatar } from "@/components/UserAvatar";
 import { signedUrl } from "@/lib/whatsxup";
 
@@ -2798,7 +2800,7 @@ function XupsPage() {
                 TOP BAR
                 ================================================= */}
 
-            <div className="absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/80 via-black/30 to-transparent p-4 pb-20 pt-8 text-white">
+            <div className="absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/80 via-black/40 to-transparent p-4 pb-20 pt-8 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <button
@@ -2973,12 +2975,14 @@ function XupsPage() {
                 ================================================= */}
 
             {activeXup.background && (
-              <div className="absolute inset-x-0 bottom-24 z-20 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-4 pt-20 text-white">
-                <p className="text-sm">
-                  {
-                    activeXup.background
-                  }
-                </p>
+              <div className="absolute inset-x-0 bottom-24 z-20 p-4 pt-20 text-white">
+                <div className="inline-block rounded-2xl bg-black/30 px-3 py-2 backdrop-blur-md border border-white/10">
+                  <p className="text-sm">
+                    {
+                      activeXup.background
+                    }
+                  </p>
+                </div>
               </div>
             )}
 
@@ -3209,37 +3213,32 @@ function XupsPage() {
                 COMMENTS PANEL
                 ================================================= */}
 
-            {showComments && (
-              <div
-                className="absolute inset-x-0 bottom-0 z-50 flex max-h-[70%] flex-col rounded-t-3xl bg-surface text-foreground shadow-2xl"
-                onClick={(
-                  event,
-                ) =>
-                  event.stopPropagation()
-                }
-              >
+            <div
+              className={cn(
+                "absolute inset-x-0 bottom-0 z-50 flex max-h-[90%] flex-col rounded-t-3xl bg-surface text-foreground shadow-2xl transition-transform duration-500 ease-out",
+                showComments ? "translate-y-0" : "translate-y-full"
+              )}
+              onClick={(
+                event,
+              ) =>
+                event.stopPropagation()
+              }
+            >
                 <div className="flex items-center justify-between border-b border-border p-4">
-                  <div>
-                    <h3 className="font-bold">
-                      Comments
-                    </h3>
-
-                    <p className="text-xs text-muted-foreground">
-                      {
-                        activeComments.length
-                      }{" "}
-                      comments
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5 text-primary" />
+                    <div>
+                      <h3 className="font-bold">Comments</h3>
+                      <p className="text-xs text-muted-foreground">
+                        {activeComments.length} comments
+                      </p>
+                    </div>
                   </div>
 
                   <Button
                     size="icon"
                     variant="ghost"
-                    onClick={() =>
-                      setShowComments(
-                        false,
-                      )
-                    }
+                    onClick={() => setShowComments(false)}
                   >
                     <X className="h-5 w-5" />
                   </Button>
@@ -3284,22 +3283,23 @@ function XupsPage() {
                               />
 
                               <div className="min-w-0">
-                                <p className="text-xs font-semibold">
-                                  {profile?.display_name ||
-                                    profile?.username ||
-                                    "User"}
-                                </p>
+                                <div className="flex items-center justify-between">
+                                  <p className="text-sm font-bold">
+                                    {profile?.display_name ||
+                                      profile?.username ||
+                                      "User"}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    {formatTime(
+                                      comment.created_at,
+                                    )}
+                                  </p>
+                                </div>
 
-                                <p className="mt-1 break-words text-sm">
+                                <p className="mt-1 break-words text-sm leading-relaxed opacity-90">
                                   {
                                     comment.comment
                                   }
-                                </p>
-
-                                <p className="mt-1 text-[10px] text-muted-foreground">
-                                  {formatTime(
-                                    comment.created_at,
-                                  )}
                                 </p>
                               </div>
                             </div>
@@ -3310,7 +3310,7 @@ function XupsPage() {
                   )}
                 </div>
 
-                <div className="flex gap-2 border-t border-border p-3">
+                <div className="flex gap-2 border-t border-border p-3 pb-6">
                   <Input
                     value={
                       commentText
@@ -3335,10 +3335,12 @@ function XupsPage() {
                         void submitComment();
                       }
                     }}
+                    className="rounded-xl"
                   />
 
                   <Button
                     size="icon"
+                    className="rounded-xl"
                     onClick={() =>
                       void submitComment()
                     }
@@ -3350,7 +3352,7 @@ function XupsPage() {
                   </Button>
                 </div>
               </div>
-            )}
+            </div>
 
             {/* =================================================
                 BOTTOM ACTIONS
