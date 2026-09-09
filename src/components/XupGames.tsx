@@ -1634,7 +1634,7 @@ function RockPaperScissors({
     if (outcome === "win") {
       setScore((c) => ({ ...c, wins: c.wins + 1 }));
       setResult("🔥 You win!");
-    } else if (outcome === "lose") {
+    } else if (outcome === "loss") {
       setScore((c) => ({ ...c, losses: c.losses + 1 }));
       setResult("💀 You lose!");
     } else {
@@ -1644,17 +1644,17 @@ function RockPaperScissors({
 
     const winnerId = outcome === "win"
       ? userId
-      : outcome === "lose"
+      : outcome === "loss"
         ? peerId ?? null
         : null;
     const loserId = outcome === "win"
       ? peerId ?? null
-      : outcome === "lose"
+      : outcome === "loss"
         ? userId
         : null;
 
     void gamingMatch.complete({
-      result: outcome === "win" ? "win" : outcome === "lose" ? "loss" : "draw",
+      result: outcome === "win" ? "win" : outcome === "loss" ? "loss" : "draw",
       winnerId,
       loserId,
     });
@@ -1681,7 +1681,7 @@ function RockPaperScissors({
     if (outcome === "win") {
       setScore((c) => ({ ...c, wins: c.wins + 1 }));
       setResult("🔥 You win!");
-    } else if (outcome === "lose") {
+    } else if (outcome === "loss") {
       setScore((c) => ({ ...c, losses: c.losses + 1 }));
       setResult("💀 You lose!");
     } else {
@@ -1691,9 +1691,9 @@ function RockPaperScissors({
 
     void gamingMatch.complete({
       result:
-        outcome === "win" ? "win" : outcome === "lose" ? "loss" : "draw",
+        outcome === "win" ? "win" : outcome === "loss" ? "loss" : "draw",
       winnerId: outcome === "win" ? userId : null,
-      loserId: outcome === "lose" ? userId : null,
+      loserId: outcome === "loss" ? userId : null,
     });
   };
 
