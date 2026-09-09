@@ -2048,7 +2048,7 @@ function XupsPage() {
             handleTouchEnd
           }
         >
-          <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black">
+          <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-transparent">
             <div className="absolute inset-x-0 top-0 z-40 flex gap-1 px-3 pt-3">
               {activeStory.map(
                 (
@@ -2190,7 +2190,7 @@ function XupsPage() {
               </div>
             </div>
             {activeXup.caption && (
-              <div className="absolute inset-x-4 bottom-24 z-20 flex justify-center">
+              <div className="absolute inset-x-4 bottom-20 z-50 flex justify-center">
                 <div className="bg-black/40 px-4 py-2 rounded-lg text-white max-w-md">
                   <p className="text-sm text-center">
                     {activeXup.caption}
