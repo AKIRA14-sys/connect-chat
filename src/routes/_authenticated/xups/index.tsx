@@ -2528,7 +2528,7 @@ function XupsPage() {
               </div>
             </div>
                   <div
-                    className="absolute bottom-20 inset-x-0 z-30 flex items-center justify-center gap-2 px-4"
+                    className="absolute bottom-8 inset-x-0 z-30 flex items-center justify-center gap-2 px-4"
                     onClick={(event) => event.stopPropagation()}
                   >
                   <div className="relative flex-1">
@@ -2617,7 +2617,7 @@ function XupsPage() {
                 </div>
             {!showViewers &&
               !showComments && (
-                <div className="absolute bottom-20 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] text-white">
+                <div className="absolute bottom-8 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/50 px-3 py-1 text-[10px] text-white">
                   {activeIndex + 1}{" "}
                   /{" "}
                   {activeStory.length}
