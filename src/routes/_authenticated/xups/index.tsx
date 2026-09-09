@@ -354,51 +354,12 @@ function XupsPage() {
         []) as unknown as Contact[];
     },
   });
-  const userIds = Array.from(
-    new Set(
-      xups.map(
-        (xup) => xup.user_id,
-      ),
-    ),
-  );
-  const {
-    data: profiles = [],
-  } = useQuery({
-    queryKey: [
-      "xup-profiles",
-      userIds.join(","),
-    ],
-    enabled:
-      userIds.length > 0,
-    queryFn: async () => {
-      const { data, error } =
-        await supabase
-          .from("profiles")
-          .select(
-            "id, username, display_name, avatar_url",
-          )
-          .in(
-            "id",
-            userIds,
-          );
-      if (error) {
-        throw error;
-      }
-      return (data ??
-        []) as Profile[];
-    },
-  });
-  const profileMap = useMemo(() => {
-    const map =
-      new Map<string, Profile>();
-    for (const profile of profiles) {
-      map.set(
-        profile.id,
-        profile,
-      );
-    }
-    return map;
-  }, [profiles]);
+
+
+  /* =========================================================
+     REACTIONS
+     ========================================================= */
+
   const xupIds = xups.map(
     (xup) => xup.id,
   );
@@ -495,6 +456,71 @@ function XupsPage() {
         []) as XupComment[];
     },
   });
+
+  /* =========================================================
+     PROFILES
+     ========================================================= */
+
+  const userIds = useMemo(() => {
+    return Array.from(
+      new Set([
+        ...xups.map((xup) => xup.user_id),
+        ...comments.map((comment) => comment.user_id),
+        ...xupViews.map((view) => view.viewer_id),
+        user?.id,
+      ].filter(Boolean) as string[]),
+    );
+  }, [xups, comments, xupViews, user]);
+
+  const {
+    data: profiles = [],
+  } = useQuery({
+    queryKey: [
+      "xup-profiles",
+      userIds.join(","),
+    ],
+    enabled:
+      userIds.length > 0,
+
+    queryFn: async () => {
+      const { data, error } =
+        await supabase
+          .from("profiles")
+          .select(
+            "id, username, display_name, avatar_url",
+          )
+          .in(
+            "id",
+            userIds,
+          );
+
+      if (error) {
+        throw error;
+      }
+
+      return (data ??
+        []) as Profile[];
+    },
+  });
+
+  const profileMap = useMemo(() => {
+    const map =
+      new Map<string, Profile>();
+
+    for (const profile of profiles) {
+      map.set(
+        profile.id,
+        profile,
+      );
+    }
+
+    return map;
+  }, [profiles]);
+
+  /* =========================================================
+     CLOCK
+     ========================================================= */
+
   useEffect(() => {
     const timer =
       window.setInterval(
