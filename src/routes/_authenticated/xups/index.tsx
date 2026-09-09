@@ -2092,7 +2092,7 @@ function XupsPage() {
                 advanceStory
               }
             />
-            <div className="absolute inset-x-0 top-0 z-30 bg-black/40 p-4 pb-20 pt-8 text-white">
+            <div className="absolute inset-x-0 top-0 z-30 p-4 pb-20 pt-8 text-white">
               <div className="flex items-center justify-between">
                 <div className="flex min-w-0 items-center gap-3">
                   <button
@@ -2190,12 +2190,10 @@ function XupsPage() {
               </div>
             </div>
             {activeXup.caption && (
-              <div className="absolute inset-x-4 bottom-20 z-50 flex justify-center">
-                <div className="bg-black/40 px-4 py-2 rounded-lg text-white max-w-md">
-                  <p className="text-sm text-center">
-                    {activeXup.caption}
-                  </p>
-                </div>
+              <div className="absolute inset-x-0 bottom-24 z-50 flex justify-center px-4">
+                <p className="text-center text-white text-sm font-medium drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)] max-w-md">
+                  {activeXup.caption}
+                </p>
               </div>
             )}
             {showSettings && (
