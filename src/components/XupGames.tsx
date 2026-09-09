@@ -41,8 +41,8 @@ interface XupGamesProps {
   onClose?: () => void;
   conversationId: string;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
   /*
    * OPTIONAL — powers the in-game 💬 chat bubble. If either
    * prop is omitted, the bubble simply doesn't render, so
@@ -1090,7 +1090,7 @@ function PeerBanner({
   peerName,
 }: {
   peerPresent: boolean;
-  peerName?: string | null;
+  peerName?: string | null | undefined;
 }) {
   if (peerPresent) {
     return (
@@ -1160,7 +1160,7 @@ function GameMenu({
 }: {
   onSelect: (game: Game) => void;
   peerPresent: boolean;
-  peerName?: string | null;
+  peerName?: string | null | undefined;
   hasPeer: boolean;
 }) {
   const games = [
@@ -1267,8 +1267,8 @@ function TicTacToe({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
   const isHost = !hasPeer || userId < (peerId as string);
@@ -1579,8 +1579,8 @@ function RockPaperScissors({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
 
@@ -1818,8 +1818,8 @@ function EmojiGuess({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
   const amHost = !hasPeer || userId < (peerId as string);
@@ -2053,8 +2053,8 @@ function ReactionBattle({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
 
@@ -2310,8 +2310,8 @@ function ChessGame({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
 
@@ -2685,8 +2685,8 @@ function CheckersGame({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
   const isHost = !hasPeer || userId < (peerId as string);
@@ -3194,8 +3194,8 @@ function LudoGame({
   onBack: () => void;
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
-  peerName?: string | null;
+  peerId?: string | null | undefined;
+  peerName?: string | null | undefined;
 }) {
   const hasPeer = !!peerId;
   const isHost = !hasPeer || userId < (peerId as string);
@@ -3868,7 +3868,7 @@ function GameChatBubble({
   messages: Message[];
   onSend: (text: string) => Promise<boolean>;
   currentUserId: string;
-  peerName?: string | null;
+  peerName?: string | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -4190,7 +4190,7 @@ function useGamingMatchSession({
 }: {
   sync: GameSync;
   userId: string;
-  peerId?: string | null;
+  peerId?: string | null | undefined;
   gameType: string;
   isBot: boolean;
   enabled?: boolean;
