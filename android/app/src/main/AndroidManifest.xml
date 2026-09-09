@@ -22,7 +22,25 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Android App Links: open shared xuppin links in the installed app -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="xuppin.vercel.app" />
+                <data android:scheme="https" android:host="whatsxup.lovable.app" />
+            </intent-filter>
+
+            <!-- Custom scheme fallback: xuppin://g/slug/join -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="xuppin" />
+            </intent-filter>
+
         </activity>
+
 
         <provider
             android:name="androidx.core.content.FileProvider"
