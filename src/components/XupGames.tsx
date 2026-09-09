@@ -353,10 +353,10 @@ function createInitialChessBoard(): ChessBoard {
   );
 
   for (let c = 0; c < 8; c++) {
-    board[0][c] = { type: backRank[c], color: "b" };
-    board[1][c] = { type: "P", color: "b" };
-    board[6][c] = { type: "P", color: "w" };
-    board[7][c] = { type: backRank[c], color: "w" };
+    board[0]![c] = { type: backRank[c]!, color: "b" };
+    board[1]![c] = { type: "P", color: "b" };
+    board[6]![c] = { type: "P", color: "w" };
+    board[7]![c] = { type: backRank[c]!, color: "w" };
   }
 
   return board;
@@ -370,7 +370,7 @@ function generateChessPseudoMoves(
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      const piece = board[r][c];
+      const piece = board[r]?.[c] ?? null;
 
       if (!piece || piece.color !== color) continue;
 
@@ -382,7 +382,7 @@ function generateChessPseudoMoves(
 
         if (
           chessInBounds(oneStep, c) &&
-          !board[oneStep][c]
+          !board[oneStep]?.[c]
         ) {
           moves.push({
             fr: r,
@@ -399,7 +399,7 @@ function generateChessPseudoMoves(
           if (
             r === startRow &&
             chessInBounds(twoStep, c) &&
-            !board[twoStep][c]
+            !board[twoStep]?.[c]
           ) {
             moves.push({
               fr: r,
@@ -416,7 +416,7 @@ function generateChessPseudoMoves(
 
           if (!chessInBounds(tr, tc)) continue;
 
-          const target = board[tr][tc];
+          const target = board[tr]?.[tc] ?? null;
 
           if (target && target.color !== color) {
             moves.push({
@@ -437,7 +437,7 @@ function generateChessPseudoMoves(
 
           if (!chessInBounds(tr, tc)) continue;
 
-          const target = board[tr][tc];
+          const target = board[tr]?.[tc] ?? null;
 
           if (!target || target.color !== color) {
             moves.push({ fr: r, fc: c, tr, tc });
@@ -450,7 +450,7 @@ function generateChessPseudoMoves(
 
           if (!chessInBounds(tr, tc)) continue;
 
-          const target = board[tr][tc];
+          const target = board[tr]?.[tc] ?? null;
 
           if (!target || target.color !== color) {
             moves.push({ fr: r, fc: c, tr, tc });
@@ -469,7 +469,7 @@ function generateChessPseudoMoves(
           let tc = c + dc;
 
           while (chessInBounds(tr, tc)) {
-            const target = board[tr][tc];
+            const target = board[tr]?.[tc] ?? null;
 
             if (!target) {
               moves.push({ fr: r, fc: c, tr, tc });
@@ -496,12 +496,12 @@ function applyChessMove(
   move: ChessMove,
 ): ChessBoard {
   const next = board.map((row) => row.slice());
-  const piece = next[move.fr][move.fc];
+  const piece = next[move.fr]?.[move.fc] ?? null;
 
-  next[move.fr][move.fc] = null;
+  next[move.fr]![move.fc] = null;
 
   if (piece) {
-    next[move.tr][move.tc] = move.promotion
+    next[move.tr]![move.tc] = move.promotion
       ? { type: move.promotion, color: piece.color }
       : piece;
   }
@@ -515,7 +515,7 @@ function findChessKing(
 ): { r: number; c: number } | null {
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      const piece = board[r][c];
+      const piece = board[r]?.[c] ?? null;
 
       if (
         piece &&
@@ -585,11 +585,11 @@ function chooseChessBotMove(
 
   if (!moves.length) return null;
 
-  let best = moves[0];
+  let best = moves[0]!;
   let bestScore = -Infinity;
 
   for (const move of moves) {
-    const target = board[move.tr][move.tc];
+    const target = board[move.tr]?.[move.tc] ?? null;
     const captureValue = target
       ? CHESS_PIECE_VALUES[target.type]
       : 0;
@@ -664,7 +664,7 @@ function createInitialCheckersBoard(): CheckersBoard {
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 8; c++) {
       if ((r + c) % 2 === 1) {
-        board[r][c] = { color: "b", king: false };
+        board[r]![c] = { color: "b", king: false };
       }
     }
   }
@@ -672,7 +672,7 @@ function createInitialCheckersBoard(): CheckersBoard {
   for (let r = 5; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       if ((r + c) % 2 === 1) {
-        board[r][c] = { color: "r", king: false };
+        board[r]![c] = { color: "r", king: false };
       }
     }
   }
@@ -685,11 +685,11 @@ function getCheckersPieceMoves(
   r: number,
   c: number,
 ): { simple: CheckersMove[]; captures: CheckersMove[] } {
-  const piece = board[r][c];
+  const piece = board[r]?.[c] ?? null;
 
   if (!piece) return { simple: [], captures: [] };
 
-  const dirs = piece.king
+  const dirs: [number, number][] = piece.king
     ? [
         [-1, -1],
         [-1, 1],
@@ -713,7 +713,7 @@ function getCheckersPieceMoves(
     const tr = r + dr;
     const tc = c + dc;
 
-    if (checkersInBounds(tr, tc) && !board[tr][tc]) {
+    if (checkersInBounds(tr, tc) && !board[tr]?.[tc]) {
       simple.push({ fr: r, fc: c, tr, tc });
     }
 
@@ -728,7 +728,7 @@ function getCheckersPieceMoves(
       if (
         mid &&
         mid.color !== piece.color &&
-        !board[jr][jc]
+        !board[jr]?.[jc]
       ) {
         captures.push({
           fr: r,
@@ -766,7 +766,7 @@ function generateCheckersMoves(
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      const piece = board[r][c];
+      const piece = board[r]?.[c] ?? null;
 
       if (piece && piece.color === color) {
         const { simple, captures } =
@@ -786,12 +786,12 @@ function applyCheckersMove(
   move: CheckersMove,
 ): CheckersBoard {
   const next = board.map((row) => row.slice());
-  const piece = next[move.fr][move.fc];
+  const piece = next[move.fr]?.[move.fc] ?? null;
 
-  next[move.fr][move.fc] = null;
+  next[move.fr]![move.fc] = null;
 
   if (move.capture) {
-    next[move.capture.r][move.capture.c] = null;
+    next[move.capture.r]![move.capture.c] = null;
   }
 
   if (piece) {
@@ -802,7 +802,7 @@ function applyCheckersMove(
       if (piece.color === "b" && move.tr === 7) king = true;
     }
 
-    next[move.tr][move.tc] = { color: piece.color, king };
+    next[move.tr]![move.tc] = { color: piece.color, king };
   }
 
   return next;
@@ -864,7 +864,7 @@ function chooseCheckersBotMove(
 
   const promoteRow = color === "r" ? 0 : 7;
 
-  let best = moves[0];
+  let best = moves[0]!;
   let bestScore = -Infinity;
 
   for (const move of moves) {
@@ -970,7 +970,7 @@ function applyLudoMove(
     blue: [...tokens.blue],
   };
 
-  const current = next[color][tokenIndex];
+  const current = next[color][tokenIndex] ?? -1;
   const newPos = current === -1 ? 0 : current + dice;
 
   next[color][tokenIndex] = newPos;
@@ -1034,13 +1034,13 @@ function chooseLudoBotMove(
     if (yardIdx !== undefined) return yardIdx;
   }
 
-  let best = legal[0];
-  let bestPos = tokens[color][best];
+  let best = legal[0]!;
+  let bestPos = tokens[color][best] ?? -1;
 
   for (const idx of legal) {
-    if (tokens[color][idx] > bestPos) {
+    if ((tokens[color][idx] ?? -1) > bestPos) {
       best = idx;
-      bestPos = tokens[color][idx];
+      bestPos = tokens[color][idx] ?? -1;
     }
   }
 
@@ -2585,7 +2585,7 @@ function ChessGame({
           return Array.from({ length: 8 }).map(
             (_, colIdx) => {
               const c = flipped ? 7 - colIdx : colIdx;
-              const piece = board[r][c];
+              const piece = board[r]?.[c] ?? null;
               const isDark = (r + c) % 2 === 1;
               const isSelected =
                 selected &&
