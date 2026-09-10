@@ -25,7 +25,8 @@ function pathFromUrl(url: string): string | null {
       if (!APP_HOSTS.includes(u.hostname)) return null;
     }
     const pathname = u.pathname || "/";
-    return isAllowedPath(pathname) ? pathname + (u.search || "") : null;
+    if (!isAllowedPath(pathname)) return null;
+    return pathname + (u.search || "");
   } catch {
     return null;
   }
@@ -53,7 +54,8 @@ export async function initDeepLinks(
 
     try {
       if (fullUrl.startsWith("http://") || fullUrl.startsWith("https://")) {
-        if (window.location.pathname !== path.split("?")[0]) {
+        const onlyPath = path.split("?")[0];
+        if (window.location.pathname !== onlyPath) {
           window.location.replace(fullUrl);
         }
         return;
@@ -89,7 +91,9 @@ export async function initDeepLinks(
     try {
       const launch = await App.getLaunchUrl();
       if (launch?.url) {
-        window.setTimeout(() => handle(launch.url), 500);
+        window.setTimeout(function () {
+          handle(launch.url);
+        }, 500);
       }
     } catch {
       /* ignore */
