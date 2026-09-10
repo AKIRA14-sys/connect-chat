@@ -1,3 +1,4 @@
+
 [
   {
     "relation": ["delegate_permission/common.handle_all_urls"],
@@ -5,7 +6,7 @@
       "namespace": "android_app",
       "package_name": "app.xuppin.chat",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_YOUR_APP_SIGNING_SHA256_FINGERPRINT"
+        "04:5F:41:C7:58:58:2A:96:6A:8B:3E:7A:5F:5C:08:8A:CE:32:BC:76:CC:F4:49:67:29:C6:56:EF:88:FC:87:23"
       ]
     }
   }
