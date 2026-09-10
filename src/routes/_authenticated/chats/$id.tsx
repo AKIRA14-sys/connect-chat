@@ -4504,7 +4504,7 @@ function ChatRoom() {
               key={message.id}
               className={`group flex w-full gap-2 ${
                 mine
-                  ? "flex-row-reverse justify-end"
+                  ? "flex-row-reverse justify-start"
                   : "flex-row justify-start"
               }`}
               onTouchStart={(event) =>
