@@ -521,8 +521,108 @@ export const Route = createFileRoute("/_authenticated/chats/$id")({
 });
 
 /* ============================================================
- * MEDIA BUBBLE
+ * MESSAGE CONTENT RENDERER
  * ============================================================ */
+
+function MessageContent({
+  message,
+  user,
+  decoded,
+  secretRevealed,
+  toggleSecret,
+  handleMentionClick,
+  mine,
+}: {
+  message: Message;
+  user: Profile | null;
+  decoded: { text: string; effect: ChatEffect; secret: boolean };
+  secretRevealed: boolean;
+  toggleSecret: (id: string) => void;
+  handleMentionClick: (username: string) => void;
+  mine: boolean;
+}) {
+  if (message.type === "sticker") {
+    const sticker = getSticker(message.content);
+    return sticker ? (
+      <div className="flex flex-col items-center justify-center px-1 py-1">
+        <span
+          className={`xup-sticker-fx ${stickerEffectClass(sticker.emoji)} select-none text-7xl leading-none drop-shadow-sm`}
+          title={sticker.label}
+        >
+          {sticker.emoji}
+        </span>
+      </div>
+    ) : null;
+  }
+
+  if (message.type === "text") {
+    if (message.content?.startsWith("__XUP_POLL__:")) {
+      return (
+        <PollMessage
+          pollId={message.content.slice("__XUP_POLL__:".length)}
+          userId={user?.id ?? ""}
+        />
+      );
+    }
+
+    return (
+      <div className="relative">
+        {decoded.secret && !secretRevealed ? (
+          <button
+            type="button"
+            onClick={() => toggleSecret(message.id)}
+            className="flex min-h-16 w-full min-w-[150px] items-center justify-center rounded-xl border border-white/20 bg-black/10 px-4 py-3 transition hover:bg-black/20 active:scale-[.98]"
+          >
+            <span className="flex items-center gap-2 font-medium">
+              <Eye className="h-4 w-4" />
+              Tap to reveal
+            </span>
+          </button>
+        ) : (
+          <p className="whitespace-pre-wrap break-words">
+            {renderMessageContent(decoded.text, handleMentionClick)}
+          </p>
+        )}
+
+        {decoded.secret && secretRevealed && (
+          <button
+            type="button"
+            onClick={() => toggleSecret(message.id)}
+            className="mt-2 flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100"
+          >
+            <EyeOff className="h-3 w-3" />
+            Hide secret
+          </button>
+        )}
+
+        {decoded.secret && !secretRevealed && (
+          <div className="mt-1 flex items-center gap-1 text-[9px] opacity-60">
+            🔐 Secret message
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      {message.media_url && (
+        <MediaBubble
+          path={message.media_url}
+          type={message.type as "image" | "video" | "audio"}
+          durationSec={message.media_duration}
+          mine={mine}
+        />
+      )}
+
+      {message.type === "audio" && message.media_duration != null && (
+        <p className="text-[11px] opacity-70">
+          {durationLabel(message.media_duration)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function hashSeed(input: string) {
   let h = 2166136261;
@@ -777,13 +877,6 @@ function ChatRoom() {
   const [profileMuted, setProfileMuted] = useState(false);
   const [profilePinned, setProfilePinned] = useState(false);
   const [profileNote, setProfileNote] = useState("");
-  const [profileNoteDraft, setProfileNoteDraft] = useState("");
-  const [profileNameDraft, setProfileNameDraft] = useState("");
-  const [giftCoins, setGiftCoins] = useState(0);
-  const [stickerPack, setStickerPack] = useState<StickerPack>("All");
-  const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
-  const [messageMenu, setMessageMenu] = useState<DeleteMenuState>(null);
-  const [forwardFrom, setForwardFrom] = useState<Message | null>(null);
   const [profileNoteDraft, setProfileNoteDraft] = useState("");
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [giftCoins, setGiftCoins] = useState(0);
@@ -4555,106 +4648,17 @@ function ChatRoom() {
                     <p className="italic opacity-70">
                       This message was deleted
                     </p>
-                  ) : sticker ? (
-                    <div className="flex flex-col items-center justify-center px-1 py-1">
-                      <span
-                        className={`xup-sticker-fx ${stickerEffectClass(sticker.emoji)} select-none text-7xl leading-none drop-shadow-sm`}
-                        title={sticker.label}
-                      >
-                        {sticker.emoji}
-                      </span>
-                    </div>
-                  ) : message.type ===
-                    "text" ? (
-                      message.content?.startsWith("__XUP_POLL__:") ? (
-                        <PollMessage
-                          pollId={message.content.slice("__XUP_POLL__:".length)}
-                          userId={user?.id ?? ""}
-                        />
-                      ) : (
-                        <div className="relative">
-                          {decoded.secret &&
-                          !secretRevealed ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                toggleSecret(
-                                  message.id,
-                                )
-                              }
-                              className="flex min-h-16 w-full min-w-[150px] items-center justify-center rounded-xl border border-white/20 bg-black/10 px-4 py-3 transition hover:bg-black/20 active:scale-[.98]"
-                            >
-                              <span className="flex items-center gap-2 font-medium">
-                                <Eye className="h-4 w-4" />
-                                Tap to reveal
-                              </span>
-                            </button>
-                          ) : (
-                            <p className="whitespace-pre-wrap break-words">
-                              {renderMessageContent(
-                                decoded.text,
-                                handleMentionClick,
-                              )}
-                            </p>
-                          )}
-
-
-                      {decoded.secret &&
-                        secretRevealed && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              toggleSecret(
-                                message.id,
-                              )
-                            }
-                            className="mt-2 flex items-center gap-1 text-[10px] opacity-60 hover:opacity-100"
-                          >
-                            <EyeOff className="h-3 w-3" />
-                            Hide secret
-                          </button>
-                        )}
-
-                      {decoded.secret &&
-                        !secretRevealed && (
-                          <div className="mt-1 flex items-center gap-1 text-[9px] opacity-60">
-                            🔐 Secret message
-                          </div>
-                        )}
-                    </div>
                   ) : (
-                    <div className="space-y-1">
-                      {message.media_url && (
-                        <MediaBubble
-                          path={
-                            message.media_url
-                          }
-                          type={
-                            message.type as
-                              | "image"
-                              | "video"
-                              | "audio"
-                          }
-                          durationSec={
-                            message.media_duration
-                          }
-                          mine={mine}
-                        />
-                      )}
-
-                      {message.type ===
-                        "audio" &&
-                        message.media_duration !=
-                          null && (
-                          <p className="text-[11px] opacity-70">
-                            {durationLabel(
-                              message.media_duration,
-                            )}
-                          </p>
-                        )}
-                    </div>
+                    <MessageContent
+                      message={message}
+                      user={user}
+                      decoded={decoded}
+                      secretRevealed={secretRevealed}
+                      toggleSecret={toggleSecret}
+                      handleMentionClick={handleMentionClick}
+                      mine={mine}
+                    />
                   )}
-
                   <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
                     {message.edited_at &&
                       !deleted && (
