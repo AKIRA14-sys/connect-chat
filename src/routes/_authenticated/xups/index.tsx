@@ -3471,7 +3471,6 @@ function XupsPage() {
                 </div>
               )}
           </div>
-        </div>
       )}
 
     </AppShell>
