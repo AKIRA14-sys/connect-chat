@@ -3,46 +3,89 @@ import { isNative } from "./platform";
 const APP_HOSTS = ["xuppin.vercel.app", "whatsxup.lovable.app"];
 const PENDING_KEY = "xuppin:pending-deep-link";
 
+/** Only allow safe internal paths (invite join, etc.). */
+function isAllowedPath(path: string): boolean {
+  if (!path.startsWith("/")) return false;
+  if (path === "/") return false;
+  // /g/some-slug/join
+  if (/^\/g\/[A-Za-z0-9_-]+\/join\/?$/.test(path)) return true;
+  // optional: chats, groups
+  if (/^\/chats\/[A-Za-z0-9_-]+\/?$/.test(path)) return true;
+  if (/^\/groups\/[A-Za-z0-9_-]+\/?$/.test(path)) return true;
+  return false;
+}
+
 function pathFromUrl(url: string): string | null {
   try {
-    // Custom scheme: xuppin://g/slug/join  →  /g/slug/join
+    // Custom scheme: xuppin://g/slug/join → /g/slug/join
     if (url.startsWith("xuppin://")) {
-      const rest = url.replace(/^xuppin:\/\//, "");
-      const path = rest.startsWith("/") ? rest : `/${rest}`;
-      return path.split("?")[0] || null;
+      const rest = url.replace(/^xuppin:\/\//, "").replace(/^\//, "");
+      const path = `/${rest}`.split("?")[0];
+      return isAllowedPath(path) ? path : null;
     }
 
     const u = new URL(url);
     if (u.protocol === "http:" || u.protocol === "https:") {
       if (!APP_HOSTS.includes(u.hostname)) return null;
     }
-    const path = `\( {u.pathname} \){u.search}${u.hash}` || "/";
-    if (!path || path === "/") return null;
-    return path;
+    const path = `\( {u.pathname} \){u.search}` || "/";
+    return isAllowedPath(path.split("?")[0] || path) ? path : null;
   } catch {
     return null;
   }
 }
 
 /**
- * When Android opens the app from a shared invite link, route to that path
- * (e.g. /g/my-group/join) instead of staying on the home/chats screen.
+ * App Links open the APK, but must land on the invite page.
+ * With server.url → live site, the safest fix is to load the full HTTPS URL
+ * once (avoids black screen from broken in-app navigate on cold start).
  */
 export async function initDeepLinks(
-  navigate: (path: string) => void,
+  _navigate: (path: string) => void,
 ): Promise<() => void> {
   if (!isNative()) return () => {};
 
-  const go = (path: string) => {
+  let last = "";
+  let handled = false;
+
+  const go = (urlOrPath: string) => {
+    if (handled && last === urlOrPath) return;
+    handled = true;
+    last = urlOrPath;
+
     try {
-      sessionStorage.setItem(PENDING_KEY, path);
+      sessionStorage.setItem(PENDING_KEY, urlOrPath);
     } catch {
       /* ignore */
     }
-    navigate(path);
-    // Cold start: router/auth may not be ready on the first tick
-    window.setTimeout(() => navigate(path), 400);
-    window.setTimeout(() => navigate(path), 1200);
+
+    try {
+      // Prefer full https URL when we have it
+      if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://")) {
+        const u = new URL(urlOrPath);
+        const path = `\( {u.pathname} \){u.search}`;
+        if (!isAllowedPath(u.pathname)) return;
+        // Only redirect if we are not already on that path
+        if (window.location.pathname + window.location.search !== path) {
+          window.location.replace(urlOrPath);
+        }
+        return;
+      }
+
+      // Path only: build live origin URL (matches capacitor server.url)
+      if (urlOrPath.startsWith("/") && isAllowedPath(urlOrPath.split("?")[0])) {
+        const origin =
+          window.location.origin && window.location.origin.startsWith("http")
+            ? window.location.origin
+            : "https://xuppin.vercel.app";
+        const target = `\( {origin} \){urlOrPath}`;
+        if (window.location.pathname + window.location.search !== urlOrPath) {
+          window.location.replace(target);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
   };
 
   try {
@@ -50,26 +93,24 @@ export async function initDeepLinks(
 
     const handle = (url: string) => {
       const path = pathFromUrl(url);
-      if (path) go(path);
+      if (!path) return;
+      // Keep full https URL when possible so WebView loads join page correctly
+      if (url.startsWith("https://") || url.startsWith("http://")) {
+        go(url);
+      } else {
+        go(path);
+      }
     };
 
     const sub = await App.addListener("appUrlOpen", (event) => {
       handle(event.url);
     });
 
-    // App opened by the link (cold start)
     try {
       const launch = await App.getLaunchUrl();
-      if (launch?.url) handle(launch.url);
-    } catch {
-      /* ignore */
-    }
-
-    // If we stored a path earlier this session, apply it once
-    try {
-      const pending = sessionStorage.getItem(PENDING_KEY);
-      if (pending && pending !== "/" && pending.startsWith("/")) {
-        window.setTimeout(() => navigate(pending), 600);
+      if (launch?.url) {
+        // Small delay so WebView/shell is ready (reduces black screen)
+        window.setTimeout(() => handle(launch.url), 300);
       }
     } catch {
       /* ignore */
