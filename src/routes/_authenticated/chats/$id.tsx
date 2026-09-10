@@ -4395,7 +4395,7 @@ function ChatRoom() {
         )}
 
         {messages.map((message) => {
-          const mine = user?.id && message.sender_id === user.id;
+          const mine = !!user && String(message.sender_id) === String(user.id);
 
           const sender =
             profileMap.get(
