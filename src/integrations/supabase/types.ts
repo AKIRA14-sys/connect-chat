@@ -767,6 +767,38 @@ export type Database = {
         }
         Relationships: []
       }
+      xup_poll_votes: {
+        Row: {
+          created_at: string
+          id: string
+          option_index: number
+          user_id: string
+          xup_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          option_index: number
+          user_id: string
+          xup_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          option_index?: number
+          user_id?: string
+          xup_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "xup_poll_votes_xup_id_fkey"
+            columns: ["xup_id"]
+            isOneToOne: false
+            referencedRelation: "xups"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       xup_reactions: {
         Row: {
           created_at: string
@@ -882,6 +914,7 @@ export type Database = {
           deleted_at: string | null
           expires_at: string
           id: string
+          interaction: Json | null
           kind: Database["public"]["Enums"]["xup_kind"]
           media_url: string | null
           reshared_from: string | null
@@ -897,6 +930,7 @@ export type Database = {
           deleted_at?: string | null
           expires_at?: string
           id?: string
+          interaction?: Json | null
           kind?: Database["public"]["Enums"]["xup_kind"]
           media_url?: string | null
           reshared_from?: string | null
@@ -912,6 +946,7 @@ export type Database = {
           deleted_at?: string | null
           expires_at?: string
           id?: string
+          interaction?: Json | null
           kind?: Database["public"]["Enums"]["xup_kind"]
           media_url?: string | null
           reshared_from?: string | null
