@@ -2502,7 +2502,7 @@ function XupsPage() {
                                 type="button"
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => setInteractionOptions([...interactionOptions, "")]}
+                                onClick={() => setInteractionOptions([...interactionOptions, ""])}
                                 disabled={interactionOptions.length >= 4}
                               >
                                 + Add Option
@@ -3473,6 +3473,7 @@ function XupsPage() {
           </div>
         </div>
       )}
+      </div>
     </AppShell>
   );
 }
