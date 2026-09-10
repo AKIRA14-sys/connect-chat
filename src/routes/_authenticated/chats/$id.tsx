@@ -5,6 +5,7 @@ import {
   useNavigate,
 } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { authenticateBiometric, isBiometricAvailable } from "@/lib/native/biometrics";
 import {
   AlertCircle,
   ArrowLeft,
@@ -13,6 +14,7 @@ import {
   CheckCheck,
   Clock,
   ImagePlus,
+  Lock,
   Mic,
   MoreVertical,
   Pencil,
@@ -29,6 +31,7 @@ import {
   Video as VideoIcon,
   X,
   Zap,
+  BarChart,
   Eye,
   EyeOff,
   Wand2,
@@ -36,6 +39,7 @@ import {
   Share2,
   Copy,
 } from "lucide-react";
+import { PollCreateModal, PollMessage } from "@/components/Polls";
 import { toast } from "sonner";
 import {
   loadCachedMessages,
@@ -140,8 +144,44 @@ type DeliveryReceipt = {
 };
 
 /* ============================================================
- * STICKERS
+ * HELPERS
  * ============================================================ */
+
+function getUserColor(userId: string) {
+  const colors = [
+    "text-violet-400",
+    "text-emerald-400",
+    "text-amber-400",
+    "text-rose-400",
+    "text-sky-400",
+    "text-orange-400",
+    "text-lime-400",
+    "text-pink-400",
+  ];
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+function renderMessageContent(text: string, onMentionClick: (username: string) => void) {
+  const parts = text.split(/(@\w+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith("@") && part.length > 1) {
+      return (
+        <button
+          key={i}
+          className="text-violet-400 font-semibold hover:underline"
+          onClick={() => onMentionClick(part.slice(1))}
+        >
+          {part}
+        </button>
+      );
+    }
+    return part;
+  });
+}
 
 function isSoloEmojiMessage(text: string): boolean {
   const value = text.trim();
@@ -721,6 +761,7 @@ function ChatRoom() {
 
   const [text, setText] = useState("");
   const [gamesOpen, setGamesOpen] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
@@ -743,11 +784,41 @@ function ChatRoom() {
   const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
   const [messageMenu, setMessageMenu] = useState<DeleteMenuState>(null);
   const [forwardFrom, setForwardFrom] = useState<Message | null>(null);
+  const [profileNoteDraft, setProfileNoteDraft] = useState("");
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [giftCoins, setGiftCoins] = useState(0);
+  const [stickerPack, setStickerPack] = useState<StickerPack>("All");
+  const [deleteMenu, setDeleteMenu] = useState<DeleteMenuState>(null);
+  const [messageMenu, setMessageMenu] = useState<DeleteMenuState>(null);
+  const [forwardFrom, setForwardFrom] = useState<Message | null>(null);
   const [forwardList, setForwardList] = useState<
     { id: string; title: string }[]
   >([]);
   const [forwardBusy, setForwardBusy] = useState(false);
-  /** Skip the delayed mouse click that follows a touch (feels like long-press). */
+
+  async function handleMentionClick(username: string) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("username", username)
+      .maybeSingle();
+
+    if (!profile) {
+      toast.error("User not found");
+      return;
+    }
+
+    setSelectedMemberId(profile.id);
+    // Open a DM with this user
+    const { data: convId } = await supabase.rpc("get_or_create_direct", {
+      _other: profile.id,
+    });
+
+    if (convId) {
+      void navigate({ to: "/chats/$id", params: { id: String(convId) } });
+    }
+  }
+
   const openedMenuByTouchRef = useRef(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [swipingMessageId, setSwipingMessageId] = useState<string | null>(
@@ -759,10 +830,12 @@ function ChatRoom() {
    * ========================================================== */
 
   const [plusOpen, setPlusOpen] = useState(false);
+  const [pollModalOpen, setPollModalOpen] = useState(false);
   const [effectsOpen, setEffectsOpen] = useState(false);
   const [selectedEffect, setSelectedEffect] =
     useState<ChatEffect>("none");
   const [secretMode, setSecretMode] = useState(false);
+  const [expiryDuration, setExpiryDuration] = useState<number | null>(null);
   const [revealedSecrets, setRevealedSecrets] = useState<Set<string>>(
     new Set(),
   );
@@ -1074,6 +1147,23 @@ function ChatRoom() {
       return data as Conversation;
     },
   });
+
+  useEffect(() => {
+    if (conv?.is_secret) {
+      setIsLocked(true);
+    } else {
+      setIsLocked(false);
+    }
+  }, [conv?.is_secret]);
+
+  async function handleUnlock() {
+    const success = await authenticateBiometric("Unlock Secret Chat");
+    if (success) {
+      setIsLocked(false);
+    } else {
+      toast.error("Authentication failed. Chat remains locked.");
+    }
+  }
 
   /* ==========================================================
    * MEMBERS
@@ -1846,6 +1936,21 @@ function ChatRoom() {
    * SEND MESSAGE
    * ========================================================== */
 
+  async function submitPoll(pollId: string) {
+    if (!user) return;
+
+    const preview = "📊 New Poll";
+    const content = `__XUP_POLL__:${pollId}`;
+
+    await sendMessage(
+      {
+        type: "text",
+        content: content,
+      },
+      preview,
+    );
+  }
+
   async function sendMessage(
     payload: Partial<Message>,
     preview: string,
@@ -1883,6 +1988,9 @@ function ChatRoom() {
         media_url: payload.media_url ?? null,
         media_duration: payload.media_duration ?? null,
         reply_to: optimisticReplyTo,
+        expires_at: expiryDuration
+          ? new Date(Date.now() + expiryDuration * 1000).toISOString()
+          : null,
       })
       .select("*")
       .single();
@@ -1991,6 +2099,7 @@ function ChatRoom() {
 
     setSelectedEffect("none");
     setSecretMode(false);
+    setExpiryDuration(null);
   }
 
   /* ==========================================================
@@ -2105,6 +2214,7 @@ function ChatRoom() {
 
       refreshOutbox();
     }
+    setExpiryDuration(null);
   }
 
   /* ==========================================================
@@ -3968,6 +4078,30 @@ function ChatRoom() {
           )}
       </header>
 
+      {isLocked && (
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-background/95 backdrop-blur-xl p-6 text-center safe-top safe-bottom">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-2xl" />
+            <div className="relative rounded-full bg-surface p-6 shadow-2xl ring-1 ring-border">
+              <Lock className="h-12 w-12 text-primary" />
+            </div>
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight">Secret Chat Locked</h2>
+          <p className="mt-2 max-w-xs text-muted-foreground">
+            This is a high-privacy conversation. Biometric authentication is required to view messages.
+          </p>
+          <Button
+            onClick={handleUnlock}
+            className="mt-8 rounded-full px-8 py-6 text-lg font-semibold transition-all hover:scale-105 active:scale-95"
+          >
+            <div className="flex items-center gap-2">
+              <Lock className="h-5 w-5" />
+              Unlock Chat
+            </div>
+          </Button>
+        </div>
+      )}
+
       {/* ======================================================
        * CUSTOMIZE NAME MODAL
        * ====================================================== */}
@@ -4125,6 +4259,21 @@ function ChatRoom() {
                 className="h-full w-full object-cover object-center"
               />
             )}
+
+            {conv?.is_secret && (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-[0.03] select-none">
+                <div className="grid grid-cols-3 gap-20 rotate-12 text-center text-xs font-bold uppercase tracking-widest">
+                  {Array.from({ length: 20 }).map((_, i) => (
+                    <div key={i} className="flex flex-col gap-10">
+                      <span className="block">{user?.id}</span>
+                      <span className="block">{new Date().toISOString()}</span>
+                      <span className="block">{user?.id}</span>
+                      <span className="block">{new Date().toISOString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -4145,6 +4294,13 @@ function ChatRoom() {
                 ? "Loading…"
                 : "Load older messages"}
             </Button>
+          </div>
+        )}
+
+        {conv?.is_secret && (
+          <div className="mx-auto mb-4 flex w-fit items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-[10px] font-medium text-primary ring-1 ring-primary/20">
+            <Lock className="h-3 w-3" />
+            Privacy Mode Active
           </div>
         )}
 
@@ -4258,10 +4414,10 @@ function ChatRoom() {
             <div
               id={`message-${message.id}`}
               key={message.id}
-              className={`group flex ${
+              className={`group flex w-full gap-2 ${
                 mine
-                  ? "justify-end"
-                  : "justify-start"
+                  ? "flex-row-reverse justify-end"
+                  : "flex-row justify-start"
               }`}
               onTouchStart={(event) =>
                 handleTouchStart(event, message)
@@ -4280,12 +4436,31 @@ function ChatRoom() {
               }
               style={{ WebkitTouchCallout: "none", userSelect: "none" }}
             >
+              <div className="shrink-0">
+                <UserAvatar
+                  path={sender?.avatar_url ?? null}
+                  name={sender?.display_name || sender?.username || "User"}
+                  size="sm"
+                  userId={message.sender_id}
+                />
+              </div>
               <div
                 className={`relative max-w-[82%] transition-transform ${
                   swiping
                     ? "translate-x-3"
                     : ""
                 }`}
+                onCopy={(e) => {
+                  if (conv?.is_secret) {
+                    e.preventDefault();
+                    toast.error("Copying is disabled in secret chats");
+                  }
+                }}
+                onContextMenu={(e) => {
+                  if (conv?.is_secret) {
+                    e.preventDefault();
+                  }
+                }}
               >
                 {swiping && (
                   <div className="absolute -left-10 top-1/2 -translate-y-1/2 text-primary">
@@ -4336,21 +4511,7 @@ function ChatRoom() {
                     "group" &&
                     !mine && (
                       <div className="mb-1 flex items-center gap-1.5">
-                        <UserAvatar
-                          path={
-                            sender?.avatar_url ??
-                            null
-                          }
-                          name={
-                            sender?.display_name ||
-                            sender?.username ||
-                            "User"
-                          }
-                          size="sm"
-                          className="!h-6 !w-6 shrink-0 text-[9px]"
-                          userId={message.sender_id}
-                        />
-                        <p className="truncate text-[11px] font-semibold text-primary">
+                        <p className={`truncate text-[11px] font-semibold ${getUserColor(message.sender_id)}`}>
                           {sender?.display_name ||
                             sender?.username ||
                             "Unknown"}
@@ -4405,28 +4566,38 @@ function ChatRoom() {
                     </div>
                   ) : message.type ===
                     "text" ? (
-                    <div className="relative">
-                      {decoded.secret &&
-                      !secretRevealed ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleSecret(
-                              message.id,
-                            )
-                          }
-                          className="flex min-h-16 w-full min-w-[150px] items-center justify-center rounded-xl border border-white/20 bg-black/10 px-4 py-3 transition hover:bg-black/20 active:scale-[.98]"
-                        >
-                          <span className="flex items-center gap-2 font-medium">
-                            <Eye className="h-4 w-4" />
-                            Tap to reveal
-                          </span>
-                        </button>
+                      message.content?.startsWith("__XUP_POLL__:") ? (
+                        <PollMessage
+                          pollId={message.content.slice("__XUP_POLL__:".length)}
+                          userId={user?.id ?? ""}
+                        />
                       ) : (
-                        <p className="whitespace-pre-wrap break-words">
-                          {decoded.text}
-                        </p>
-                      )}
+                        <div className="relative">
+                          {decoded.secret &&
+                          !secretRevealed ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                toggleSecret(
+                                  message.id,
+                                )
+                              }
+                              className="flex min-h-16 w-full min-w-[150px] items-center justify-center rounded-xl border border-white/20 bg-black/10 px-4 py-3 transition hover:bg-black/20 active:scale-[.98]"
+                            >
+                              <span className="flex items-center gap-2 font-medium">
+                                <Eye className="h-4 w-4" />
+                                Tap to reveal
+                              </span>
+                            </button>
+                          ) : (
+                            <p className="whitespace-pre-wrap break-words">
+                              {renderMessageContent(
+                                decoded.text,
+                                handleMentionClick,
+                              )}
+                            </p>
+                          )}
+
 
                       {decoded.secret &&
                         secretRevealed && (
@@ -5432,6 +5603,23 @@ function ChatRoom() {
                       Effects
                     </span>
                   </button>
+                  {/* POLL */}
+                  <button
+                    type="button"
+                    disabled={conv?.type !== "group"}
+                    onClick={() => {
+                      setPlusOpen(false);
+                      setPollModalOpen(true);
+                    }}
+                    className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <BarChart className="h-5 w-5" />
+                    </span>
+                    <span className="text-[11px] font-medium">
+                      Poll
+                    </span>
+                  </button>
 
                   {/* SECRET */}
                   <button
@@ -5462,6 +5650,37 @@ function ChatRoom() {
 
                     <span className="text-[11px] font-medium">
                       Secret
+                    </span>
+                  </button>
+
+                  {/* TIMER */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const durations = [5, 60, 3600, 86400];
+                      const currentIdx = durations.indexOf(expiryDuration ?? -1);
+                      const nextIdx = (currentIdx + 1) % durations.length;
+                      setExpiryDuration(durations[nextIdx]);
+                    }}
+                    className={`flex flex-col items-center gap-1 rounded-2xl p-3 text-center transition active:scale-95 ${
+                      expiryDuration
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/60 hover:bg-muted"
+                    }`}
+                  >
+                    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-black/10">
+                      <Clock className="h-5 w-5" />
+                    </span>
+                    <span className="text-[11px] font-medium">
+                      {expiryDuration
+                        ? expiryDuration === 5
+                          ? "5s"
+                          : expiryDuration === 60
+                          ? "1m"
+                          : expiryDuration === 3600
+                          ? "1h"
+                          : "24h"
+                        : "Timer"}
                     </span>
                   </button>
 
@@ -6056,6 +6275,14 @@ function ChatRoom() {
           </div>
         </div>
       )}
+
+      <PollCreateModal
+        isOpen={pollModalOpen}
+        onClose={() => setPollModalOpen(false)}
+        conversationId={id}
+        userId={user?.id ?? ""}
+        onCreated={submitPoll}
+      />
 
       <GiftSendSheet
         open={giftSheetOpen}
