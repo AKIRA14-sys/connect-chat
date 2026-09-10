@@ -2081,9 +2081,6 @@ function ChatRoom() {
         media_url: payload.media_url ?? null,
         media_duration: payload.media_duration ?? null,
         reply_to: optimisticReplyTo,
-        expires_at: expiryDuration
-          ? new Date(Date.now() + expiryDuration * 1000).toISOString()
-          : null,
       })
       .select("*")
       .single();
@@ -4398,9 +4395,7 @@ function ChatRoom() {
         )}
 
         {messages.map((message) => {
-          const mine =
-            message.sender_id ===
-            user?.id;
+          const mine = user?.id && message.sender_id === user.id;
 
           const sender =
             profileMap.get(
