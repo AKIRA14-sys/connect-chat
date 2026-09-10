@@ -55,6 +55,7 @@ function GroupPage() {
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(
     null,
   );
+  const [activeTab, setActiveTab] = useState<"identity" | "members" | "admin">("identity");
   const [dmBusy, setDmBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -385,248 +386,325 @@ function GroupPage() {
         </div>
       </header>
 
+      <nav className="flex justify-around border-b border-border/60 bg-background/50 px-4 py-3 backdrop-blur">
+        {(["identity", "members", "admin"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`relative px-2 pb-2 text-sm font-semibold capitalize transition-colors ${
+              activeTab === tab
+                ? "text-primary"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {tab}
+            {activeTab === tab && (
+              <div className="absolute bottom-0 left-1/2 h-0.5 w-5 -translate-x-1/2 rounded-full bg-primary" />
+            )}
+          </button>
+        ))}
+      </nav>
+
       <div className="space-y-6 p-4 pb-28">
-        {/* Photo */}
-        <div className="flex flex-col items-center gap-3">
-          <div className="relative">
-            <UserAvatar
-              path={conv.avatar_url ?? null}
-              name={conv.name ?? "Group"}
-              bucket="chat-media"
-              size="xl"
-            />
-            {canEditInfo ? (
-              <button
-                type="button"
-                className="absolute bottom-0 right-0 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow"
-                disabled={photoBusy}
-                onClick={() => fileRef.current?.click()}
-                aria-label="Change group photo"
-              >
-                <Camera className="h-5 w-5" />
-              </button>
-            ) : null}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) =>
-                void onPickPhoto(e.target.files?.[0] ?? null)
-              }
-            />
-          </div>
-          <p className="text-center text-lg font-semibold">
-            {conv.name?.trim() || "Group"}
-          </p>
-          <p className="text-center text-xs text-muted-foreground">
-            {members.length} members
-            {!canEditInfo
-              ? " · only admins can edit name & photo"
-              : photoBusy
-                ? " · uploading…"
-                : " · tap camera to change photo"}
-          </p>
-        </div>
-
-        {/* Name / description — disabled for non-admins when locked */}
-        <div className="space-y-2">
-          <Label htmlFor="name">Group name</Label>
-          <Input
-            id="name"
-            defaultValue={conv.name ?? ""}
-            disabled={!canEditInfo}
-            maxLength={60}
-            onBlur={(e) => {
-              if (!canEditInfo) return;
-              const v = e.target.value.trim();
-              if (v && v !== (conv.name ?? "")) void updateConv({ name: v });
-            }}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="desc">Description</Label>
-          <Textarea
-            id="desc"
-            defaultValue={conv.description ?? ""}
-            disabled={!canEditInfo}
-            maxLength={200}
-            onBlur={(e) => {
-              if (!canEditInfo) return;
-              const v = e.target.value.trim() || null;
-              if (v !== (conv.description ?? null))
-                void updateConv({ description: v });
-            }}
-          />
-        </div>
-
-        {/* Admin locks */}
-        <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Only admins can add members</p>
-              <p className="text-xs text-muted-foreground">
-                Restrict who can invite people by username.
+        {activeTab === "identity" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {/* Photo */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                <div className="p-1 rounded-full bg-gradient-to-tr from-violet-500 to-fuchsia-500">
+                  <UserAvatar
+                    path={conv.avatar_url ?? null}
+                    name={conv.name ?? "Group"}
+                    bucket="chat-media"
+                    size="xl"
+                  />
+                </div>
+                {canEditInfo ? (
+                  <button
+                    type="button"
+                    className="absolute bottom-0 right-0 flex h-10 w-10 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow"
+                    disabled={photoBusy}
+                    onClick={() => fileRef.current?.click()}
+                    aria-label="Change group photo"
+                  >
+                    <Camera className="h-5 w-5" />
+                  </button>
+                ) : null}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) =>
+                    void onPickPhoto(e.target.files?.[0] ?? null)
+                  }
+                />
+              </div>
+              <p className="text-center text-xl font-bold tracking-tight">
+                {conv.name?.trim() || "Group"}
+              </p>
+              <p className="text-center text-xs text-muted-foreground">
+                {members.length} members
+                {!canEditInfo
+                  ? " · only admins can edit name & photo"
+                  : photoBusy
+                    ? " · uploading…"
+                    : " · tap camera to change photo"}
               </p>
             </div>
-            <Switch
-              checked={!!conv.only_admins_add_members}
-              disabled={!isAdmin}
-              onCheckedChange={(v) =>
-                void updateConv({ only_admins_add_members: v })
-              }
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium">Only admins can edit info</p>
-              <p className="text-xs text-muted-foreground">
-                Lock name, photo and description to admins.
-              </p>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-2xl border border-border bg-card p-3 text-center">
+                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Members</p>
+                <p className="text-lg font-bold">{members.length}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-3 text-center">
+                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Activity</p>
+                <p className="text-lg font-bold text-emerald-400">High</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-3 text-center">
+                <p className="text-[10px] uppercase font-bold text-muted-foreground mb-1">Age</p>
+                <p className="text-lg font-bold">2y</p>
+              </div>
             </div>
-            <Switch
-              checked={!!conv.only_admins_edit_info}
-              disabled={!isAdmin}
-              onCheckedChange={(v) =>
-                void updateConv({ only_admins_edit_info: v })
-              }
-            />
-          </div>
-        </div>
 
-        <GroupAdminPanel
-          conversationId={id}
-          groupName={conv.name}
-          inviteSlug={conv.invite_slug ?? null}
-          inviteEnabled={!!conv.invite_enabled}
-          joinApprovalRequired={!!conv.join_approval_required}
-          slowModeSeconds={conv.slow_mode_seconds ?? 0}
-          disappearSeconds={conv.disappear_seconds ?? 0}
-          announceOnly={!!conv.announce_only}
-          isAdmin={isAdmin}
-          onChanged={refresh}
-        />
+            <Button
+              className="w-full py-6 rounded-2xl font-bold text-base shadow-lg transition-all active:scale-[0.98]"
+              onClick={() => void navigate({ to: "/chats/$id", params: { id } })}
+            >
+              <MessageCircle className="mr-2 h-5 w-5" />
+              Enter Group Chat
+            </Button>
 
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name" className="text-xs font-bold uppercase text-muted-foreground px-1">Group name</Label>
+                <div className="relative">
+                  <Input
+                    id="name"
+                    defaultValue={conv.name ?? ""}
+                    disabled={!canEditInfo}
+                    maxLength={60}
+                    className="rounded-xl py-6 pl-3"
+                    onBlur={(e) => {
+                      if (!canEditInfo) return;
+                      const v = e.target.value.trim();
+                      if (v && v !== (conv.name ?? "")) void updateConv({ name: v });
+                    }}
+                  />
+                </div>
+              </div>
 
-
-        {/* Add by username — not only contacts */}
-        {canAddMembers ? (
-          <div className="space-y-2 rounded-2xl border border-border bg-card p-4">
-            <Label className="flex items-center gap-2">
-              <UserPlus className="h-4 w-4" />
-              Add people by username
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              They do not need to be in your contacts. Search their @username.
-            </p>
-            <div className="flex gap-2">
-              <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  className="pl-9"
-                  placeholder="@username"
-                  value={searchTerm}
-                  maxLength={30}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void runSearch();
+              <div className="space-y-2">
+                <Label htmlFor="desc" className="text-xs font-bold uppercase text-muted-foreground px-1">Description</Label>
+                <Textarea
+                  id="desc"
+                  defaultValue={conv.description ?? ""}
+                  disabled={!canEditInfo}
+                  maxLength={200}
+                  className="rounded-xl py-3"
+                  onBlur={(e) => {
+                    if (!canEditInfo) return;
+                    const v = e.target.value.trim() || null;
+                    if (v !== (conv.description ?? null))
+                      void updateConv({ description: v });
                   }}
                 />
               </div>
-              <Button
-                type="button"
-                disabled={searching}
-                onClick={() => void runSearch()}
-              >
-                {searching ? "…" : "Search"}
-              </Button>
             </div>
-            {searchResults.length > 0 ? (
-              <ul className="mt-2 space-y-2">
-                {searchResults.map((p) => {
-                  const already = memberIdSet.has(p.id);
-                  const label =
-                    p.display_name?.trim() ||
-                    (p.username ? `@${p.username}` : "User");
+          </div>
+        )}
+
+        {activeTab === "admin" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
+              <h3 className="flex items-center gap-2 text-sm font-bold">
+                <ShieldPlus className="h-4 w-4 text-primary" />
+                Permission Locks
+              </h3>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Only admins can add members</p>
+                    <p className="text-xs text-muted-foreground">
+                      Restrict who can invite people by username.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!conv.only_admins_add_members}
+                    disabled={!isAdmin}
+                    onCheckedChange={(v) =>
+                      void updateConv({ only_admins_add_members: v })
+                    }
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Only admins can edit info</p>
+                    <p className="text-xs text-muted-foreground">
+                      Lock name, photo and description to admins.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!conv.only_admins_edit_info}
+                    disabled={!isAdmin}
+                    onCheckedChange={(v) =>
+                      void updateConv({ only_admins_edit_info: v })
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <GroupAdminPanel
+              conversationId={id}
+              groupName={conv.name}
+              inviteSlug={conv.invite_slug ?? null}
+              inviteEnabled={!!conv.invite_enabled}
+              joinApprovalRequired={!!conv.join_approval_required}
+              slowModeSeconds={conv.slow_mode_seconds ?? 0}
+              disappearSeconds={conv.disappear_seconds ?? 0}
+              announceOnly={!!conv.announce_only}
+              isAdmin={isAdmin}
+              onChanged={refresh}
+            />
+          </div>
+        )}
+
+
+
+        {activeTab === "members" && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            {canAddMembers ? (
+              <div className="space-y-2 rounded-2xl border border-border bg-card p-4">
+                <Label className="flex items-center gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  Add people by username
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  They do not need to be in your contacts. Search their @username.
+                </p>
+                <div className="flex gap-2">
+                  <div className="relative min-w-0 flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      className="pl-9"
+                      placeholder="@username"
+                      value={searchTerm}
+                      maxLength={30}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void runSearch();
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    disabled={searching}
+                    onClick={() => void runSearch()}
+                  >
+                    {searching ? "…" : "Search"}
+                  </Button>
+                </div>
+                {searchResults.length > 0 ? (
+                  <ul className="mt-2 space-y-2">
+                    {searchResults.map((p) => {
+                      const already = memberIdSet.has(p.id);
+                      const label =
+                        p.display_name?.trim() ||
+                        (p.username ? `@${p.username}` : "User");
+                      return (
+                        <li
+                          key={p.id}
+                          className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/50 p-2"
+                        >
+                          <UserAvatar
+                            path={p.avatar_url}
+                            name={label}
+                            size="sm"
+                            userId={p.id}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{label}</p>
+                            <p className="truncate text-xs text-muted-foreground">
+                              {p.username ? `@${p.username}` : ""}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={already || addingId === p.id}
+                            onClick={() => void addMember(p)}
+                          >
+                            {already
+                              ? "In group"
+                              : addingId === p.id
+                                ? "…"
+                                : "Add"}
+                          </Button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-center text-xs text-muted-foreground">
+                Only admins can add members in this group.
+              </p>
+            )}
+
+            <div className="space-y-2">
+              <Label>Members</Label>
+              <ul className="space-y-2">
+                {members.map((m) => {
+                  const name =
+                    m.profile?.display_name?.trim() ||
+                    (m.profile?.username ? `@${m.profile.username}` : "Member");
+                  const username = m.profile?.username
+                    ? `@${m.profile.username}`
+                    : "No username";
+
+                  const roleColors = {
+                    owner: "bg-red-500/20 text-red-500 border-red-500/30",
+                    admin: "bg-violet-500/20 text-violet-500 border-violet-500/30",
+                    member: "bg-slate-500/20 text-slate-500 border-slate-500/30",
+                  };
+                  const roleColor = roleColors[m.role as keyof typeof roleColors] || roleColors.member;
+
                   return (
-                    <li
-                      key={p.id}
-                      className="flex items-center gap-3 rounded-xl border border-border/60 bg-background/50 p-2"
-                    >
-                      <UserAvatar
-                        path={p.avatar_url}
-                        name={label}
-                        size="sm"
-                        userId={p.id}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{label}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {p.username ? `@${p.username}` : ""}
-                        </p>
-                      </div>
-                      <Button
-                        size="sm"
-                        disabled={already || addingId === p.id}
-                        onClick={() => void addMember(p)}
+                    <li key={m.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left transition hover:bg-muted/40"
+                        onClick={() => setSelectedMemberId(m.user_id)}
                       >
-                        {already
-                          ? "In group"
-                          : addingId === p.id
-                            ? "…"
-                            : "Add"}
-                      </Button>
+                        <UserAvatar
+                          path={m.profile?.avatar_url ?? null}
+                          name={name}
+                          size="sm"
+                          userId={m.user_id}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="truncate text-sm font-semibold">{name}</p>
+                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-full border ${roleColor}`}>
+                              {m.role}
+                            </span>
+                          </div>
+                          <p className="truncate text-xs capitalize text-muted-foreground">
+                            {username}
+                            {m.user_id === conv.created_by ? " · creator" : ""}
+                            {m.user_id === user?.id ? " · you" : ""}
+                          </p>
+                        </div>
+                      </button>
                     </li>
                   );
                 })}
               </ul>
-            ) : null}
+            </div>
           </div>
-        ) : (
-          <p className="text-center text-xs text-muted-foreground">
-            Only admins can add members in this group.
-          </p>
         )}
-
-        {/* Members */}
-        <div className="space-y-2">
-          <Label>Members · tap someone for options</Label>
-          <ul className="space-y-2">
-            {members.map((m) => {
-              const name =
-                m.profile?.display_name?.trim() ||
-                (m.profile?.username ? `@${m.profile.username}` : "Member");
-              const username = m.profile?.username
-                ? `@${m.profile.username}`
-                : "No username";
-              return (
-                <li key={m.id}>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-3 text-left transition hover:bg-muted/40"
-                    onClick={() => setSelectedMemberId(m.user_id)}
-                  >
-                    <UserAvatar
-                      path={m.profile?.avatar_url ?? null}
-                      name={name}
-                      size="sm"
-                      userId={m.user_id}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{name}</p>
-                      <p className="truncate text-xs capitalize text-muted-foreground">
-                        {username} · {m.role}
-                        {m.user_id === conv.created_by ? " · creator" : ""}
-                        {m.user_id === user?.id ? " · you" : ""}
-                      </p>
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
 
         <div className="space-y-2">
           <Button

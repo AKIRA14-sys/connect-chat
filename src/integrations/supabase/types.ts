@@ -206,6 +206,7 @@ export type Database = {
           description: string | null
           disappear_seconds: number
           id: string
+          is_secret: boolean
           invite_enabled: boolean
           invite_slug: string | null
           is_suspended: boolean
@@ -226,6 +227,7 @@ export type Database = {
           description?: string | null
           disappear_seconds?: number
           id?: string
+          is_secret?: boolean
           invite_enabled?: boolean
           invite_slug?: string | null
           is_suspended?: boolean
@@ -246,6 +248,7 @@ export type Database = {
           description?: string | null
           disappear_seconds?: number
           id?: string
+          is_secret?: boolean
           invite_enabled?: boolean
           invite_slug?: string | null
           is_suspended?: boolean
@@ -490,6 +493,7 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           edited_at: string | null
+          expires_at: string | null
           id: string
           media_duration: number | null
           media_url: string | null
