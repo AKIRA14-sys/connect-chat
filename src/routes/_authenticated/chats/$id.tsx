@@ -31,7 +31,7 @@ import {
   Video as VideoIcon,
   X,
   Zap,
-  BarChart,
+  BarChart3,
   Eye,
   EyeOff,
   Wand2,
@@ -5614,7 +5614,7 @@ function ChatRoom() {
                     className="flex flex-col items-center gap-1 rounded-2xl bg-muted/60 p-3 text-center transition hover:bg-muted active:scale-95 disabled:opacity-40"
                   >
                     <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <BarChart className="h-5 w-5" />
+                      <BarChart3 className="h-5 w-5" />
                     </span>
                     <span className="text-[11px] font-medium">
                       Poll
