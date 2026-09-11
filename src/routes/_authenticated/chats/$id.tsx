@@ -101,6 +101,7 @@ import {
   GiftSendSheet,
 } from "@/components/gifts/GiftSendSheet";
 import { decodeGiftMessage, encodeGiftMessage } from "@/lib/giftMessage";
+import { MediaViewer } from "@/components/MediaViewer";
 import { getGamingWallet, getPublicGamingProfile } from "@/lib/gaming.functions";
 
 import {
@@ -612,6 +613,11 @@ function MessageContent({
           type={message.type as "image" | "video" | "audio"}
           durationSec={message.media_duration}
           mine={mine}
+          onOpen={(url, mediaType) => {
+            setViewerItems([{ url, type: mediaType }]);
+            setViewerIndex(0);
+            setViewerOpen(true);
+          }}
         />
       )}
 
@@ -794,11 +800,13 @@ function MediaBubble({
   type,
   durationSec,
   mine,
+  onOpen,
 }: {
   path: string;
   type: "image" | "video" | "audio";
   durationSec?: number | null;
   mine?: boolean;
+  onOpen?: (url: string, type: "image" | "video") => void;
 }) {
   const { data: url } = useQuery({
     queryKey: ["signed", "chat-media", path],
@@ -814,25 +822,41 @@ function MediaBubble({
 
   if (type === "image") {
     return (
-      <img
-        src={url}
-        alt="Shared"
-        loading="lazy"
-        decoding="async"
-        className="max-h-72 rounded-xl object-cover"
-      />
+      <button
+        type="button"
+        className="block max-w-full overflow-hidden rounded-xl p-0 text-left"
+        onClick={() => onOpen?.(url, "image")}
+      >
+        <img
+          src={url}
+          alt="Shared"
+          loading="lazy"
+          decoding="async"
+          className="max-h-72 rounded-xl object-cover"
+        />
+      </button>
     );
   }
 
   if (type === "video") {
     return (
-      <video
-        src={url}
-        controls
-        playsInline
-        preload="metadata"
-        className="max-h-72 rounded-xl"
-      />
+      <button
+        type="button"
+        className="relative block max-w-full overflow-hidden rounded-xl p-0 text-left"
+        onClick={() => onOpen?.(url, "video")}
+      >
+        <video
+          src={url}
+          playsInline
+          preload="metadata"
+          className="pointer-events-none max-h-72 rounded-xl"
+        />
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="rounded-full bg-black/50 px-3 py-1 text-xs text-white">
+            Play
+          </span>
+        </span>
+      </button>
     );
   }
 
@@ -999,7 +1023,13 @@ function ChatRoom() {
   const chunks = useRef<Blob[]>([]);
   const cancelRecordingRef = useRef(false);
   const bottom = useRef<HTMLDivElement | null>(null);
-  const fileInput = useRef<HTMLInputElement | null>(null);
+    const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerItems, setViewerItems] = useState<
+    { url: string; type: "image" | "video" }[]
+  >([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
+const fileInput = useRef<HTMLInputElement | null>(null);
   const cameraInput = useRef<HTMLInputElement | null>(null);
 
   const cameraVideo = useRef<HTMLVideoElement | null>(null);
@@ -2314,52 +2344,60 @@ function ChatRoom() {
   async function onFile(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const file = event.target.files?.[0];
-
+    const list = event.target.files;
     event.target.value = "";
+    if (!list || list.length === 0) return;
 
-    if (!file) return;
+    const files = Array.from(list);
+    let ok = 0;
+    let fail = 0;
 
-    if (
-      !file.type.startsWith("image/") &&
-      !file.type.startsWith("video/")
-    ) {
-      toast.error(
-        "Only images and videos are supported.",
-      );
+    for (const file of files) {
+      if (
+        !file.type.startsWith("image/") &&
+        !file.type.startsWith("video/")
+      ) {
+        fail += 1;
+        continue;
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        fail += 1;
+        continue;
+      }
 
-      return;
+      const kind = file.type.startsWith("video")
+        ? "video"
+        : "image";
+
+      try {
+        const path = await uploadChatMedia(
+          id,
+          file,
+          kind === "video" ? "mp4" : "jpg",
+        );
+
+        await sendMessage(
+          {
+            type: kind,
+            media_url: path,
+          },
+          kind === "video"
+            ? "🎬 Video"
+            : "📷 Photo",
+        );
+        ok += 1;
+      } catch (error) {
+        fail += 1;
+        console.error(error);
+      }
     }
 
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("Files must be under 50 MB.");
-      return;
-    }
-
-    const kind = file.type.startsWith("video")
-      ? "video"
-      : "image";
-
-    try {
-      const path = await uploadChatMedia(
-        id,
-        file,
-        kind === "video" ? "mp4" : "jpg",
-      );
-
-      await sendMessage(
-        {
-          type: kind,
-          media_url: path,
-        },
-        kind === "video"
-          ? "🎬 Video"
-          : "📷 Photo",
-      );
-    } catch (error) {
-      toast.error(
-        (error as Error).message,
-      );
+    if (ok > 0 && fail === 0) {
+      toast.success(ok === 1 ? "Sent" : `Sent ${ok} files`);
+    } else if (ok > 0) {
+      toast.success(`Sent ${ok}, ${fail} failed`);
+    } else {
+      toast.error("Could not send files");
     }
   }
 
@@ -5388,6 +5426,7 @@ function ChatRoom() {
             ref={fileInput}
             type="file"
             accept="image/*,video/*"
+            multiple
             hidden
             onChange={(event) =>
               void onFile(event)
@@ -6308,6 +6347,14 @@ function ChatRoom() {
         onChanged={() =>
           setCustomizationVersion((value) => value + 1)
         }
+      />
+
+      <MediaViewer
+        open={viewerOpen}
+        items={viewerItems}
+        index={viewerIndex}
+        onClose={() => setViewerOpen(false)}
+        onIndexChange={setViewerIndex}
       />
     </div>
   );
