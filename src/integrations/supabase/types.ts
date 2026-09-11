@@ -1090,6 +1090,30 @@ export type Database = {
       is_master_admin: { Args: { _user_id: string }; Returns: boolean }
       is_member: { Args: { _conv: string; _user: string }; Returns: boolean }
       master_admin_exists: { Args: never; Returns: boolean }
+      prune_push_target: {
+        Args: { _endpoint?: string; _fcm_token?: string }
+        Returns: undefined
+      }
+      push_targets_for_conversation: {
+        Args: { _conv: string; _pref: string }
+        Returns: {
+          auth_key: string
+          endpoint: string
+          fcm_token: string
+          p256dh: string
+          user_id: string
+        }[]
+      }
+      push_targets_for_user: {
+        Args: { _pref: string; _target: string }
+        Returns: {
+          auth_key: string
+          endpoint: string
+          fcm_token: string
+          p256dh: string
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       account_status: "active" | "suspended" | "banned"
