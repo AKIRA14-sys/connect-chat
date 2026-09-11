@@ -533,6 +533,7 @@ function MessageContent({
   toggleSecret,
   handleMentionClick,
   mine,
+  onOpenMedia,
 }: {
   message: Message;
   user: Profile | null;
@@ -541,6 +542,7 @@ function MessageContent({
   toggleSecret: (id: string) => void;
   handleMentionClick: (username: string) => void;
   mine: boolean;
+  onOpenMedia?: (url: string, type: "image" | "video") => void;
 }) {
   if (message.type === "sticker") {
     const sticker = getSticker(message.content);
@@ -613,11 +615,7 @@ function MessageContent({
           type={message.type as "image" | "video" | "audio"}
           durationSec={message.media_duration}
           mine={mine}
-          onOpen={(url, mediaType) => {
-            setViewerItems([{ url, type: mediaType }]);
-            setViewerIndex(0);
-            setViewerOpen(true);
-          }}
+          onOpen={onOpenMedia}
         />
       )}
 
@@ -2344,11 +2342,11 @@ const fileInput = useRef<HTMLInputElement | null>(null);
   async function onFile(
     event: React.ChangeEvent<HTMLInputElement>,
   ) {
-    const list = event.target.files;
+    // Copy files FIRST — clearing the input empties FileList on many phones
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!list || list.length === 0) return;
+    if (files.length === 0) return;
 
-    const files = Array.from(list);
     let ok = 0;
     let fail = 0;
 
@@ -4690,6 +4688,11 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                       toggleSecret={toggleSecret}
                       handleMentionClick={handleMentionClick}
                       mine={mine}
+                      onOpenMedia={(url, mediaType) => {
+                        setViewerItems([{ url, type: mediaType }]);
+                        setViewerIndex(0);
+                        setViewerOpen(true);
+                      }}
                     />
                   )}
                   <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
