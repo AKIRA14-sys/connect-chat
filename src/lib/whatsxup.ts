@@ -95,6 +95,14 @@ export async function uploadAvatar(userId: string, file: File) {
     upsert: false,
   });
   if (error) throw error;
+
+  // Save path on profile so Settings / chats actually show the new photo
+  const { error: profileError } = await supabase
+    .from("profiles")
+    .update({ avatar_url: path })
+    .eq("id", userId);
+  if (profileError) throw profileError;
+
   return path;
 }
 
