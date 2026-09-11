@@ -44,6 +44,42 @@ export type Database = {
         }
         Relationships: []
       }
+      announcements: {
+        Row: {
+          body: string
+          created_at: string
+          created_by: string
+          expires_at: string | null
+          id: string
+          publish_at: string
+          published: boolean
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          body: string
+          created_at?: string
+          created_by: string
+          expires_at?: string | null
+          id?: string
+          publish_at?: string
+          published?: boolean
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          body?: string
+          created_at?: string
+          created_by?: string
+          expires_at?: string | null
+          id?: string
+          publish_at?: string
+          published?: boolean
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       blocks: {
         Row: {
           blocked_id: string
@@ -279,6 +315,42 @@ export type Database = {
           created_at?: string
           id?: string
           token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      feedback: {
+        Row: {
+          admin_note: string | null
+          created_at: string
+          id: string
+          kind: string
+          message: string
+          status: string
+          subject: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          admin_note?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          message: string
+          status?: string
+          subject: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          admin_note?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          message?: string
+          status?: string
+          subject?: string
           updated_at?: string
           user_id?: string
         }
@@ -546,6 +618,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      platform_settings: {
+        Row: {
+          key: string
+          updated_at: string
+          updated_by: string | null
+          value: Json
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          updated_by?: string | null
+          value?: Json
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -979,6 +1072,7 @@ export type Database = {
         Args: { _viewer: string; _xup_id: string }
         Returns: boolean
       }
+      claim_master_admin: { Args: never; Returns: Json }
       get_or_create_direct: { Args: { _other: string }; Returns: string }
       has_role: {
         Args: {
@@ -993,7 +1087,9 @@ export type Database = {
         Args: { _conv: string; _user: string }
         Returns: boolean
       }
+      is_master_admin: { Args: { _user_id: string }; Returns: boolean }
       is_member: { Args: { _conv: string; _user: string }; Returns: boolean }
+      master_admin_exists: { Args: never; Returns: boolean }
     }
     Enums: {
       account_status: "active" | "suspended" | "banned"
