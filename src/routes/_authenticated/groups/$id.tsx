@@ -636,20 +636,39 @@ function GroupPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="desc" className="text-xs font-bold uppercase text-muted-foreground px-1">Description</Label>
-                <Textarea
-                  id="desc"
-                  defaultValue={conv.description ?? ""}
-                  disabled={!canEditInfo}
-                  maxLength={200}
-                  className="rounded-xl py-3"
-                  onBlur={(e) => {
-                    if (!canEditInfo) return;
-                    const v = e.target.value.trim() || null;
-                    if (v !== (conv.description ?? null))
-                      void updateConv({ description: v });
-                  }}
-                />
+                <Label
+                  htmlFor="desc"
+                  className="px-1 text-xs font-bold uppercase text-muted-foreground"
+                >
+                  Description
+                </Label>
+                {canEditInfo ? (
+                  <Textarea
+                    id="desc"
+                    defaultValue={conv.description ?? ""}
+                    maxLength={500}
+                    rows={5}
+                    className="min-h-[120px] rounded-xl py-3 text-sm leading-relaxed"
+                    placeholder="What is this group about?"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim() || null;
+                      if (v !== (conv.description ?? null))
+                        void updateConv({ description: v });
+                    }}
+                  />
+                ) : (
+                  <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3">
+                    {conv.description?.trim() ? (
+                      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+                        {conv.description}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        No description yet.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
