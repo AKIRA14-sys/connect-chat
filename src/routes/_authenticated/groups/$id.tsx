@@ -4,14 +4,19 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Camera,
+  Copy,
+  Image as ImageIcon,
   LogOut,
   MessageCircle,
   Search,
+  Share2,
   ShieldMinus,
   ShieldPlus,
   Trash2,
   UserPlus,
   UserMinus,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,7 +29,17 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { GroupAdminPanel } from "@/components/GroupAdminPanel";
-import { uploadChatMedia, type Conversation, type Profile } from "@/lib/whatsxup";
+import { MediaViewer } from "@/components/MediaViewer";
+import {
+  copyToClipboard,
+  groupInviteUrl,
+} from "@/lib/groupExtras";
+import {
+  signedUrl,
+  uploadChatMedia,
+  type Conversation,
+  type Profile,
+} from "@/lib/whatsxup";
 
 export const Route = createFileRoute("/_authenticated/groups/$id")({
   head: () => ({
@@ -43,6 +58,12 @@ type MemberRow = {
   id: string;
   user_id: string;
   role: string;
+  is_muted?: boolean | null;
+};
+
+type GroupConv = Conversation & {
+  invite_slug?: string | null;
+  invite_enabled?: boolean | null;
 };
 
 function GroupPage() {
@@ -55,12 +76,19 @@ function GroupPage() {
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<"identity" | "members" | "admin">("identity");
+  const [activeTab, setActiveTab] = useState<"identity" | "members" | "media" | "admin">("identity");
   const [dmBusy, setDmBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState<Profile[]>([]);
   const [searching, setSearching] = useState(false);
+  const [msgSearch, setMsgSearch] = useState("");
+  const [muteBusy, setMuteBusy] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerItems, setViewerItems] = useState<
+    { url: string; type: "image" | "video" }[]
+  >([]);
+  const [viewerIndex, setViewerIndex] = useState(0);
   const [addingId, setAddingId] = useState<string | null>(null);
 
   const { data: conv, isError: convError, error: convErr } = useQuery({
@@ -73,7 +101,7 @@ function GroupPage() {
         .maybeSingle();
       if (error) throw error;
       if (!data) throw new Error("Group not found");
-      return data as Conversation;
+      return data as GroupConv;
     },
   });
 
@@ -82,7 +110,7 @@ function GroupPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("conversation_members")
-        .select("id, user_id, role")
+        .select("id, user_id, role, is_muted")
         .eq("conversation_id", id);
       if (error) throw error;
       return (data ?? []) as MemberRow[];
@@ -134,6 +162,12 @@ function GroupPage() {
   const canAddMembers =
     isAdmin || (me != null && !conv?.only_admins_add_members);
 
+  const isMuted = me?.is_muted === true;
+  const inviteSlug = (conv as GroupConv | undefined)?.invite_slug ?? null;
+  const inviteEnabled = !!(conv as GroupConv | undefined)?.invite_enabled;
+  const inviteLink =
+    inviteSlug && inviteEnabled ? groupInviteUrl(inviteSlug) : null;
+
   const selected = members.find((m) => m.user_id === selectedMemberId) ?? null;
 
   const refresh = () => {
@@ -141,7 +175,54 @@ function GroupPage() {
     void qc.invalidateQueries({ queryKey: ["conversation", id] });
     void qc.invalidateQueries({ queryKey: ["group-member-profiles", id] });
     void qc.invalidateQueries({ queryKey: ["chat-list"] });
+    void qc.invalidateQueries({ queryKey: ["group-media", id] });
   };
+
+  const { data: mediaMessages = [] } = useQuery({
+    queryKey: ["group-media", id],
+    enabled: Boolean(id) && activeTab === "media",
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id, type, media_url, created_at")
+        .eq("conversation_id", id)
+        .in("type", ["image", "video"])
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        type: string;
+        media_url: string | null;
+        created_at: string;
+      }[];
+    },
+  });
+
+  const { data: searchedMessages = [] } = useQuery({
+    queryKey: ["group-msg-search", id, msgSearch],
+    enabled:
+      Boolean(id) && activeTab === "media" && msgSearch.trim().length >= 2,
+    queryFn: async () => {
+      const term = msgSearch.trim();
+      const { data, error } = await supabase
+        .from("messages")
+        .select("id, type, content, created_at, sender_id")
+        .eq("conversation_id", id)
+        .eq("type", "text")
+        .ilike("content", "%" + term + "%")
+        .order("created_at", { ascending: false })
+        .limit(40);
+      if (error) throw error;
+      return (data ?? []) as {
+        id: string;
+        type: string;
+        content: string | null;
+        created_at: string;
+        sender_id: string;
+      }[];
+    },
+  });
 
   async function updateConv(patch: Partial<Conversation>) {
     if (!canEditInfo && ("name" in patch || "description" in patch || "avatar_url" in patch)) {
@@ -275,6 +356,65 @@ function GroupPage() {
     }
   }
 
+  async function toggleMute() {
+    if (!user) return;
+    setMuteBusy(true);
+    try {
+      const { error } = await supabase
+        .from("conversation_members")
+        .update({ is_muted: !isMuted })
+        .eq("conversation_id", id)
+        .eq("user_id", user.id);
+      if (error) throw error;
+      toast.success(isMuted ? "Group unmuted" : "Group muted");
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update mute");
+    } finally {
+      setMuteBusy(false);
+    }
+  }
+
+  async function copyInvite() {
+    if (!inviteLink) {
+      toast.error("Invite link is not enabled");
+      return;
+    }
+    const ok = await copyToClipboard(inviteLink);
+    toast.success(ok ? "Invite link copied" : "Could not copy");
+  }
+
+  async function shareInvite() {
+    if (!inviteLink) {
+      toast.error("Invite link is not enabled");
+      return;
+    }
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: conv?.name || "Group invite",
+          text: "Join this group on XUPPIN",
+          url: inviteLink,
+        });
+      } else {
+        await copyInvite();
+      }
+    } catch {
+      /* cancelled */
+    }
+  }
+
+  async function openMedia(path: string, type: "image" | "video") {
+    const url = await signedUrl("chat-media", path);
+    if (!url) {
+      toast.error("Could not open media");
+      return;
+    }
+    setViewerItems([{ url, type }]);
+    setViewerIndex(0);
+    setViewerOpen(true);
+  }
+
   async function leave() {
     if (!me) return;
     if (
@@ -387,7 +527,7 @@ function GroupPage() {
       </header>
 
       <nav className="flex justify-around border-b border-border/60 bg-background/50 px-4 py-3 backdrop-blur">
-        {(["identity", "members", "admin"] as const).map((tab) => (
+        {(["identity", "members", "media", "admin"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -511,6 +651,83 @@ function GroupPage() {
                   }}
                 />
               </div>
+            </div>
+          </div>
+        )}
+
+
+        {activeTab === "media" && (
+          <div className="space-y-4 animate-in fade-in">
+            <div>
+              <Label className="text-xs text-muted-foreground">Search messages</Label>
+              <div className="relative mt-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search text in this group..."
+                  value={msgSearch}
+                  onChange={(e) => setMsgSearch(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {msgSearch.trim().length >= 2 ? (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Results ({searchedMessages.length})
+                </p>
+                {searchedMessages.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No messages found.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {searchedMessages.map((m) => (
+                      <li
+                        key={m.id}
+                        className="rounded-xl border border-border bg-card p-3 text-sm"
+                      >
+                        <p className="line-clamp-3">{m.content}</p>
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          {new Date(m.created_at).toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ) : null}
+
+            <div>
+              <p className="mb-2 flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <ImageIcon className="h-3.5 w-3.5" /> Photos & videos
+              </p>
+              {mediaMessages.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No photos or videos in this group yet.
+                </p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2">
+                  {mediaMessages.map((m) =>
+                    m.media_url ? (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className="aspect-square overflow-hidden rounded-xl bg-muted"
+                        onClick={() =>
+                          void openMedia(
+                            m.media_url!,
+                            m.type === "video" ? "video" : "image",
+                          )
+                        }
+                      >
+                        <GroupMediaThumb
+                          path={m.media_url}
+                          kind={m.type === "video" ? "video" : "image"}
+                        />
+                      </button>
+                    ) : null,
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -710,6 +927,43 @@ function GroupPage() {
           <Button
             variant="outline"
             className="w-full gap-2"
+            disabled={muteBusy}
+            onClick={() => void toggleMute()}
+          >
+            {isMuted ? (
+              <Volume2 className="h-4 w-4" />
+            ) : (
+              <VolumeX className="h-4 w-4" />
+            )}
+            {isMuted ? "Unmute group" : "Mute group"}
+          </Button>
+
+          {inviteLink ? (
+            <>
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => void copyInvite()}
+              >
+                <Copy className="h-4 w-4" /> Copy invite link
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => void shareInvite()}
+              >
+                <Share2 className="h-4 w-4" /> Share invite link
+              </Button>
+            </>
+          ) : (
+            <p className="text-center text-xs text-muted-foreground">
+              Invite link is off. Admins can enable it in Admin.
+            </p>
+          )}
+
+          <Button
+            variant="outline"
+            className="w-full gap-2"
             onClick={() => void leave()}
           >
             <LogOut className="h-4 w-4" /> Leave group
@@ -834,6 +1088,46 @@ function GroupPage() {
           </div>
         </div>
       ) : null}
+
+      <MediaViewer
+        open={viewerOpen}
+        items={viewerItems}
+        index={viewerIndex}
+        onClose={() => setViewerOpen(false)}
+        onIndexChange={setViewerIndex}
+      />
     </div>
+  );
+}
+
+
+function GroupMediaThumb({
+  path,
+  kind,
+}: {
+  path: string;
+  kind: "image" | "video";
+}) {
+  const { data: url } = useQuery({
+    queryKey: ["signed", "chat-media", path],
+    queryFn: () => signedUrl("chat-media", path),
+    staleTime: 50 * 60 * 1000,
+  });
+  if (!url) {
+    return <div className="h-full w-full animate-pulse bg-muted" />;
+  }
+  if (kind === "video") {
+    return (
+      <video
+        src={url}
+        className="h-full w-full object-cover"
+        muted
+        playsInline
+        preload="metadata"
+      />
+    );
+  }
+  return (
+    <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
   );
 }
