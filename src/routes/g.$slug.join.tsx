@@ -4,25 +4,80 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
-import { PENDING_JOIN_KEY } from "@/lib/groupExtras";
+import { PENDING_JOIN_KEY, appOrigin } from "@/lib/groupExtras";
+import { signedUrl } from "@/lib/whatsxup";
+
+const DEFAULT_TITLE = "Join a group — XUPPIN";
+const DEFAULT_DESC =
+  "You have been invited to a XUPPIN group. Open the link to join the conversation.";
+function defaultShareImage(): string {
+  try {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return `${window.location.origin}/favicon.png`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return "https://xuppin.vercel.app/favicon.png";
+}
+
+function setMetaTag(attr: "name" | "property", key: string, value: string) {
+  if (typeof document === "undefined") return;
+  let el = document.querySelector(`meta[${attr}="${key}"]`);
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute(attr, key);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", value);
+}
+
+/** WhatsApp / Telegram style preview fields for this invite page. */
+async function applyGroupShareMeta(opts: {
+  name: string;
+  description?: string | null;
+  avatarPath?: string | null;
+  pageUrl: string;
+}) {
+  const title = opts.name.trim() || "XUPPIN group";
+  const description =
+    (opts.description && opts.description.trim()) ||
+    `Join ${title} on XUPPIN`;
+
+  document.title = `${title} — Join on XUPPIN`;
+  setMetaTag("name", "description", description);
+  setMetaTag("property", "og:title", title);
+  setMetaTag("property", "og:description", description);
+  setMetaTag("property", "og:type", "website");
+  setMetaTag("property", "og:url", opts.pageUrl);
+  setMetaTag("name", "twitter:card", "summary_large_image");
+  setMetaTag("name", "twitter:title", title);
+  setMetaTag("name", "twitter:description", description);
+
+  let imageUrl = defaultShareImage();
+  if (opts.avatarPath) {
+    if (/^https?:\/\//i.test(opts.avatarPath)) {
+      imageUrl = opts.avatarPath;
+    } else {
+      const signed = await signedUrl("chat-media", opts.avatarPath);
+      if (signed) imageUrl = signed;
+    }
+  }
+  setMetaTag("property", "og:image", imageUrl);
+  setMetaTag("name", "twitter:image", imageUrl);
+}
 
 export const Route = createFileRoute("/g/$slug/join")({
   ssr: false,
   head: () => ({
     meta: [
-      { title: "Join a group — XUPPIN" },
-      {
-        name: "description",
-        content:
-          "You have been invited to a XUPPIN group. Open the link to join the conversation.",
-      },
-      { property: "og:title", content: "Join a group — XUPPIN" },
-      {
-        property: "og:description",
-        content: "You have been invited to a XUPPIN group chat.",
-      },
+      { title: DEFAULT_TITLE },
+      { name: "description", content: DEFAULT_DESC },
+      { property: "og:title", content: DEFAULT_TITLE },
+      { property: "og:description", content: DEFAULT_DESC },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
+      { property: "og:image", content: "/favicon.png" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: JoinGroupPage,
@@ -31,7 +86,7 @@ export const Route = createFileRoute("/g/$slug/join")({
 type State =
   | { kind: "loading" }
   | { kind: "invalid"; message: string }
-  | { kind: "signin" }
+  | { kind: "signin"; name: string; avatar: string | null; description: string | null }
   | { kind: "banned"; name: string }
   | { kind: "requested"; name: string }
   | {
@@ -39,6 +94,7 @@ type State =
       id: string;
       name: string;
       avatar: string | null;
+      description: string | null;
       approval: boolean;
     };
 
@@ -58,7 +114,7 @@ function JoinGroupPage() {
       const { data: conv, error } = await supabase
         .from("conversations")
         .select(
-          "id, name, avatar_url, type, invite_enabled, join_approval_required",
+          "id, name, description, avatar_url, type, invite_enabled, join_approval_required",
         )
         .eq("invite_slug", slug)
         .eq("type", "group")
@@ -77,17 +133,26 @@ function JoinGroupPage() {
       }
 
       const name = conv.name?.trim() || "Group";
+      const description =
+        (conv as { description?: string | null }).description ?? null;
+      const avatar = conv.avatar_url ?? null;
+      const pageUrl = `${appOrigin()}/g/${slug}/join`;
+
+      // Update share preview to group photo + name + description
+      void applyGroupShareMeta({
+        name,
+        description,
+        avatarPath: avatar,
+        pageUrl,
+      });
 
       if (!user) {
         try {
-          sessionStorage.setItem(
-            PENDING_JOIN_KEY,
-            `/g/${slug}/join`,
-          );
+          sessionStorage.setItem(PENDING_JOIN_KEY, `/g/${slug}/join`);
         } catch {
           /* ignore */
         }
-        setState({ kind: "signin" });
+        setState({ kind: "signin", name, avatar, description });
         return;
       }
 
@@ -119,7 +184,8 @@ function JoinGroupPage() {
         kind: "ready",
         id: conv.id,
         name,
-        avatar: conv.avatar_url ?? null,
+        avatar,
+        description,
         approval: !!conv.join_approval_required,
       });
     }
@@ -137,21 +203,24 @@ function JoinGroupPage() {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth.user;
       if (!user) {
-        setState({ kind: "signin" });
+        setState({
+          kind: "signin",
+          name: state.name,
+          avatar: state.avatar,
+          description: state.description,
+        });
         return;
       }
 
       if (state.approval) {
-        const { error } = await supabase
-          .from("group_join_requests")
-          .upsert(
-            {
-              conversation_id: state.id,
-              user_id: user.id,
-              status: "pending",
-            },
-            { onConflict: "conversation_id,user_id" },
-          );
+        const { error } = await supabase.from("group_join_requests").upsert(
+          {
+            conversation_id: state.id,
+            user_id: user.id,
+            status: "pending",
+          },
+          { onConflict: "conversation_id,user_id" },
+        );
         if (error) throw error;
         toast.success("Request sent — an admin will review it.");
         setState({ kind: "requested", name: state.name });
@@ -181,18 +250,37 @@ function JoinGroupPage() {
     }
   }
 
+  const showAvatar =
+    state.kind === "ready" || state.kind === "signin"
+      ? state.avatar
+      : null;
+  const showName =
+    state.kind === "ready" ||
+    state.kind === "signin" ||
+    state.kind === "banned" ||
+    state.kind === "requested"
+      ? state.name
+      : null;
+  const showDesc =
+    state.kind === "ready" || state.kind === "signin"
+      ? state.description
+      : null;
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center app-gradient px-6 py-12">
-      <div className="w-full max-w-sm space-y-5 rounded-3xl border border-border bg-card p-6 text-center shadow-panel">
+    <main className="flex min-h-screen flex-col items-center justify-center app-gradient px-6 py-10">
+      <div className="w-full max-w-sm space-y-4 text-center">
         {state.kind === "loading" ? (
-          <p className="text-sm text-muted-foreground">Checking invite…</p>
+          <p className="text-sm text-muted-foreground">Loading invite…</p>
         ) : null}
 
         {state.kind === "invalid" ? (
           <>
             <h1 className="text-xl font-semibold">Invite unavailable</h1>
             <p className="text-sm text-muted-foreground">{state.message}</p>
-            <Button className="w-full" onClick={() => void navigate({ to: "/chats" })}>
+            <Button
+              className="w-full"
+              onClick={() => void navigate({ to: "/chats" })}
+            >
               Go to chats
             </Button>
           </>
@@ -200,12 +288,25 @@ function JoinGroupPage() {
 
         {state.kind === "signin" ? (
           <>
-            <h1 className="text-xl font-semibold">Sign in to join</h1>
+            <div className="flex justify-center">
+              <UserAvatar
+                path={state.avatar}
+                name={state.name}
+                bucket="chat-media"
+                size="xl"
+              />
+            </div>
+            <h1 className="text-xl font-semibold">{state.name}</h1>
+            {state.description ? (
+              <p className="text-sm text-muted-foreground">{state.description}</p>
+            ) : null}
             <p className="text-sm text-muted-foreground">
-              Create an account or sign in, and we will bring you right back to
-              this invite.
+              Sign in to join this group. We will bring you back here after.
             </p>
-            <Button className="w-full" onClick={() => void navigate({ to: "/auth" })}>
+            <Button
+              className="w-full"
+              onClick={() => void navigate({ to: "/auth" })}
+            >
               Continue
             </Button>
           </>
@@ -235,7 +336,10 @@ function JoinGroupPage() {
               An admin of {state.name} has to approve you before you can see the
               messages.
             </p>
-            <Button className="w-full" onClick={() => void navigate({ to: "/chats" })}>
+            <Button
+              className="w-full"
+              onClick={() => void navigate({ to: "/chats" })}
+            >
               Go to chats
             </Button>
           </>
@@ -252,12 +356,20 @@ function JoinGroupPage() {
               />
             </div>
             <h1 className="text-xl font-semibold">{state.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {state.approval
-                ? "This group approves new members. Send a request to join."
-                : "You have been invited to join this group."}
-            </p>
-            <Button className="w-full" disabled={busy} onClick={() => void join()}>
+            {state.description ? (
+              <p className="text-sm text-muted-foreground">{state.description}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                {state.approval
+                  ? "This group approves new members. Send a request to join."
+                  : "You have been invited to join this group."}
+              </p>
+            )}
+            <Button
+              className="w-full"
+              disabled={busy}
+              onClick={() => void join()}
+            >
               {busy
                 ? "Please wait…"
                 : state.approval
