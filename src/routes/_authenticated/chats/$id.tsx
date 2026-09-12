@@ -525,6 +525,102 @@ export const Route = createFileRoute("/_authenticated/chats/$id")({
  * MESSAGE CONTENT RENDERER
  * ============================================================ */
 
+
+/** Multi photo/video as one chat album (stored in message.content JSON). */
+type AlbumItem = { t: "image" | "video"; p: string };
+
+function encodeAlbumContent(items: AlbumItem[]): string {
+  return JSON.stringify({ xup_album: 1, items });
+}
+
+function parseAlbumContent(
+  content: string | null | undefined,
+): AlbumItem[] | null {
+  if (!content || content[0] !== "{") return null;
+  try {
+    const data = JSON.parse(content) as {
+      xup_album?: number;
+      items?: AlbumItem[];
+    };
+    if (data?.xup_album !== 1 || !Array.isArray(data.items) || !data.items.length) {
+      return null;
+    }
+    return data.items.filter(
+      (it) =>
+        it &&
+        (it.t === "image" || it.t === "video") &&
+        typeof it.p === "string" &&
+        it.p.length > 0,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function AlbumBubble({
+  items,
+  onOpenAlbum,
+}: {
+  items: AlbumItem[];
+  onOpenAlbum: (items: AlbumItem[], start: number) => void;
+}) {
+  const show = items.slice(0, 4);
+  return (
+    <div className="grid max-w-[260px] grid-cols-2 gap-1 overflow-hidden rounded-xl">
+      {show.map((it, i) => (
+        <button
+          key={it.p + i}
+          type="button"
+          className="relative aspect-square overflow-hidden bg-muted"
+          onClick={() => onOpenAlbum(items, i)}
+        >
+          <AlbumThumb path={it.p} kind={it.t} />
+          {i === 3 && items.length > 4 ? (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-sm font-semibold text-white">
+              +{items.length - 4}
+            </span>
+          ) : it.t === "video" ? (
+            <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 text-[10px] text-white">
+              Video
+            </span>
+          ) : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AlbumThumb({
+  path,
+  kind,
+}: {
+  path: string;
+  kind: "image" | "video";
+}) {
+  const { data: url } = useQuery({
+    queryKey: ["signed", "chat-media", path],
+    queryFn: () => signedUrl("chat-media", path),
+    staleTime: 50 * 60 * 1000,
+  });
+  if (!url) {
+    return <div className="h-full w-full animate-pulse bg-muted" />;
+  }
+  if (kind === "video") {
+    return (
+      <video
+        src={url}
+        className="h-full w-full object-cover"
+        muted
+        playsInline
+        preload="metadata"
+      />
+    );
+  }
+  return (
+    <img src={url} alt="" className="h-full w-full object-cover" loading="lazy" />
+  );
+}
+
 function MessageContent({
   message,
   user,
@@ -534,6 +630,7 @@ function MessageContent({
   handleMentionClick,
   mine,
   onOpenMedia,
+  onOpenAlbum,
 }: {
   message: Message;
   user: Profile | null;
@@ -543,6 +640,7 @@ function MessageContent({
   handleMentionClick: (username: string) => void;
   mine: boolean;
   onOpenMedia?: (url: string, type: "image" | "video") => void;
+  onOpenAlbum?: (items: AlbumItem[], start: number) => void;
 }) {
   if (message.type === "sticker") {
     const sticker = getSticker(message.content);
@@ -609,15 +707,29 @@ function MessageContent({
 
   return (
     <div className="space-y-1">
-      {message.media_url && (
-        <MediaBubble
-          path={message.media_url}
-          type={message.type as "image" | "video" | "audio"}
-          durationSec={message.media_duration}
-          mine={mine}
-          onOpen={onOpenMedia}
-        />
-      )}
+      {(() => {
+        const album = parseAlbumContent(message.content);
+        if (album && album.length > 0) {
+          return (
+            <AlbumBubble
+              items={album}
+              onOpenAlbum={(items, start) => onOpenAlbum?.(items, start)}
+            />
+          );
+        }
+        if (message.media_url) {
+          return (
+            <MediaBubble
+              path={message.media_url}
+              type={message.type as "image" | "video" | "audio"}
+              durationSec={message.media_duration}
+              mine={mine}
+              onOpen={onOpenMedia}
+            />
+          );
+        }
+        return null;
+      })()}
 
       {message.type === "audio" && message.media_duration != null && (
         <p className="text-[11px] opacity-70">
@@ -2347,55 +2459,76 @@ const fileInput = useRef<HTMLInputElement | null>(null);
     event.target.value = "";
     if (files.length === 0) return;
 
-    let ok = 0;
-    let fail = 0;
-
+    const valid: File[] = [];
     for (const file of files) {
       if (
         !file.type.startsWith("image/") &&
         !file.type.startsWith("video/")
       ) {
-        fail += 1;
         continue;
       }
       if (file.size > 50 * 1024 * 1024) {
-        fail += 1;
         continue;
       }
+      valid.push(file);
+    }
 
-      const kind = file.type.startsWith("video")
-        ? "video"
-        : "image";
+    if (valid.length === 0) {
+      toast.error("Only images and videos under 50 MB are supported.");
+      return;
+    }
 
+    // Single file → normal image/video message
+    if (valid.length === 1) {
+      const file = valid[0]!;
+      const kind = file.type.startsWith("video") ? "video" : "image";
       try {
         const path = await uploadChatMedia(
           id,
           file,
           kind === "video" ? "mp4" : "jpg",
         );
-
         await sendMessage(
           {
             type: kind,
             media_url: path,
           },
-          kind === "video"
-            ? "🎬 Video"
-            : "📷 Photo",
+          kind === "video" ? "🎬 Video" : "📷 Photo",
         );
-        ok += 1;
+        toast.success("Sent");
       } catch (error) {
-        fail += 1;
-        console.error(error);
+        toast.error((error as Error).message);
       }
+      return;
     }
 
-    if (ok > 0 && fail === 0) {
-      toast.success(ok === 1 ? "Sent" : `Sent ${ok} files`);
-    } else if (ok > 0) {
-      toast.success(`Sent ${ok}, ${fail} failed`);
-    } else {
-      toast.error("Could not send files");
+    // Multiple files → one album message
+    try {
+      const items: AlbumItem[] = [];
+      for (const file of valid) {
+        const kind = file.type.startsWith("video") ? "video" : "image";
+        const path = await uploadChatMedia(
+          id,
+          file,
+          kind === "video" ? "mp4" : "jpg",
+        );
+        items.push({ t: kind, p: path });
+      }
+      if (!items.length) {
+        toast.error("Could not upload media");
+        return;
+      }
+      await sendMessage(
+        {
+          type: "image",
+          media_url: items[0]!.p,
+          content: encodeAlbumContent(items),
+        },
+        `🖼️ Album (${items.length})`,
+      );
+      toast.success(`Album sent (${items.length})`);
+    } catch (error) {
+      toast.error((error as Error).message);
     }
   }
 
@@ -4692,6 +4825,22 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                         setViewerItems([{ url, type: mediaType }]);
                         setViewerIndex(0);
                         setViewerOpen(true);
+                      }}
+                      onOpenAlbum={(items, start) => {
+                        void (async () => {
+                          const resolved: { url: string; type: "image" | "video" }[] =
+                            [];
+                          for (const it of items) {
+                            const url = await signedUrl("chat-media", it.p);
+                            if (url) resolved.push({ url, type: it.t });
+                          }
+                          if (!resolved.length) return;
+                          setViewerItems(resolved);
+                          setViewerIndex(
+                            Math.min(start, Math.max(0, resolved.length - 1)),
+                          );
+                          setViewerOpen(true);
+                        })();
                       }}
                     />
                   )}
