@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useProfile";
+import { getMasterAdminEmail } from "@/lib/masterAdmin";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import type { Profile } from "@/lib/whatsxup";
@@ -13,9 +14,10 @@ export const Route = createFileRoute("/_authenticated/admin")({
   head: () => ({
     meta: [
       { title: "Admin panel — XUPPIN" },
-      { name: "description", content: "Master admin dashboard for XUPPIN moderation, users, groups and reports." },
-      { property: "og:title", content: "Admin panel — XUPPIN" },
-      { property: "og:description", content: "Moderation dashboard for users, groups and reports." },
+      {
+        name: "description",
+        content: "Master admin dashboard for XUPPIN.",
+      },
     ],
   }),
   component: AdminPage,
@@ -26,6 +28,7 @@ function AdminPage() {
   const { data: isAdmin, isLoading } = useIsAdmin();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const masterEmail = getMasterAdminEmail();
 
   const { data: stats } = useQuery({
     queryKey: ["admin-stats"],
@@ -33,15 +36,31 @@ function AdminPage() {
     queryFn: async () => {
       const counts = await Promise.all([
         supabase.from("profiles").select("id", { count: "exact", head: true }),
-        supabase.from("profiles").select("id", { count: "exact", head: true }).eq("is_online", true),
-        supabase.from("conversations").select("id", { count: "exact", head: true }).eq("type", "direct"),
-        supabase.from("conversations").select("id", { count: "exact", head: true }).eq("type", "group"),
+        supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("is_online", true),
+        supabase
+          .from("conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("type", "direct"),
+        supabase
+          .from("conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("type", "group"),
         supabase.from("messages").select("id", { count: "exact", head: true }),
         supabase.from("calls").select("id", { count: "exact", head: true }),
-        supabase.from("reports").select("id", { count: "exact", head: true }).eq("status", "open"),
-        supabase.from("profiles").select("id", { count: "exact", head: true }).neq("status", "active"),
+        supabase
+          .from("reports")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "open"),
+        supabase
+          .from("profiles")
+          .select("id", { count: "exact", head: true })
+          .neq("status", "active"),
       ]);
-      const [users, online, chats, groups, messages, calls, reports, restricted] = counts.map((c) => c.count ?? 0);
+      const [users, online, chats, groups, messages, calls, reports, restricted] =
+        counts.map((c) => c.count ?? 0);
       return { users, online, chats, groups, messages, calls, reports, restricted };
     },
   });
@@ -59,20 +78,35 @@ function AdminPage() {
     },
   });
 
-  async function moderate(target: Profile, status: "active" | "suspended" | "banned") {
-    if (status === "banned" && !window.confirm(`Ban @${target.username}? This blocks all access.`)) return;
-    const { error } = await supabase.from("profiles").update({ status }).eq("id", target.id);
+  async function moderate(
+    target: Profile,
+    status: "active" | "suspended" | "banned",
+  ) {
+    if (
+      status === "banned" &&
+      !window.confirm(`Ban @${target.username}? This blocks all access.`)
+    ) {
+      return;
+    }
+    const { error } = await supabase
+      .from("profiles")
+      .update({ status })
+      .eq("id", target.id);
     if (error) {
       toast.error(error.message);
       return;
     }
-    await supabase.from("admin_audit_log").insert({
-      admin_id: user!.id,
-      action: `user_${status}`,
-      target_type: "user",
-      target_id: target.id,
-      metadata: { username: target.username },
-    });
+    try {
+      await supabase.from("admin_audit_log").insert({
+        admin_id: user!.id,
+        action: `user_${status}`,
+        target_type: "user",
+        target_id: target.id,
+        metadata: { username: target.username },
+      });
+    } catch {
+      /* optional */
+    }
     toast.success(`@${target.username} is now ${status}`);
     void qc.invalidateQueries({ queryKey: ["admin-users"] });
     void qc.invalidateQueries({ queryKey: ["admin-stats"] });
@@ -90,8 +124,18 @@ function AdminPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 app-gradient px-8 text-center">
         <h1 className="text-2xl font-semibold">Not authorised</h1>
-        <p className="text-sm text-muted-foreground">This area is restricted to the XUPPIN master admin.</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Sign in with the admin email and password to open this panel.
+        </p>
+        {!masterEmail ? (
+          <p className="max-w-sm text-xs text-amber-600">
+            Add VITE_MASTER_ADMIN_EMAIL on Vercel, then redeploy.
+          </p>
+        ) : null}
         <Button onClick={() => void navigate({ to: "/chats" })}>Back to chats</Button>
+        <Button variant="outline" onClick={() => void navigate({ to: "/auth" })}>
+          Sign in
+        </Button>
       </div>
     );
   }
@@ -110,7 +154,11 @@ function AdminPage() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col app-gradient">
       <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border/60 bg-background/85 px-3 py-2.5 backdrop-blur safe-top">
-        <Button size="icon" variant="ghost" onClick={() => void navigate({ to: "/settings" })}>
+        <Button
+          size="icon"
+          variant="ghost"
+          onClick={() => void navigate({ to: "/settings" })}
+        >
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <h1 className="text-lg font-semibold">Admin panel</h1>
@@ -130,7 +178,10 @@ function AdminPage() {
           <h2 className="text-sm font-semibold">Recent users</h2>
           <ul className="space-y-2">
             {recent.map((p) => (
-              <li key={p.id} className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3">
+              <li
+                key={p.id}
+                className="flex items-center gap-3 rounded-2xl border border-border bg-card p-3"
+              >
                 <UserAvatar path={p.avatar_url} name={p.display_name} size="sm" />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{p.display_name}</p>
@@ -140,15 +191,27 @@ function AdminPage() {
                 </div>
                 {p.status === "active" ? (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => void moderate(p, "suspended")}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void moderate(p, "suspended")}
+                    >
                       Suspend
                     </Button>
-                    <Button size="sm" variant="destructive" onClick={() => void moderate(p, "banned")}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => void moderate(p, "banned")}
+                    >
                       Ban
                     </Button>
                   </>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={() => void moderate(p, "active")}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void moderate(p, "active")}
+                  >
                     Restore
                   </Button>
                 )}
