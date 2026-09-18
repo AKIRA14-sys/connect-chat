@@ -107,6 +107,19 @@ export const adminUpsertShopItem = createServerFn({
       throw new Error("Not authorised to manage the shop");
     }
 
+    // item_key is NOT NULL in shop_items — always provide a non-null value
+    const slug =
+      data.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 40) || "item";
+    const itemKey =
+      (typeof data.itemKey === "string" && data.itemKey.trim()
+        ? data.itemKey.trim()
+        : "") ||
+      (data.itemId ? `item-${data.itemId}` : `${slug}-${randomUUID().slice(0, 8)}`);
+
     const row: Record<string, unknown> = {
       category_id: data.categoryId,
       name: data.name,
@@ -118,10 +131,7 @@ export const adminUpsertShopItem = createServerFn({
       metadata: data.metadata,
       available: data.available !== false,
       unique_ownership: data.uniqueOwnership !== false,
-      item_key:
-        typeof data.itemKey === "string" && data.itemKey.trim()
-          ? data.itemKey.trim()
-          : null,
+      item_key: itemKey,
     };
     if (data.previewUrl) {
       row.preview_url = data.previewUrl;
