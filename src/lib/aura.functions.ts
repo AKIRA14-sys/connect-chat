@@ -52,6 +52,56 @@ If the user wants unlimited coins, they can say "turn unlimited coins on" or "of
 For image / badge / theme VISUAL generation, the system may route to OpenRouter.
 Do not claim you changed the database unless a tool result confirms it.`;
 
+/** Models often available on Groq free / developer plans (Llama is often enterprise-only). */
+const GROQ_MODEL_CANDIDATES = [
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
+  "qwen/qwen3.8-27b",
+  "qwen/qwen3.6-27b",
+  "groq/compound-mini",
+  "groq/compound",
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+];
+
+async function listGroqModels(apiKey: string): Promise<string[]> {
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) return [];
+    const json = (await res.json()) as { data?: { id?: string }[] };
+    return (json.data || [])
+      .map((m) => m.id)
+      .filter((id): id is string => typeof id === "string");
+  } catch {
+    return [];
+  }
+}
+
+async function resolveGroqModel(apiKey: string): Promise<string> {
+  const forced = String(process.env["GROQ_MODEL"] || "").trim();
+  if (forced) return forced;
+
+  const available = await listGroqModels(apiKey);
+  if (available.length) {
+    for (const id of GROQ_MODEL_CANDIDATES) {
+      if (available.includes(id)) return id;
+    }
+    // Prefer non-whisper / non-guard chat models
+    const chat = available.find(
+      (id) =>
+        !id.includes("whisper") &&
+        !id.includes("prompt-guard") &&
+        !id.includes("orpheus"),
+    );
+    if (chat) return chat;
+    return available[0];
+  }
+
+  return GROQ_MODEL_CANDIDATES[0];
+}
+
 /** Main brain: Groq (GROQ_API_KEY) — text, reasoning, admin Q&A */
 async function callGroq(messages: AuraMessage[]): Promise<string> {
   const key = process.env["GROQ_API_KEY"] || "";
@@ -63,8 +113,7 @@ async function callGroq(messages: AuraMessage[]): Promise<string> {
     );
   }
 
-  const model =
-    process.env["GROQ_MODEL"] || "llama-3.3-70b-versatile";
+  const model = await resolveGroqModel(key);
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -81,6 +130,17 @@ async function callGroq(messages: AuraMessage[]): Promise<string> {
 
   if (!res.ok) {
     const t = await res.text();
+    // Helpful hint when model is wrong
+    if (res.status === 404 || t.includes("model_not_found")) {
+      const available = await listGroqModels(key);
+      const hint =
+        available.length > 0
+          ? ` Models your key can use: ${available.slice(0, 8).join(", ")}. Set GROQ_MODEL to one of these on Vercel.`
+          : " Check Groq console → Models for IDs your plan allows, then set GROQ_MODEL on Vercel.";
+      throw new Error(
+        `Groq model "${model}" not available.${hint} Raw: ${t.slice(0, 160)}`,
+      );
+    }
     throw new Error(`Groq error: ${res.status} ${t.slice(0, 240)}`);
   }
 
@@ -95,7 +155,6 @@ async function callGroq(messages: AuraMessage[]): Promise<string> {
 
 /**
  * OpenRouter — images, badge/theme design, visual creative work.
- * Returns text design brief and optional image URL if the model returns one.
  */
 async function callOpenRouterVisual(prompt: string): Promise<{
   text: string;
@@ -147,7 +206,6 @@ async function callOpenRouterVisual(prompt: string): Promise<{
   const text =
     json.choices?.[0]?.message?.content?.trim() || "No design output.";
 
-  // Pull first markdown image if present
   const imgMatch = text.match(/!\[[^\]]*\]\((https?:\/\/[^)]+)\)/);
   const urlMatch = text.match(/https?:\/\/\S+\.(png|jpg|jpeg|webp|gif)/i);
 
@@ -195,14 +253,17 @@ export const auraChat = createServerFn({ method: "POST" })
     const last = data.messages[data.messages.length - 1]?.content || "";
     const lower = last.toLowerCase().trim();
 
-    // --- Tools (no API required) ---
     if (
       lower === "unlimited coins on" ||
       lower === "coins on" ||
       lower.includes("turn unlimited coins on")
     ) {
       const res = await setAdminUnlimitedCoins({ data: { enabled: true } });
-      return { reply: res.message, imageUrl: null as string | null, tool: "unlimited_coins_on" };
+      return {
+        reply: res.message,
+        imageUrl: null as string | null,
+        tool: "unlimited_coins_on",
+      };
     }
     if (
       lower === "unlimited coins off" ||
@@ -257,7 +318,6 @@ export const auraChat = createServerFn({ method: "POST" })
       };
     }
 
-    // --- Visual / design → OpenRouter ---
     if (wantsVisual(last)) {
       const visual = await callOpenRouterVisual(last);
       return {
@@ -267,7 +327,6 @@ export const auraChat = createServerFn({ method: "POST" })
       };
     }
 
-    // --- Main chat → Groq ---
     const reply = await callGroq(data.messages);
     return { reply, imageUrl: null, tool: "groq" };
   });
