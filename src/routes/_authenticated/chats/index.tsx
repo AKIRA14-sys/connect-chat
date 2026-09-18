@@ -61,6 +61,7 @@ import {
   clearPageWallpaperMedia,
   type ChatAppearance,
 } from "@/lib/chatAppearance";
+import { AuraChatListEntry } from "@/components/AuraChatListEntry";
 
 export const Route = createFileRoute("/_authenticated/chats/")({
   head: () => ({
@@ -1387,6 +1388,7 @@ function ChatsPage() {
           </div>
         ) : (
           <ul className="space-y-1 px-2 pb-6">
+            <AuraChatListEntry />
             {visibleRows.map(
               (row) => {
                 const isFavorite =
