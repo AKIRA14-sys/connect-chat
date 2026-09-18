@@ -129,3 +129,73 @@ export const adminSetShopItemAvailable = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+export type AdminUploadShopMediaInput = {
+  /** base64 without data: prefix */
+  fileBase64: string;
+  fileName: string;
+  contentType: string;
+};
+
+/**
+ * Upload image/video from admin device to gaming Storage bucket shop-media.
+ * Uses service role (browser is not logged into gaming Supabase).
+ */
+export const adminUploadShopMedia = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: AdminUploadShopMediaInput) => {
+    if (!input?.fileBase64 || !input?.fileName) {
+      throw new Error("File is required");
+    }
+    const ct = String(input.contentType || "").toLowerCase();
+    const ok =
+      ct.startsWith("image/") ||
+      ct.startsWith("video/") ||
+      !ct;
+    if (!ok) throw new Error("Only images and videos are allowed");
+    const isVideo = String(input.contentType || "").toLowerCase().startsWith("video/");
+    // base64 is ~4/3 of binary size
+    const maxB64 = isVideo ? 42_000_000 : 14_000_000; // ~30MB video, ~10MB image
+    if (input.fileBase64.length > maxB64) {
+      throw new Error(
+        isVideo
+          ? "Video too large (max 30MB for live wallpaper)"
+          : "Image too large (max 10MB)",
+      );
+    }
+    return input;
+  })
+  .handler(async ({ data, context }) => {
+    const email = emailFromClaims(
+      (context as { claims?: unknown }).claims,
+    );
+    if (!masterEmailAllowed(email)) {
+      throw new Error("Not authorised to upload shop media");
+    }
+
+    const safeName = data.fileName
+      .replace(/[^a-zA-Z0-9._-]/g, "_")
+      .slice(0, 80);
+    const path = `packs/${Date.now()}-${crypto.randomUUID().slice(0, 8)}-${safeName}`;
+
+    const buffer = Buffer.from(data.fileBase64, "base64");
+    const { error } = await gamingSupabaseAdmin.storage
+      .from("shop-media")
+      .upload(path, buffer, {
+        contentType: data.contentType || "application/octet-stream",
+        upsert: false,
+      });
+    if (error) throw new Error(error.message);
+
+    const { data: pub } = gamingSupabaseAdmin.storage
+      .from("shop-media")
+      .getPublicUrl(path);
+
+    return {
+      path,
+      url: pub.publicUrl as string,
+      kind: (data.contentType || "").startsWith("video/")
+        ? ("video" as const)
+        : ("image" as const),
+    };
+  });
