@@ -10,6 +10,7 @@ import { getMasterAdminEmail } from "@/lib/masterAdmin";
 import { Button } from "@/components/ui/button";
 import { UserAvatar } from "@/components/UserAvatar";
 import { ShopAdminPanel } from "@/components/ShopAdminPanel";
+import { AdminCoinsAndBotPanel } from "@/components/AdminCoinsAndBotPanel";
 import type { Profile } from "@/lib/whatsxup";
 
 export const Route = createFileRoute("/_authenticated/admin")({
@@ -25,11 +26,14 @@ type GroupRow = {
   description: string | null;
   created_by: string;
   last_message_at: string | null;
+  created_at?: string | null;
+  avatar_url?: string | null;
   member_count?: number;
   creator_name?: string;
+  creator_avatar?: string | null;
 };
 
-type Tab = "overview" | "people" | "groups" | "shop";
+type Tab = "overview" | "people" | "groups" | "shop" | "tools";
 
 function AdminPage() {
   const { user } = useAuth();
@@ -78,7 +82,7 @@ function AdminPage() {
     queryFn: async () => {
       const { data: convs, error } = await supabase
         .from("conversations")
-        .select("id, name, description, created_by, last_message_at")
+        .select("id, name, description, created_by, last_message_at, created_at, avatar_url")
         .eq("type", "group")
         .order("last_message_at", { ascending: false })
         .limit(40);
@@ -197,6 +201,7 @@ function AdminPage() {
     { id: "people", label: "People", icon: Users },
     { id: "groups", label: "Groups", icon: Hash },
     { id: "shop", label: "Shop", icon: ShoppingBag },
+    { id: "tools", label: "Tools", icon: ShoppingBag },
   ];
 
   return (
@@ -284,23 +289,47 @@ function AdminPage() {
         {tab === "groups" && (
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">Groups</h2>
+            <p className="text-xs text-muted-foreground">
+              Group photo, creator, created date, members, last activity.
+            </p>
             <ul className="space-y-2">
               {groups.map((g) => (
-                <li key={g.id} className="rounded-2xl border border-border bg-card p-3">
-                  <p className="text-sm font-medium">{g.name?.trim() || "Unnamed group"}</p>
-                  <p className="text-xs text-muted-foreground">
-                    By {g.creator_name}
-                    {g.member_count != null ? ` · ${g.member_count} members` : ""}
-                  </p>
-                  {g.description?.trim() ? (
-                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{g.description}</p>
-                  ) : null}
-                  {g.last_message_at ? (
-                    <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                      <MessageSquare className="h-3 w-3" />
-                      {new Date(g.last_message_at).toLocaleString()}
+                <li
+                  key={g.id}
+                  className="flex gap-3 rounded-2xl border border-border bg-card p-3"
+                >
+                  <UserAvatar
+                    path={g.avatar_url || g.creator_avatar || null}
+                    name={g.name || g.creator_name || "Group"}
+                    size="sm"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium">
+                      {g.name?.trim() || "Unnamed group"}
                     </p>
-                  ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      Created by {g.creator_name}
+                      {g.member_count != null
+                        ? ` · ${g.member_count} members`
+                        : ""}
+                    </p>
+                    {g.created_at ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Created {new Date(g.created_at).toLocaleString()}
+                      </p>
+                    ) : null}
+                    {g.description?.trim() ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                        {g.description}
+                      </p>
+                    ) : null}
+                    {g.last_message_at ? (
+                      <p className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <MessageSquare className="h-3 w-3" />
+                        Last activity {new Date(g.last_message_at).toLocaleString()}
+                      </p>
+                    ) : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -308,6 +337,15 @@ function AdminPage() {
         )}
 
         {tab === "shop" && <ShopAdminPanel />}
+
+        {tab === "tools" && (
+          <div className="space-y-4">
+            <Button className="w-full" onClick={() => void navigate({ to: "/aura" })}>
+              Open AURA chat
+            </Button>
+            <AdminCoinsAndBotPanel />
+          </div>
+        )}
       </div>
     </div>
   );
