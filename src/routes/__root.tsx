@@ -20,6 +20,8 @@ import { initNativePush } from "@/lib/nativePush";
 import { initDeepLinks } from "@/lib/native/deepLinks";
 
 import { AppLockGate } from "@/components/AppLockGate";
+import { MessageOfflineSync } from "@/components/MessageOfflineSync";
+import { initOfflineViewing } from "@/lib/initOfflineViewing";
 
 
 function NotFoundComponent() {
@@ -174,6 +176,11 @@ function RootComponent() {
     void initNativePush();
   }, []);
 
+  // Offline viewing: migrate cache keys + nudge service worker
+  useEffect(() => {
+    initOfflineViewing();
+  }, []);
+
   // Opening a shared xuppin link on a phone with the app installed routes in-app.
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -190,6 +197,8 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AppSplash />
       <AuthProvider>
+        {/* Save incoming messages while online even if chat is not open */}
+        <MessageOfflineSync />
         <RealtimeProvider>
           <ConnectionBanner />
           {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
