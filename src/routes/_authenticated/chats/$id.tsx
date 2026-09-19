@@ -44,7 +44,13 @@ import { toast } from "sonner";
 import {
   loadCachedMessages,
   saveCachedMessages,
+  loadCachedSnapshot,
+  saveCachedSnapshot,
 } from "@/lib/offlineCache";
+import {
+  messagesQueryWithOfflineCache,
+  conversationQueryWithOfflineCache,
+} from "@/lib/offlineQuery";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -1369,16 +1375,22 @@ const fileInput = useRef<HTMLInputElement | null>(null);
 
   const { data: conv } = useQuery({
     queryKey: ["conversation", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("*")
-        .eq("id", id)
-        .single();
+    networkMode: "offlineFirst",
+    retry: (count) =>
+      typeof navigator !== "undefined" && navigator.onLine && count < 2,
+    placeholderData: () =>
+      loadCachedSnapshot<Conversation>(`conversation.${id}`),
+    queryFn: async () =>
+      conversationQueryWithOfflineCache<Conversation>(id, async () => {
+        const { data, error } = await supabase
+          .from("conversations")
+          .select("*")
+          .eq("id", id)
+          .single();
 
-      if (error) throw error;
-      return data as Conversation;
-    },
+        if (error) throw error;
+        return data as Conversation;
+      }),
   });
 
   useEffect(() => {
@@ -1404,14 +1416,32 @@ const fileInput = useRef<HTMLInputElement | null>(null);
 
   const { data: members = [] } = useQuery({
     queryKey: ["conv-members", id],
+    networkMode: "offlineFirst",
+    retry: (count) =>
+      typeof navigator !== "undefined" && navigator.onLine && count < 2,
+    placeholderData: () =>
+      loadCachedSnapshot<{ user_id: string; role: string }[]>(
+        `conv-members.${id}`,
+      ),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("conversation_members")
-        .select("user_id, role")
-        .eq("conversation_id", id);
+      try {
+        const { data, error } = await supabase
+          .from("conversation_members")
+          .select("user_id, role")
+          .eq("conversation_id", id);
 
-      if (error) throw error;
-      return (data ?? []) as { user_id: string; role: string }[];
+        if (error) throw error;
+        const rows = (data ?? []) as { user_id: string; role: string }[];
+        saveCachedSnapshot(`conv-members.${id}`, rows);
+        return rows;
+      } catch (e) {
+        const cached = loadCachedSnapshot<{ user_id: string; role: string }[]>(
+          `conv-members.${id}`,
+        );
+        if (cached) return cached;
+        if (typeof navigator !== "undefined" && !navigator.onLine) return [];
+        throw e;
+      }
     },
   });
 
@@ -1493,21 +1523,24 @@ const fileInput = useRef<HTMLInputElement | null>(null);
 
   const { data: messages = [], isFetching: fetchingMessages } = useQuery({
     queryKey: messagesKey,
-    // Offline: show last-loaded messages instantly while refetching.
+    networkMode: "offlineFirst",
+    retry: (count) =>
+      typeof navigator !== "undefined" && navigator.onLine && count < 2,
     placeholderData: () =>
       loadCachedMessages<Message[]>(id) as Message[] | undefined,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", id)
-        .order("created_at", { ascending: false })
-        .limit(limit);
+    queryFn: async () =>
+      messagesQueryWithOfflineCache<Message[]>(id, async () => {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", id)
+          .order("created_at", { ascending: false })
+          .limit(limit);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      return ((data ?? []) as Message[]).slice().reverse();
-    },
+        return ((data ?? []) as Message[]).slice().reverse();
+      }),
   });
 
   // Offline: snapshot last-loaded messages for offline viewing.
