@@ -13,6 +13,10 @@ import {
   getAdminUnlimitedCoins,
   setAdminUnlimitedCoins,
 } from "@/lib/adminCoins.functions";
+import {
+  adminListContactsForAura,
+  adminSendDirectMessage,
+} from "@/lib/adminMessage.functions";
 
 export const Route = createFileRoute("/_authenticated/aura")({
   head: () => ({
@@ -71,6 +75,27 @@ function AuraPage() {
   const [hydrated, setHydrated] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [atOpen, setAtOpen] = useState(false);
+  const [atFilter, setAtFilter] = useState("");
+  const [picked, setPicked] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
+
+  const { data: contactData } = useQuery({
+    queryKey: ["aura-contacts"],
+    enabled: !!isAdmin,
+    queryFn: () => adminListContactsForAura(),
+  });
+  const contacts = contactData?.contacts ?? [];
+  const filteredContacts = contacts.filter((c) => {
+    const q = atFilter.toLowerCase();
+    if (!q) return true;
+    return (
+      (c.username || "").toLowerCase().includes(q) ||
+      (c.display_name || "").toLowerCase().includes(q)
+    );
+  });
 
   useEffect(() => {
     setLines(loadMemory());
@@ -127,6 +152,41 @@ function AuraPage() {
   async function send() {
     const msg = text.trim();
     if (!msg || busy) return;
+
+    // Admin send to contact: "send ..." with picked contact, or "message @user: hello"
+    const sendMatch = msg.match(/^(?:send|message|msg)\s+(.+)$/i);
+    if (picked && sendMatch) {
+      setText("");
+      setBusy(true);
+      try {
+        const body = sendMatch[1].replace(/^@\S+\s*/, "").trim() || sendMatch[1];
+        const res = await adminSendDirectMessage({
+          data: { recipientId: picked.id, text: body },
+        });
+        setLines((L) => [
+          ...L,
+          { role: "user", content: msg },
+          {
+            role: "assistant",
+            content: `Sent to ${picked.label}: "${body}"`,
+          },
+        ]);
+        toast.success(res.message);
+      } catch (e) {
+        setLines((L) => [
+          ...L,
+          { role: "user", content: msg },
+          {
+            role: "assistant",
+            content: e instanceof Error ? e.message : "Send failed",
+          },
+        ]);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setText("");
     const nextLines: Line[] = [...lines, { role: "user", content: msg }];
     setLines(nextLines);
@@ -256,16 +316,67 @@ function AuraPage() {
       </div>
 
       <form
-        className="flex gap-2 border-t border-border/60 bg-background/90 p-2 safe-bottom"
+        className="relative flex gap-2 border-t border-border/60 bg-background/90 p-2 safe-bottom"
         onSubmit={(e) => {
           e.preventDefault();
           void send();
         }}
       >
+        {atOpen ? (
+          <div className="absolute bottom-14 left-2 right-14 z-20 max-h-40 overflow-y-auto rounded-xl border border-border bg-card shadow-lg">
+            {filteredContacts.length === 0 ? (
+              <p className="p-2 text-xs text-muted-foreground">No contacts</p>
+            ) : (
+              filteredContacts.slice(0, 30).map((c) => {
+                const label =
+                  c.display_name ||
+                  (c.username ? `@${c.username}` : c.id.slice(0, 8));
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    className="flex w-full px-3 py-2 text-left text-sm hover:bg-muted/50"
+                    onClick={() => {
+                      setPicked({ id: c.id, label });
+                      setAtOpen(false);
+                      setText((t) => {
+                        const i = t.lastIndexOf("@");
+                        const base = i >= 0 ? t.slice(0, i) : t;
+                        return `${base}@${c.username || label} `;
+                      });
+                      setAtFilter("");
+                    }}
+                  >
+                    {label}
+                    {c.username ? (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        @{c.username}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : null}
         <Input
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Message AURA…"
+          onChange={(e) => {
+            const v = e.target.value;
+            setText(v);
+            const at = v.lastIndexOf("@");
+            if (at >= 0 && !v.slice(at + 1).includes(" ")) {
+              setAtOpen(true);
+              setAtFilter(v.slice(at + 1));
+            } else {
+              setAtOpen(false);
+            }
+          }}
+          placeholder={
+            picked
+              ? `Message ${picked.label} via AURA…`
+              : "Message AURA… (@ to pick contact)"
+          }
           disabled={busy}
         />
         <Button type="submit" size="icon" disabled={busy || !text.trim()}>
