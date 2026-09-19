@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AndroidSettingsPanel } from "@/components/AndroidSettingsPanel";
+import { NotificationHealthPanel } from "@/components/NotificationHealthPanel";
 import {
   clearAppLock,
   getLockTimeoutMin,
@@ -507,6 +508,8 @@ function SettingsPage() {
         ) : null}
 
         {section === "alerts" ? (
+          <div className="space-y-4">
+          <NotificationHealthPanel />
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4">
             <p className="text-sm font-medium">Device alerts</p>
             <p className="text-xs text-muted-foreground">
@@ -533,6 +536,7 @@ function SettingsPage() {
                 </Button>
               ) : null}
             </div>
+          </div>
           </div>
         ) : null}
 
