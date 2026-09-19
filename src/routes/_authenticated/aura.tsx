@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Coins, Send, Sparkles } from "lucide-react";
+import { ArrowLeft, Coins, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,21 +21,66 @@ export const Route = createFileRoute("/_authenticated/aura")({
   component: AuraPage,
 });
 
-type Line = { role: "user" | "assistant"; content: string; imageUrl?: string | null };
+type Line = {
+  role: "user" | "assistant";
+  content: string;
+  imageUrl?: string | null;
+};
+
+const MEMORY_KEY = "xuppin_aura_chat_v1";
+const MAX_STORED = 80;
+
+const DEFAULT_LINES: Line[] = [
+  {
+    role: "assistant",
+    content:
+      "Hey — I'm AURA, your XUPPIN admin co-pilot.\n\nI know the app: Chats, Groups, Shop, Games, XUP, Settings, Control Room.\n\nTry:\n• list shop  (full catalog, every item)\n• design a fire theme\n• implement it\n• unlimited coins on/off\n• hide ITEM / show ITEM\n\nYour chat with me is saved on this device so you can leave and come back.",
+  },
+];
+
+function loadMemory(): Line[] {
+  if (typeof window === "undefined") return DEFAULT_LINES;
+  try {
+    const raw = localStorage.getItem(MEMORY_KEY);
+    if (!raw) return DEFAULT_LINES;
+    const parsed = JSON.parse(raw) as Line[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_LINES;
+    return parsed.slice(-MAX_STORED);
+  } catch {
+    return DEFAULT_LINES;
+  }
+}
+
+function saveMemory(lines: Line[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      MEMORY_KEY,
+      JSON.stringify(lines.slice(-MAX_STORED)),
+    );
+  } catch {
+    /* quota */
+  }
+}
 
 function AuraPage() {
   const navigate = useNavigate();
   const { data: isAdmin, isLoading: adminLoading } = useIsAdmin();
   const bottomRef = useRef<HTMLDivElement>(null);
-  const [lines, setLines] = useState<Line[]>([
-    {
-      role: "assistant",
-      content:
-        "Hey — I'm AURA. Chat normally. Text uses Groq; images/themes/badges design use OpenRouter. Try: “list shop”, “turn unlimited coins on”, or “design a fire badge”.",
-    },
-  ]);
+  const [lines, setLines] = useState<Line[]>(DEFAULT_LINES);
+  const [hydrated, setHydrated] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setLines(loadMemory());
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    saveMemory(lines);
+  }, [lines, hydrated]);
 
   const { data: status, refetch: refetchStatus } = useQuery({
     queryKey: ["aura-status"],
@@ -64,13 +109,19 @@ function AuraPage() {
         {
           role: "assistant",
           content: enabled
-            ? "Unlimited coins are ON. You can test buys and send coins from your high balance. Turn OFF anytime to restore your old balance."
-            : "Unlimited coins OFF. Your previous balance is restored. Other users never saw this switch.",
+            ? "Unlimited coins ON (admin only). Turn off anytime to restore your previous balance."
+            : "Unlimited coins OFF. Previous balance restored.",
         },
       ]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
     }
+  }
+
+  function clearMemory() {
+    setLines(DEFAULT_LINES);
+    saveMemory(DEFAULT_LINES);
+    toast.message("AURA memory cleared on this device");
   }
 
   async function send() {
@@ -147,11 +198,14 @@ function AuraPage() {
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">AURA</p>
           <p className="truncate text-[11px] text-muted-foreground">
-            Admin assistant
+            XUPPIN admin co-pilot
             {status?.hasGroq ? " · Groq on" : " · Groq key missing"}
             {status?.hasOpenRouter ? " · OpenRouter on" : ""}
           </p>
         </div>
+        <Button size="icon" variant="ghost" title="Clear memory" onClick={clearMemory}>
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </header>
 
       <div className="flex items-center justify-between gap-2 border-b border-border/40 px-3 py-2">
