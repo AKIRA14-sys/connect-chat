@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban, MessageCircle, Search, UserMinus, UserPlus, X } from "lucide-react";
@@ -12,6 +12,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { Profile } from "@/lib/whatsxup";
+import {
+  loadCachedContacts,
+  saveCachedContacts,
+} from "@/lib/offlineCache";
+import { OfflineDataHint } from "@/components/OfflineDataHint";
 
 export const Route = createFileRoute("/_authenticated/contacts")({
   head: () => ({
@@ -38,6 +43,7 @@ function ContactsPage() {
   const { data: contacts = [] } = useQuery({
     queryKey: ["contacts", user?.id],
     enabled: !!user,
+    placeholderData: () => loadCachedContacts(user?.id) as any,
     queryFn: async () => {
       if (!user) return [];
       const { data, error } = await supabase
@@ -49,7 +55,14 @@ function ContactsPage() {
     },
   });
 
-  const { data: blocked = [] } = useQuery({
+  
+  useEffect(() => {
+    if (user?.id && contacts?.length) {
+      saveCachedContacts(user.id, contacts);
+    }
+  }, [user?.id, contacts]);
+
+const { data: blocked = [] } = useQuery({
     queryKey: ["blocks", user?.id],
     enabled: !!user,
     queryFn: async () => {
@@ -142,6 +155,7 @@ function ContactsPage() {
 
   return (
     <AppShell>
+      <OfflineDataHint label="contacts" />
       <PageHeader title="Contacts" subtitle="Find anyone by their XUPPIN username" />
       <div className="px-4 pb-3 pt-2">
         <div className="relative group">
