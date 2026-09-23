@@ -113,7 +113,7 @@ export async function sendFcm(
   if (payload.tag) data["tag"] = payload.tag;
 
   // Heads-up (banner at top of screen) needs HIGH priority + a HIGH importance channel.
-  // Channel "xuppin_messages" is created in nativePush.ts on the device.
+  // Channels are created in nativePush.ts on the device.
   const iconUrl =
     payload.data && typeof payload.data["icon"] === "string"
       ? payload.data["icon"]
@@ -132,10 +132,14 @@ export async function sendFcm(
         priority: "HIGH",
         ttl: "86400s",
         notification: {
-          channel_id: "xuppin_messages",
+          channel_id:
+            payload.data?.["kind"] === "call"
+              ? "xuppin_calls"
+              : "xuppin_messages",
           notification_priority: "PRIORITY_HIGH",
           default_sound: true,
           default_vibrate_timings: true,
+          visibility: "PUBLIC",
           sound: "default",
           ...(payload.tag ? { tag: payload.tag } : {}),
           ...(iconUrl ? { image: iconUrl } : {}),
@@ -187,7 +191,7 @@ export async function sendFcm(
       return { ok: false, expired: true, error: status };
     }
     if (res.status === 401 && attempt === 0) {
-      cachedToken = null; // stale token — refresh once and retry
+      cachedToken = null;
       continue;
     }
     console.error("[FCM] send rejected", res.status, status, msg);
