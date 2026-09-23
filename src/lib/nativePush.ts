@@ -49,6 +49,32 @@ export async function initNativePush(): Promise<{
       return { ok: false, reason: "permission_denied" };
     }
 
+    // HIGH importance = heads-up banner at top of screen (not silent shade-only).
+    try {
+      await PushNotifications.createChannel({
+        id: "xuppin_messages",
+        name: "Messages",
+        description: "Chat and group message alerts",
+        importance: 5,
+        visibility: 1,
+        sound: "default",
+        vibration: true,
+        lights: true,
+      });
+      await PushNotifications.createChannel({
+        id: "xuppin_calls",
+        name: "Calls",
+        description: "Incoming voice and video calls",
+        importance: 5,
+        visibility: 1,
+        sound: "default",
+        vibration: true,
+        lights: true,
+      });
+    } catch (chErr) {
+      console.warn("[nativePush] createChannel", chErr);
+    }
+
     await PushNotifications.register();
 
     return await new Promise((resolve) => {
