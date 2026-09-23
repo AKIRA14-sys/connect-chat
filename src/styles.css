@@ -367,3 +367,22 @@
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+
+/* XUPPIN home UI overrides */
+.app-gradient {
+  background:
+    radial-gradient(120% 80% at 50% -10%, oklch(0.28 0.09 250 / 0.5), transparent 55%),
+    oklch(0.11 0.04 265);
+}
+
+.xuppin-story-ring {
+  background: conic-gradient(from 210deg, #38bdf8, #818cf8, #c084fc, #38bdf8);
+  padding: 2px;
+  border-radius: 9999px;
+}
+.xuppin-story-ring-inner {
+  border-radius: 9999px;
+  background: #0a0e1a;
+  padding: 2px;
+}
