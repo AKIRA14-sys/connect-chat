@@ -2,7 +2,7 @@
  * XUPPIN SW — offline shell on THIS device
  * Open app + navigate pages without network (after one online visit).
  */
-const VERSION = "xuppin-one-phone-v1";
+const VERSION = "xuppin-one-phone-v2";
 const SHELL = `${VERSION}-shell`;
 const ASSETS = `${VERSION}-assets`;
 const ICON = "/icons/icon-192.png";
@@ -98,19 +98,26 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { kind: "message", title: "XUPPIN", body: event.data ? event.data.text() : "" };
   }
+
   const kind = data.kind || "message";
   const isCall = kind === "call";
+
   let title = data.title || "XUPPIN";
   let body = data.body || "";
+
   if (kind === "message") {
     title = data.title || "New message";
     body = data.body || "You received a new message.";
   }
+
   if (isCall) {
     const callKind = data.callKind === "video" ? "video" : "voice";
-    title = data.title || (callKind === "video" ? "Incoming video call" : "Incoming voice call");
+    title =
+      data.title ||
+      (callKind === "video" ? "Incoming video call" : "Incoming voice call");
     body = data.body || title;
   }
+
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
@@ -119,7 +126,6 @@ self.addEventListener("push", (event) => {
       tag: data.tag || `xuppin-${kind}`,
       renotify: true,
       vibrate: isCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
-      // Helps some browsers keep the banner visible briefly
       requireInteraction: isCall,
       data: {
         kind,
@@ -135,9 +141,14 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const path = data.conversationId ? `/chats/${data.conversationId}` : "/chats";
+
   event.waitUntil(
     (async () => {
-      const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const all = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+
       for (const client of all) {
         if ("focus" in client) {
           await client.focus();
@@ -145,6 +156,7 @@ self.addEventListener("notificationclick", (event) => {
           return;
         }
       }
+
       await self.clients.openWindow(path);
     })(),
   );
