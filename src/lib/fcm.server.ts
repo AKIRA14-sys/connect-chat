@@ -112,16 +112,33 @@ export async function sendFcm(
   data["body"] = payload.body;
   if (payload.tag) data["tag"] = payload.tag;
 
+  // Heads-up (banner at top of screen) needs HIGH priority + a HIGH importance channel.
+  // Channel "xuppin_messages" is created in nativePush.ts on the device.
+  const iconUrl =
+    payload.data && typeof payload.data["icon"] === "string"
+      ? payload.data["icon"]
+      : undefined;
+
   const body = {
     message: {
       token,
-      notification: { title: payload.title, body: payload.body },
+      notification: {
+        title: payload.title,
+        body: payload.body,
+        ...(iconUrl ? { image: iconUrl } : {}),
+      },
       data,
       android: {
         priority: "HIGH",
+        ttl: "86400s",
         notification: {
+          channel_id: "xuppin_messages",
+          notification_priority: "PRIORITY_HIGH",
+          default_sound: true,
+          default_vibrate_timings: true,
           sound: "default",
           ...(payload.tag ? { tag: payload.tag } : {}),
+          ...(iconUrl ? { image: iconUrl } : {}),
           click_action: "FCM_PLUGIN_ACTIVITY",
         },
       },
