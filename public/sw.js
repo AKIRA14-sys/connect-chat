@@ -117,10 +117,15 @@ self.addEventListener("push", (event) => {
       icon: data.icon || ICON,
       badge: BADGE,
       tag: data.tag || `xuppin-${kind}`,
+      renotify: true,
+      vibrate: isCall ? [300, 100, 300, 100, 300] : [200, 100, 200],
+      // Helps some browsers keep the banner visible briefly
+      requireInteraction: isCall,
       data: {
         kind,
         conversationId: data.conversationId || null,
         callId: data.callId || null,
+        to: data.conversationId ? `/chats/${data.conversationId}` : "/chats",
       },
     }),
   );
