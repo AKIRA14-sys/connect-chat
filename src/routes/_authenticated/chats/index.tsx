@@ -1208,16 +1208,43 @@ function ChatsPage() {
               : "relative z-[1] min-h-screen"
           }
         >
-        <PageHeader
-          title="Chats"
-          action={
-            <div className="flex gap-2">
+        {/* —— XUPPIN brand header (mock UI) —— */}
+        <header className="sticky top-0 z-20 border-b border-white/5 bg-[#070b16]/75 px-4 pb-2 pt-3 backdrop-blur-xl safe-top">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 shadow-[0_0_24px_rgba(56,189,248,0.35)]">
+                <span className="text-lg font-black text-white">X</span>
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-black tracking-tight text-white">
+                  XUPPIN
+                </h1>
+                <p className="truncate text-[11px] font-medium text-slate-400">
+                  Chat · Connect · Share
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Link
+                to="/shop"
+                className="flex items-center gap-1.5 rounded-full border border-sky-400/30 bg-sky-500/10 px-2.5 py-1.5 text-xs font-bold text-sky-300 transition hover:bg-sky-500/20"
+                title="X Coins"
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-400/20 text-[10px]">
+                  ✦
+                </span>
+                <span className="tabular-nums">Shop</span>
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-sky-400/30 text-sm leading-none">
+                  +
+                </span>
+              </Link>
+
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={
-                  openPageAppearance
-                }
+                className="h-9 w-9 text-slate-300 hover:bg-white/10 hover:text-white"
+                onClick={openPageAppearance}
                 aria-label="Customize Chats"
               >
                 <Palette className="h-5 w-5" />
@@ -1227,6 +1254,7 @@ function ChatsPage() {
                 asChild
                 variant="ghost"
                 size="icon"
+                className="h-9 w-9 text-slate-300 hover:bg-white/10 hover:text-white"
                 aria-label="Transfer files"
               >
                 <Link to="/transfer">
@@ -1236,27 +1264,29 @@ function ChatsPage() {
 
               <Button
                 asChild
-                size="sm"
-                variant="outline"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-slate-300 hover:bg-white/10 hover:text-white"
+                aria-label="Contacts"
               >
-                <Link to="/groups/new">
-                  <Users className="h-4 w-4" />
-                  Group
+                <Link to="/contacts">
+                  <Users className="h-5 w-5" />
                 </Link>
               </Button>
 
               <Button
                 asChild
-                size="sm"
+                size="icon"
+                className="h-9 w-9 rounded-full bg-sky-500 text-white hover:bg-sky-400"
+                aria-label="New chat"
               >
                 <Link to="/contacts">
                   <PenSquare className="h-4 w-4" />
-                  New
                 </Link>
               </Button>
             </div>
-          }
-        />
+          </div>
+        </header>
 
         <NotificationPrompt />
 
@@ -1272,7 +1302,7 @@ function ChatsPage() {
                 )
               }
               placeholder="Search chats and messages..."
-              className="h-11 rounded-2xl border-white/10 bg-black/10 pl-10 transition-all duration-300 focus:bg-black/20 focus:ring-2 focus:ring-primary/20"
+              className="h-11 rounded-full border border-white/10 bg-white/5 pl-10 text-sm text-white placeholder:text-slate-500 transition-all duration-300 focus:border-sky-500/40 focus:bg-white/10 focus:ring-2 focus:ring-sky-500/20"
             />
 
             {search && (
@@ -1302,10 +1332,10 @@ function ChatsPage() {
                 onClick={() =>
                   setFilter(item.id)
                 }
-                className={`shrink-0 rounded-full px-4 py-2 text-xs font-medium transition ${
+                className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition ${
                   active
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-black/10 text-muted-foreground hover:bg-white/10"
+                    ? "bg-sky-500 text-white shadow-[0_0_16px_rgba(56,189,248,0.35)]"
+                    : "bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200"
                 }`}
               >
                 {item.label}
@@ -1333,6 +1363,70 @@ function ChatsPage() {
             );
           })}
         </div>
+
+        {/* Stories / XUP strip */}
+        <div className="flex gap-3 overflow-x-auto px-4 pb-3 pt-1 scrollbar-none">
+          <Link
+            to="/xups"
+            className="flex w-16 shrink-0 flex-col items-center gap-1.5"
+          >
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white/5 ring-2 ring-dashed ring-slate-600">
+              <span className="text-2xl text-slate-400">+</span>
+              <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-xs font-bold text-white ring-2 ring-[#0a0e1a]">
+                +
+              </span>
+            </div>
+            <span className="w-full truncate text-center text-[10px] font-medium text-slate-400">
+              Add story
+            </span>
+          </Link>
+
+          <Link
+            to="/xups"
+            className="flex w-16 shrink-0 flex-col items-center gap-1.5"
+          >
+            <div className="xuppin-story-ring">
+              <div className="xuppin-story-ring-inner">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-sky-500 to-indigo-600 text-sm font-black text-white">
+                  X
+                </div>
+              </div>
+            </div>
+            <span className="w-full truncate text-center text-[10px] font-medium text-slate-300">
+              XUP
+            </span>
+          </Link>
+
+          {visibleRows
+            .filter((row) => row.conv.type !== "group" && row.otherId)
+            .slice(0, 8)
+            .map((row) => (
+              <Link
+                key={`story-${row.conv.id}`}
+                to="/chats/$id"
+                params={{ id: row.conv.id }}
+                className="flex w-16 shrink-0 flex-col items-center gap-1.5"
+              >
+                <div className="xuppin-story-ring">
+                  <div className="xuppin-story-ring-inner relative">
+                    <UserAvatar
+                      path={row.avatar}
+                      name={row.title}
+                      bucket="avatars"
+                      className="h-12 w-12"
+                      {...(row.otherId && onlineIds.has(row.otherId)
+                        ? { online: true }
+                        : {})}
+                    />
+                  </div>
+                </div>
+                <span className="w-full truncate text-center text-[10px] font-medium text-slate-300">
+                  {row.title}
+                </span>
+              </Link>
+            ))}
+        </div>
+
 
         {isLoading ? (
           <div className="space-y-3 p-4">
@@ -1387,7 +1481,7 @@ function ChatsPage() {
               )}
           </div>
         ) : (
-          <ul className="space-y-1 px-2 pb-6">
+          <ul className="space-y-0.5 px-1 pb-8">
             <AuraChatListEntry />
             {visibleRows.map(
               (row) => {
@@ -1405,8 +1499,8 @@ function ChatsPage() {
                     <div
                       className={
                         pageMediaUrl
-                          ? "group flex items-center gap-2 rounded-2xl bg-black/30 transition-colors hover:bg-black/45"
-                          : "group flex items-center gap-2 rounded-2xl transition-colors hover:bg-black/10"
+                          ? "group flex items-center gap-2 rounded-2xl bg-black/30 transition-colors hover:bg-black/45 active:scale-[0.99]"
+                          : "group mx-1 flex items-center gap-2 rounded-2xl transition-colors hover:bg-white/5 active:scale-[0.99]"
                       }
                     >
                       <Link
