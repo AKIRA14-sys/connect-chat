@@ -182,7 +182,12 @@ async function fanout(
   await Promise.all(
     (fcmRows ?? []).map(async (row) => {
       try {
-        const result = await sendFcm(row.token, { title, body, data, tag });
+        const result = await sendFcm(
+  row.token,
+  tag !== undefined
+    ? { title, body, data, tag }
+    : { title, body, data },
+);
         if (result.expired) expiredFcm.push(row.token);
         else if (result.ok) sent++;
         else {
