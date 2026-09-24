@@ -4471,12 +4471,12 @@ const fileInput = useRef<HTMLInputElement | null>(null);
        * MESSAGES
        * ====================================================== */}
 
-      <div className="relative flex-1 space-y-1 px-3 py-3">
+      <div className="relative flex-1 space-y-0 px-3 py-3 xup-chat-wave-bg">
         {(wallpaperUrl ||
           effectiveAreaBackground ||
           shopWallpaperActive) && (
           <div
-            className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
+            className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
             style={{
               background: effectiveAreaBackground || undefined,
             }}
@@ -4596,8 +4596,24 @@ const fileInput = useRef<HTMLInputElement | null>(null);
           </div>
         )}
 
-        {messages.map((message) => {
+        {messages.map((message, index) => {
           const mine = !!user && String(message.sender_id) === String(user.id);
+          const prevMsg = index > 0 ? messages[index - 1] : null;
+          const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+          const sameAsPrev =
+            !!prevMsg &&
+            String(prevMsg.sender_id) === String(message.sender_id);
+          const sameAsNext =
+            !!nextMsg &&
+            String(nextMsg.sender_id) === String(message.sender_id);
+          const bubblePos = !sameAsPrev && !sameAsNext
+            ? "xup-b-only"
+            : !sameAsPrev && sameAsNext
+              ? "xup-b-first"
+              : sameAsPrev && sameAsNext
+                ? "xup-b-middle"
+                : "xup-b-last";
+
 
           const sender =
             profileMap.get(
@@ -4704,7 +4720,9 @@ const fileInput = useRef<HTMLInputElement | null>(null);
             <div
               id={`message-${message.id}`}
               key={message.id}
-              className={`group flex w-full gap-2 ${
+              className={`group flex w-full gap-2 xup-msg-row ${
+                sameAsPrev ? "xup-msg-follow" : ""
+              } ${
                 mine
                   ? "flex-row-reverse justify-start"
                   : "flex-row justify-start"
@@ -4759,22 +4777,18 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                 )}
 
                 <div
-                  className={`rounded-2xl px-3 py-2 text-sm transition-all duration-200 ${
+                  className={`text-sm transition-all duration-200 ${
                     sticker
-                      ? "bg-transparent px-1 py-1 shadow-none"
+                      ? "rounded-2xl bg-transparent px-1 py-1 shadow-none"
                       : mine
-                        ? "text-primary-foreground"
-                        : "bg-surface text-foreground"
+                        ? `xup-bubble-mine ${bubblePos}`
+                        : `xup-bubble-other ${bubblePos}`
                   } ${
                     hasSpecialEffect &&
                     !sticker
                       ? effectClass(
                           decoded.effect,
                         )
-                      : ""
-                  } ${
-                    mine && !sticker && !effectiveBubbleMine
-                      ? "bg-gradient-to-br from-primary to-primary/80"
                       : ""
                   }`}
                   style={
