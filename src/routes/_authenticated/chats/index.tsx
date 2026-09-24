@@ -8,7 +8,6 @@ import {
   Image,
   Upload,
   Loader2,
-  MoreVertical,
   Palette,
   PenSquare,
   Pin,
@@ -202,6 +201,8 @@ function ChatsPage() {
 
   const [menu, setMenu] =
     useState<MenuState>(null);
+  const [newSheetOpen, setNewSheetOpen] = useState(false);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [appearanceTarget, setAppearanceTarget] =
     useState<AppearanceTarget>(null);
@@ -1420,6 +1421,36 @@ function ChatsPage() {
                           id: row.conv.id,
                         }}
                         className="flex min-w-0 flex-1 items-center gap-3 px-2 py-3"
+                        onPointerDown={(e) => {
+                          if (e.button !== 0) return;
+                          if (longPressTimer.current) clearTimeout(longPressTimer.current);
+                          longPressTimer.current = setTimeout(() => {
+                            longPressTimer.current = null;
+                            setMenu({ row });
+                          }, 480);
+                        }}
+                        onPointerUp={() => {
+                          if (longPressTimer.current) {
+                            clearTimeout(longPressTimer.current);
+                            longPressTimer.current = null;
+                          }
+                        }}
+                        onPointerLeave={() => {
+                          if (longPressTimer.current) {
+                            clearTimeout(longPressTimer.current);
+                            longPressTimer.current = null;
+                          }
+                        }}
+                        onPointerCancel={() => {
+                          if (longPressTimer.current) {
+                            clearTimeout(longPressTimer.current);
+                            longPressTimer.current = null;
+                          }
+                        }}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setMenu({ row });
+                        }}
                       >
                         <div className="relative shrink-0">
                           <UserAvatar
@@ -1525,18 +1556,7 @@ function ChatsPage() {
                         </div>
                       </Link>
 
-                      <button
-                        type="button"
-                        aria-label={`Options for ${row.title}`}
-                        onClick={() =>
-                          setMenu({
-                            row,
-                          })
-                        }
-                        className="mr-1 shrink-0 rounded-full p-2 opacity-60 transition hover:bg-white/10 hover:opacity-100"
-                      >
-                        <MoreVertical className="h-5 w-5" />
-                      </button>
+
                     </div>
                   </li>
                 );
@@ -2179,6 +2199,97 @@ function ChatsPage() {
         )}
         </div>
       </div>
+
+        {/* New chat FAB + sheet */}
+        <button
+          type="button"
+          aria-label="New chat"
+          onClick={() => setNewSheetOpen(true)}
+          className="fixed bottom-[5.5rem] right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-cyan-400 text-2xl font-light text-slate-950 shadow-[0_8px_28px_rgba(34,211,238,0.45)] transition hover:bg-cyan-300 active:scale-95 sm:right-[calc(50%-16rem)]"
+        >
+          +
+        </button>
+
+        {newSheetOpen && (
+          <div
+            className="fixed inset-0 z-[95] flex items-end justify-center bg-black/60 p-3 sm:items-center"
+            onClick={() => setNewSheetOpen(false)}
+          >
+            <div
+              className="w-full max-w-md overflow-hidden rounded-3xl border border-white/10 bg-[#0a1220] p-2 shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="px-4 py-3 text-center text-lg font-semibold text-white">
+                New
+              </p>
+              <Link
+                to="/contacts"
+                onClick={() => setNewSheetOpen(false)}
+                className="mb-1 flex items-center gap-3 rounded-2xl px-4 py-3 text-left hover:bg-white/10"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300">
+                  <Search className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium text-white">Find people</span>
+                  <span className="block text-xs text-slate-400">
+                    Search users by username
+                  </span>
+                </span>
+              </Link>
+              <Link
+                to="/groups/new"
+                onClick={() => setNewSheetOpen(false)}
+                className="mb-1 flex items-center gap-3 rounded-2xl px-4 py-3 text-left hover:bg-white/10"
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300">
+                  <Users className="h-5 w-5" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium text-white">Create group</span>
+                  <span className="block text-xs text-slate-400">
+                    Start a group chat
+                  </span>
+                </span>
+              </Link>
+              <button
+                type="button"
+                className="mb-1 flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left hover:bg-white/10"
+                onClick={async () => {
+                  const url =
+                    typeof window !== "undefined"
+                      ? `${window.location.origin}/`
+                      : "https://xuppin.vercel.app/";
+                  try {
+                    await navigator.clipboard.writeText(url);
+                    toast.success("Invite link copied");
+                  } catch {
+                    toast.error("Could not copy link");
+                  }
+                  setNewSheetOpen(false);
+                }}
+              >
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-500/15 text-cyan-300 text-lg">
+                  🔗
+                </span>
+                <span className="min-w-0 flex-1 text-left">
+                  <span className="block font-medium text-white">Invite link</span>
+                  <span className="block text-xs text-slate-400">
+                    Copy app invite link
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewSheetOpen(false)}
+                className="mt-2 w-full rounded-2xl py-3 text-center text-sm font-medium text-cyan-300 hover:bg-white/5"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
     </AppShell>
   );
 }
