@@ -4778,20 +4778,13 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                 )}
 
                 <div
-                  className={`text-sm transition-all duration-200 ${
+                  className={
                     sticker
-                      ? "rounded-2xl bg-transparent px-1 py-1 shadow-none"
-                      : mine
-                        ? `xup-bubble-mine ${bubblePos}`
-                        : `xup-bubble-other ${bubblePos}`
-                  } ${
-                    hasSpecialEffect &&
-                    !sticker
-                      ? effectClass(
-                          decoded.effect,
-                        )
-                      : ""
-                  }`}
+                      ? "xup-bubble-sticker"
+                      : `xup-msg-bubble ${mine ? "xup-msg-bubble--mine" : "xup-msg-bubble--other"} ${bubblePos} ${
+                          hasSpecialEffect ? effectClass(decoded.effect) : ""
+                        }`
+                  }
                   style={
                     mine && !sticker && effectiveBubbleMine
                       ? {
@@ -4812,16 +4805,14 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                         : undefined
                   }
                 >
-                  {conv?.type ===
-                    "group" &&
-                    !mine && (
-                      <div className="mb-1 flex items-center gap-1.5">
-                        <p className={`truncate text-[11px] font-semibold ${getUserColor(message.sender_id)}`}>
-                          {sender?.display_name ||
-                            sender?.username ||
-                            "Unknown"}
-                        </p>
-                      </div>
+                  {conv?.type === "group" && !mine && (
+                      <p
+                        className={`xup-msg-sender-name ${getUserColor(message.sender_id)}`}
+                      >
+                        {sender?.display_name ||
+                          sender?.username ||
+                          "Unknown"}
+                      </p>
                     )}
 
                   {parent && (
@@ -4892,7 +4883,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                       }}
                     />
                   )}
-                  <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
+                  <div className="xup-msg-bubble-meta">
                     {message.edited_at &&
                       !deleted && (
                         <span>
