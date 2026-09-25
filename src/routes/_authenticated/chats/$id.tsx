@@ -60,6 +60,7 @@ import XupGames from "@/components/XupGames";
 import ChatCustomizeSheet from "@/components/ChatCustomizeSheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useOnlineStatus } from "@/components/ConnectionBanner";
 import {
   getChatCustomization,
@@ -3132,7 +3133,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
     setTimeout(() => {
       document
         .querySelector(
-          "input[placeholder='Message'], input[placeholder='Message (offline)']",
+          "textarea[placeholder='Message'], textarea[placeholder='Message (offline)'], input[placeholder='Message'], input[placeholder='Message (offline)']",
         )
         ?.scrollIntoView({
           behavior: "smooth",
@@ -4476,7 +4477,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
           effectiveAreaBackground ||
           shopWallpaperActive) && (
           <div
-            className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
+            className="xup-wallpaper-wall pointer-events-none overflow-hidden"
             style={{
               background: effectiveAreaBackground || undefined,
             }}
@@ -6082,25 +6083,34 @@ const fileInput = useRef<HTMLInputElement | null>(null);
            * INPUT
            * ================================================== */}
 
-          <Input
+          <Textarea
             value={text}
+            rows={1}
+            enterKeyHint="enter"
             onChange={(event) => {
-              setText(
-                event.target.value,
-              );
-
+              setText(event.target.value);
               broadcastTyping();
+              const el = event.target;
+              el.style.height = "auto";
+              el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+            }}
+            onKeyDown={(event) => {
+              // Enter = new line (default). Ctrl/Cmd+Enter = send.
+              if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                event.preventDefault();
+                const form = event.currentTarget.form;
+                if (form) form.requestSubmit();
+              }
             }}
             placeholder={
               recording
-                ? `Recording ${durationLabel(
-                    recSecs,
-                  )}`
+                ? `Recording ${durationLabel(recSecs)}`
                 : online
                   ? "Message"
                   : "Message (offline)"
             }
             disabled={recording}
+            className="max-h-[120px] min-h-[40px] flex-1 resize-none rounded-full border border-white/10 bg-black/20 px-4 py-2.5 text-sm leading-5 text-white placeholder:text-slate-400 focus-visible:ring-cyan-500/40"
           />
 
           {text.trim() ? (
