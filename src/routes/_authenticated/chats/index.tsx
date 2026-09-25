@@ -31,6 +31,8 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { getGamingWallet } from "@/lib/gaming.functions";
+import { XCoinIcon } from "@/components/gaming/XCoinIcon";
 import {
   loadCachedChatList,
   saveCachedChatList,
@@ -179,6 +181,53 @@ function readLocalChatName(conversationId: string): string | null {
 
 function ChatsPage() {
   const { user } = useAuth();
+  const { data: wallet } = useQuery({
+    queryKey: ["gaming-wallet", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      try {
+        return await getGamingWallet();
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 30_000,
+  });
+  const coinBalance = (wallet as { x_coins?: number; balance?: number } | null)?.x_coins
+    ?? (wallet as { balance?: number } | null)?.balance
+    ?? null;
+  const { data: xupPosters = [] } = useQuery({
+    queryKey: ["xup-story-posters"],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("xups")
+        .select("id, user_id, created_at, profiles:user_id(id, display_name, username, avatar_url)")
+        .order("created_at", { ascending: false })
+        .limit(24);
+      if (error) {
+        console.warn("xup posters", error.message);
+        return [] as { id: string; name: string; avatar: string | null }[];
+      }
+      const seen = new Set<string>();
+      const out: { id: string; name: string; avatar: string | null }[] = [];
+      for (const row of data ?? []) {
+        const uid = String((row as { user_id?: string }).user_id ?? "");
+        if (!uid || seen.has(uid)) continue;
+        seen.add(uid);
+        const p = (row as { profiles?: { display_name?: string; username?: string; avatar_url?: string | null } | null }).profiles;
+        out.push({
+          id: uid,
+          name: p?.display_name || p?.username || "User",
+          avatar: p?.avatar_url ?? null,
+        });
+        if (out.length >= 8) break;
+      }
+      return out;
+    },
+    staleTime: 60_000,
+  });
+
   const { onlineIds } = useRealtime();
   const qc = useQueryClient();
 
@@ -1225,6 +1274,12 @@ function ChatsPage() {
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {coinBalance != null && (
+                <div className="mr-1 flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-xs font-semibold text-cyan-200">
+                  <XCoinIcon className="h-4 w-4" />
+                  <span>{Number(coinBalance).toLocaleString()}</span>
+                </div>
+              )}
               <Button asChild variant="ghost" size="sm" className="rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20">
                 <Link to="/shop">Shop +</Link>
               </Button>
@@ -1233,12 +1288,6 @@ function ChatsPage() {
               </Button>
               <Button asChild variant="ghost" size="icon" aria-label="Transfer files">
                 <Link to="/transfer"><Upload className="h-5 w-5" /></Link>
-              </Button>
-              <Button asChild variant="ghost" size="icon" aria-label="New group">
-                <Link to="/groups/new"><Users className="h-5 w-5" /></Link>
-              </Button>
-              <Button asChild size="icon" className="rounded-full bg-sky-500 text-white hover:bg-sky-400" aria-label="New chat">
-                <Link to="/contacts"><PenSquare className="h-4 w-4" /></Link>
               </Button>
             </div>
           </div>
@@ -1337,6 +1386,22 @@ function ChatsPage() {
             </div>
             <span className="w-full truncate text-center text-[10px] text-slate-300">XUP</span>
           </Link>
+          {xupPosters.map((p) => (
+            <Link
+              key={p.id}
+              to="/xups"
+              className="flex w-16 shrink-0 flex-col items-center gap-1"
+            >
+              <div className="xuppin-story-ring">
+                <div className="xuppin-story-ring-inner flex h-12 w-12 items-center justify-center overflow-hidden rounded-full">
+                  <UserAvatar path={p.avatar} name={p.name} />
+                </div>
+              </div>
+              <span className="w-full truncate text-center text-[10px] text-slate-300">
+                {p.name}
+              </span>
+            </Link>
+          ))}
         </div>
 
 
