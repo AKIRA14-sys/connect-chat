@@ -1,0 +1,94 @@
+import type { CSSProperties, ReactNode } from "react";
+import { cn } from "@/lib/utils";
+import {
+  bubbleStyleToReact,
+  type SenderBubbleStyle,
+} from "@/lib/bubbleStyle";
+
+type BubblePos =
+  | "xup-b-only"
+  | "xup-b-first"
+  | "xup-b-middle"
+  | "xup-b-last";
+
+type Props = {
+  mine: boolean;
+  sticker?: boolean;
+  bubblePos?: BubblePos;
+  /** Group chats: sender display name on received messages. */
+  senderName?: string | null;
+  senderColorClass?: string;
+  className?: string;
+  style?: CSSProperties;
+  /** Validated sender customization shown to everyone. */
+  senderStyle?: SenderBubbleStyle | null;
+  children: ReactNode;
+  meta?: ReactNode;
+};
+
+/**
+ * XUPPIN message bubble.
+ *
+ * Direct chats:
+ * - no avatar is rendered here
+ * - compact fit-content bubbles
+ *
+ * Group chats:
+ * - the route should render the sender avatar beside received messages
+ * - senderName is rendered inside the received bubble
+ *
+ * Keep message data separate from bubble styling so sender cosmetics
+ * can safely be applied to the sender's messages.
+ */
+export function MessageBubble({
+  mine,
+  sticker,
+  bubblePos = "xup-b-only",
+  senderName,
+  senderColorClass,
+  className,
+  style,
+  senderStyle,
+  children,
+  meta,
+}: Props) {
+  if (sticker) {
+    return (
+      <div className={cn("xup-bubble-sticker", className)} style={style}>
+        {children}
+        {meta}
+      </div>
+    );
+  }
+
+  const custom = bubbleStyleToReact(senderStyle, mine);
+
+  const safeSenderName =
+    !mine && typeof senderName === "string" ? senderName.trim() : "";
+
+  return (
+    <div
+      className={cn(
+        "xup-msg-bubble",
+        mine ? "xup-msg-bubble--mine" : "xup-msg-bubble--other",
+        bubblePos,
+        className,
+      )}
+      style={{ ...custom, ...style }}
+    >
+      {safeSenderName ? (
+        <p className={cn("xup-msg-sender-name", senderColorClass)}>
+          {safeSenderName}
+        </p>
+      ) : null}
+
+      <div className="xup-msg-bubble-body">{children}</div>
+
+      {meta ? (
+        <div className="xup-msg-bubble-meta">
+          {meta}
+        </div>
+      ) : null}
+    </div>
+  );
+}
