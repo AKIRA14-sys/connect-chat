@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
+import { Route as AuthenticatedAuraRouteImport } from './routes/_authenticated/aura'
 import { Route as AuthenticatedCallsRouteImport } from './routes/_authenticated/calls'
 import { Route as AuthenticatedContactsRouteImport } from './routes/_authenticated/contacts'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
@@ -43,6 +44,11 @@ const AuthRoute = AuthRouteImport.update({
 const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAuraRoute = AuthenticatedAuraRouteImport.update({
+  id: '/aura',
+  path: '/aura',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedCallsRoute = AuthenticatedCallsRouteImport.update({
@@ -110,6 +116,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/aura': typeof AuthenticatedAuraRoute
   '/calls': typeof AuthenticatedCallsRoute
   '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -127,6 +134,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/admin': typeof AuthenticatedAdminRoute
+  '/aura': typeof AuthenticatedAuraRoute
   '/calls': typeof AuthenticatedCallsRoute
   '/contacts': typeof AuthenticatedContactsRoute
   '/settings': typeof AuthenticatedSettingsRoute
@@ -146,6 +154,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
+  '/_authenticated/aura': typeof AuthenticatedAuraRoute
   '/_authenticated/calls': typeof AuthenticatedCallsRoute
   '/_authenticated/contacts': typeof AuthenticatedContactsRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
@@ -165,6 +174,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/admin'
+    | '/aura'
     | '/calls'
     | '/contacts'
     | '/settings'
@@ -182,6 +192,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/admin'
+    | '/aura'
     | '/calls'
     | '/contacts'
     | '/settings'
@@ -200,6 +211,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/_authenticated/admin'
+    | '/_authenticated/aura'
     | '/_authenticated/calls'
     | '/_authenticated/contacts'
     | '/_authenticated/settings'
@@ -249,6 +261,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/aura': {
+      id: '/_authenticated/aura'
+      path: '/aura'
+      fullPath: '/aura'
+      preLoaderRoute: typeof AuthenticatedAuraRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/calls': {
@@ -340,6 +359,7 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
+  AuthenticatedAuraRoute: typeof AuthenticatedAuraRoute
   AuthenticatedCallsRoute: typeof AuthenticatedCallsRoute
   AuthenticatedContactsRoute: typeof AuthenticatedContactsRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
@@ -355,6 +375,7 @@ interface AuthenticatedRouteRouteChildren {
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminRoute: AuthenticatedAdminRoute,
+  AuthenticatedAuraRoute: AuthenticatedAuraRoute,
   AuthenticatedCallsRoute: AuthenticatedCallsRoute,
   AuthenticatedContactsRoute: AuthenticatedContactsRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,

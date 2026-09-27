@@ -377,16 +377,16 @@
 .xup-msg-bubble {
   display: inline-block;
   width: fit-content;
-  max-width: min(78%, 20rem);
-  min-width: 2.75rem;
-  min-height: 2.25rem; /* ~36–40px */
-  padding: 0.5rem 0.875rem; /* ~8px 14px */
+  max-width: min(70%, 17.5rem);
+  min-width: 2.5rem;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.65rem 0.3rem;
   box-sizing: border-box;
   word-break: break-word;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
-  line-height: 1.45;
-  font-size: 0.9375rem; /* 15px */
+  line-height: 1.38;
+  font-size: 0.885rem;
   position: relative;
 }
 

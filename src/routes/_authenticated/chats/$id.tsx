@@ -949,7 +949,7 @@ function MediaBubble({
           alt="Shared"
           loading="lazy"
           decoding="async"
-          className="max-h-72 rounded-xl object-cover"
+          className="max-h-60 max-w-[13rem] rounded-xl object-cover shadow-sm"
         />
       </button>
     );
@@ -3259,8 +3259,8 @@ const fileInput = useRef<HTMLInputElement | null>(null);
     const touch = event.touches[0];
     const dx = Math.abs((touch?.clientX ?? 0) - meta.x);
     const dy = Math.abs((touch?.clientY ?? 0) - meta.y);
-    // Moving finger cancels long-press (allows swipe-to-reply)
-    if (dx > 12 || dy > 12) {
+    // Moving finger cancels long-press (allows scrolling and swipe-to-reply)
+    if (dx > 6 || dy > 6) {
       clearLongPress(messageId);
     }
   }
@@ -4569,7 +4569,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
           </div>
         )}
 
-        <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3">
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3 touch-pan-y">
         {hasMore && (
           <div className="flex justify-center pb-2">
             <Button
