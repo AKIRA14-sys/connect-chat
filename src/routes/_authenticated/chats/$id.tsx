@@ -4472,12 +4472,12 @@ const fileInput = useRef<HTMLInputElement | null>(null);
        * MESSAGES
        * ====================================================== */}
 
-      <div className="relative flex-1 space-y-0 px-3 py-3 xup-chat-wave-bg">
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {(wallpaperUrl ||
           effectiveAreaBackground ||
           shopWallpaperActive) && (
           <div
-            className="xup-wallpaper-wall pointer-events-none overflow-hidden"
+            className="xup-wallpaper-wall pointer-events-none absolute inset-0 z-0 overflow-hidden"
             style={{
               background: effectiveAreaBackground || undefined,
             }}
@@ -4570,6 +4570,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
           </div>
         )}
 
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-3">
         {hasMore && (
           <div className="flex justify-center pb-2">
             <Button
@@ -4745,16 +4746,21 @@ const fileInput = useRef<HTMLInputElement | null>(null);
               }
               style={{ WebkitTouchCallout: "none", userSelect: "none" }}
             >
-              <div className="shrink-0">
-                <UserAvatar
-                  path={sender?.avatar_url ?? null}
-                  name={sender?.display_name || sender?.username || "User"}
-                  size="sm"
-                  userId={message.sender_id}
-                />
-              </div>
+              {conv?.type === "group" && !mine && !sameAsPrev ? (
+                <div className="mb-0.5 w-7 shrink-0 self-end">
+                  <UserAvatar
+                    path={sender?.avatar_url ?? null}
+                    name={sender?.display_name || sender?.username || "User"}
+                    size="sm"
+                    userId={message.sender_id}
+                    className="h-7 w-7 text-[10px]"
+                  />
+                </div>
+              ) : conv?.type === "group" && !mine && sameAsPrev ? (
+                <div className="w-7 shrink-0" aria-hidden />
+              ) : null}
               <div
-                className={`relative max-w-[82%] transition-transform ${
+                className={`relative max-w-[min(82%,20rem)] transition-transform ${
                   swiping
                     ? "translate-x-3"
                     : ""
@@ -5132,6 +5138,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
         )}
 
         <div ref={bottom} />
+        </div>
       </div>
 
       {/* ======================================================
