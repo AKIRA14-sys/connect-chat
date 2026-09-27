@@ -535,7 +535,7 @@ export function RealtimeProvider({
       .catch(() => undefined);
   }, [
     state.phase,
-    callKind,
+    state.phase !== "idle" ? state.kind : null,
     sharingScreen,
   ]);
 
@@ -569,7 +569,7 @@ export function RealtimeProvider({
     }
   }, [
     state.phase,
-    callKind,
+    state.phase !== "idle" ? state.kind : null,
     remoteStreamVersion,
   ]);
 
@@ -649,12 +649,22 @@ export function RealtimeProvider({
       pc.ontrack = (event) => {
         console.log("[WHATSXUP WEBRTC] Remote track received:", event.track.kind, event.track.id);
 
+        if (event.track) {
+          event.track.onunmute = () => {
+            console.log("[WHATSXUP WEBRTC] Track unmuted:", event.track.kind);
+            setRemoteStreamVersion((v) => v + 1);
+          };
+        }
+
         const incomingTracks =
           event.streams[0]?.getTracks();
 
         if (incomingTracks && incomingTracks.length > 0) {
           incomingTracks.forEach(
             (track) => {
+              track.onunmute = () => {
+                setRemoteStreamVersion((v) => v + 1);
+              };
               if (
                 !remote
                   .getTracks()
