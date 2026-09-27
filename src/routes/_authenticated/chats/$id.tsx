@@ -3817,7 +3817,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
 
   return (
     <div
-      className="mx-auto flex min-h-screen w-full max-w-2xl flex-col app-gradient"
+      className="mx-auto flex h-[100dvh] w-full max-w-2xl flex-col overflow-hidden app-gradient"
       style={{ fontFamily: activeFontFamily }}
     >
       {/* ======================================================
