@@ -18,6 +18,8 @@ import {
   Mic,
   MoreVertical,
   Pencil,
+  Pin,
+  Search,
   Phone,
   Plus,
   Reply,
@@ -784,10 +786,19 @@ function VoiceNotePlayer({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [playbackSpeed, setPlaybackSpeed] = useState<1 | 1.5 | 2>(1);
   const [duration, setDuration] = useState(
     durationSec && durationSec > 0 ? durationSec : 0,
   );
   const bars = useMemo(() => buildPseudoWaveform(path), [path]);
+
+  const toggleSpeed = () => {
+    const nextSpeed = playbackSpeed === 1 ? 1.5 : playbackSpeed === 1.5 ? 2 : 1;
+    setPlaybackSpeed(nextSpeed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextSpeed;
+    }
+  };
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -901,9 +912,19 @@ function VoiceNotePlayer({
             );
           })}
         </button>
-        <div className="mt-1 flex justify-between text-[10px] opacity-70">
+        <div className="mt-1 flex items-center justify-between text-[10px] opacity-70">
           <span>{durationLabel(elapsed)}</span>
-          <span>{durationLabel(duration || durationSec || 0)}</span>
+          <div className="flex items-center gap-1">
+            <span>{durationLabel(duration || durationSec || 0)}</span>
+            <button
+              type="button"
+              onClick={toggleSpeed}
+              className="rounded bg-black/20 px-1 py-0.5 text-[9px] font-bold hover:bg-black/30"
+              title="Voice note speed"
+            >
+              {playbackSpeed}x
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1029,6 +1050,9 @@ function ChatRoom() {
     { id: string; title: string }[]
   >([]);
   const [forwardBusy, setForwardBusy] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pinnedMessageId, setPinnedMessageId] = useState<string | null>(null);
 
   async function handleMentionClick(username: string) {
     const { data: profile } = await supabase
@@ -4270,6 +4294,15 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                 <VideoIcon className="h-5 w-5" />
               </Button>
 
+              <Button
+                size="icon"
+                variant="ghost"
+                title="Search messages"
+                onClick={() => setSearchOpen((prev) => !prev)}
+              >
+                <Search className="h-5 w-5" />
+              </Button>
+
               {/* ==========================================
                * CHAT MENU (three-dot)
                * ========================================== */}
@@ -4467,6 +4500,65 @@ const fileInput = useRef<HTMLInputElement | null>(null);
         </div>
       )}
 
+      {searchOpen && (
+        <div className="flex items-center gap-2 border-b border-border/40 bg-surface/90 px-3 py-2 text-xs">
+          <Search className="h-4 w-4 shrink-0 opacity-60" />
+          <input
+            type="text"
+            placeholder="Search messages..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            autoFocus
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery("")}
+              className="text-xs opacity-60 hover:opacity-100"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setSearchOpen(false);
+              setSearchQuery("");
+            }}
+            className="font-medium text-primary text-xs"
+          >
+            Done
+          </button>
+        </div>
+      )}
+
+      {pinnedMessageId && (() => {
+        const pm = messages.find((m) => m.id === pinnedMessageId);
+        if (!pm) return null;
+        return (
+          <div className="flex items-center justify-between border-b border-border/40 bg-primary/10 px-3 py-1.5 text-xs text-primary backdrop-blur">
+            <button
+              type="button"
+              onClick={() => jumpToMessage(pm.id)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              <Pin className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate font-medium">
+                Pinned: {pm.content || "Attachment"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPinnedMessageId(null)}
+              className="ml-2 text-xs opacity-60 hover:opacity-100"
+            >
+              Unpin
+            </button>
+          </div>
+        );
+      })()}
+
       {/* ======================================================
        * MESSAGES
        * ====================================================== */}
@@ -4597,10 +4689,18 @@ const fileInput = useRef<HTMLInputElement | null>(null);
           </div>
         )}
 
-        {messages.map((message, index) => {
+        {messages
+          .filter(
+            (m) =>
+              !searchQuery.trim() ||
+              (m.content || "")
+                .toLowerCase()
+                .includes(searchQuery.toLowerCase()),
+          )
+          .map((message, index, filteredArr) => {
           const mine = !!user && String(message.sender_id) === String(user.id);
-          const prevMsg = index > 0 ? messages[index - 1] : null;
-          const nextMsg = index < messages.length - 1 ? messages[index + 1] : null;
+          const prevMsg = index > 0 ? filteredArr[index - 1] : null;
+          const nextMsg = index < filteredArr.length - 1 ? filteredArr[index + 1] : null;
           const sameAsPrev =
             !!prevMsg &&
             String(prevMsg.sender_id) === String(message.sender_id);

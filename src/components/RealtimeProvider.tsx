@@ -13,13 +13,17 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 import {
   Camera,
   CameraOff,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   MonitorUp,
   Phone,
   PhoneOff,
   PictureInPicture2,
   Video,
+  VideoOff,
+  Wifi,
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -193,6 +197,8 @@ export function RealtimeProvider({
   const [seconds, setSeconds] = useState(0);
   const [sharingScreen, setSharingScreen] = useState(false);
   const [pipActive, setPipActive] = useState(false);
+  const [minimized, setMinimized] = useState(false);
+  const [networkQuality, setNetworkQuality] = useState<"good" | "fair" | "weak">("good");
   const [remoteStreamVersion, setRemoteStreamVersion] = useState(0);
 
   /*
@@ -1550,6 +1556,59 @@ export function RealtimeProvider({
 
   /*
    * =======================================================
+   * DYNAMIC VOICE ↔ VIDEO MODE SWITCH
+   * =======================================================
+   */
+
+  const toggleCallMode = useCallback(async () => {
+    if (state.phase !== "active" || !pcRef.current) return;
+    const targetKind: CallKind = state.kind === "voice" ? "video" : "voice";
+
+    try {
+      if (targetKind === "video") {
+        const videoStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+        const videoTrack = videoStream.getVideoTracks()[0];
+        if (!videoTrack) return;
+
+        if (localRef.current) {
+          localRef.current.addTrack(videoTrack);
+        } else {
+          localRef.current = videoStream;
+        }
+
+        const sender = pcRef.current.getSenders().find((s) => s.track?.kind === "video");
+        if (sender) {
+          await sender.replaceTrack(videoTrack);
+        } else {
+          pcRef.current.addTrack(videoTrack, localRef.current);
+        }
+        setCamOff(false);
+      } else {
+        const videoTrack = localRef.current?.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.stop();
+          localRef.current?.removeTrack(videoTrack);
+        }
+        const sender = pcRef.current.getSenders().find((s) => s.track?.kind === "video");
+        if (sender) {
+          await sender.replaceTrack(null);
+        }
+      }
+
+      void send(state.peerId, "mode-switch", { kind: targetKind });
+      setState((curr) => (curr.phase === "active" ? { ...curr, kind: targetKind } : curr));
+      toast.info(`Switched to ${targetKind} call`);
+    } catch (error) {
+      console.error("[WHATSXUP MODE SWITCH]", error);
+      toast.error("Could not switch call mode.");
+    }
+  }, [state, send]);
+
+  /*
+   * =======================================================
    * PICTURE IN PICTURE
    * =======================================================
    */
@@ -1570,6 +1629,29 @@ export function RealtimeProvider({
       console.error("[WHATSXUP PIP]", error);
     }
   }, []);
+
+  /*
+   * Network Quality Stats Monitor
+   */
+  useEffect(() => {
+    if (state.phase !== "active" || !pcRef.current) return;
+    const interval = setInterval(async () => {
+      try {
+        const stats = await pcRef.current?.getStats();
+        stats?.forEach((report) => {
+          if (report.type === "candidate-pair" && report.state === "succeeded") {
+            const rtt = (report.currentRoundTripTime || 0) * 1000;
+            if (rtt < 120) setNetworkQuality("good");
+            else if (rtt < 300) setNetworkQuality("fair");
+            else setNetworkQuality("weak");
+          }
+        });
+      } catch {
+        // ignore
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [state.phase]);
 
   /*
    * =======================================================
@@ -1997,201 +2079,165 @@ export function RealtimeProvider({
     >
       {children}
 
-      {state.phase !==
-        "idle" && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-between bg-background app-gradient px-6 py-12 safe-bottom">
-          <div className="flex flex-col items-center gap-4 pt-10 text-center">
-            <UserAvatar
-              path={
-                state.peerAvatar
-              }
-              name={
-                state.peerName
-              }
-              size="xl"
-            />
-
+      {state.phase !== "idle" && minimized && (
+        <div className="fixed top-3 left-3 right-3 z-[250] flex items-center justify-between rounded-2xl border border-primary/30 bg-surface/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-top-4">
+          <div className="flex items-center gap-3">
+            <UserAvatar path={state.peerAvatar} name={state.peerName} size="sm" />
             <div>
-              <h2 className="text-2xl font-semibold">
-                {
-                  state.peerName
-                }
-              </h2>
-
-              <p className="text-sm text-muted-foreground">
-                {state.phase ===
-                "incoming"
-                  ? `Incoming ${state.kind} call`
-                  : state.phase ===
-                    "outgoing"
-                    ? "Ringing…"
-                    : durationLabel(
-                        seconds,
-                      )}
+              <p className="font-semibold text-xs leading-tight">{state.peerName}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {state.phase === "active" ? durationLabel(seconds) : "Ringing…"}
               </p>
             </div>
           </div>
+          <div className="flex items-center gap-1.5">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 rounded-full"
+              onClick={() => setMinimized(false)}
+            >
+              <Maximize2 className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="destructive"
+              className="h-8 w-8 rounded-full"
+              onClick={() => void hangUp()}
+            >
+              <PhoneOff className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
-          {state.kind ===
-            "video" && (
-            <div className="relative my-6 w-full max-w-md flex-1 overflow-hidden rounded-3xl bg-black">
+      {state.phase !== "idle" && !minimized && (
+        <div className="fixed inset-0 z-[200] flex flex-col items-center justify-between bg-black px-6 py-10 safe-top safe-bottom">
+          <audio ref={remoteAudio} autoPlay />
+
+          <div className="z-10 flex w-full max-w-md items-center justify-between pt-2">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-10 w-10 rounded-full bg-white/10 text-white hover:bg-white/20"
+              onClick={() => setMinimized(true)}
+              title="Minimize call to chat"
+            >
+              <Minimize2 className="h-5 w-5" />
+            </Button>
+
+            {state.phase === "active" && (
+              <div className="flex items-center gap-1 rounded-full bg-black/50 px-3 py-1 text-xs text-white/90 backdrop-blur-md">
+                <Wifi
+                  className={`h-3.5 w-3.5 ${
+                    networkQuality === "good"
+                      ? "text-emerald-400"
+                      : networkQuality === "fair"
+                        ? "text-amber-400"
+                        : "text-rose-400"
+                  }`}
+                />
+                <span>{durationLabel(seconds)}</span>
+              </div>
+            )}
+          </div>
+
+          {state.kind === "video" ? (
+            <div className="relative my-4 h-full w-full max-w-md overflow-hidden rounded-3xl bg-neutral-950 shadow-2xl">
               <video
-                ref={
-                  remoteVideo
-                }
+                ref={remoteVideo}
                 autoPlay
                 playsInline
                 className="h-full w-full object-cover"
               />
 
-              <div className="absolute right-3 top-3 h-36 w-28 overflow-hidden rounded-2xl border-2 border-white/30 bg-black shadow-xl">
+              <div className="absolute right-3 top-3 h-36 w-28 overflow-hidden rounded-2xl border-2 border-white/30 bg-black shadow-2xl">
                 <video
-                  ref={
-                    localVideo
-                  }
+                  ref={localVideo}
                   autoPlay
                   playsInline
                   muted
                   className="h-full w-full object-cover"
                 />
-
-                <div className="absolute bottom-1 left-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[9px] text-white">
+                <div className="absolute bottom-1 left-1 rounded bg-black/60 px-1 py-0.5 text-[9px] text-white">
                   You
                 </div>
               </div>
 
               {sharingScreen && (
-                <div className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
-                  Sharing screen
+                <div className="absolute left-3 top-3 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-lg">
+                  Screen sharing
                 </div>
               )}
             </div>
+          ) : (
+            <div className="my-auto flex flex-col items-center gap-4 text-center">
+              <UserAvatar path={state.peerAvatar} name={state.peerName} size="xl" />
+              <div>
+                <h2 className="text-2xl font-bold text-white">{state.peerName}</h2>
+                <p className="mt-1 text-sm text-white/70">
+                  {state.phase === "incoming"
+                    ? "Incoming voice call…"
+                    : state.phase === "outgoing"
+                      ? "Ringing…"
+                      : durationLabel(seconds)}
+                </p>
+              </div>
+            </div>
           )}
 
-          <audio
-            ref={
-              remoteAudio
-            }
-            autoPlay
-          />
-
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            {state.phase ===
-              "active" && (
+          <div className="z-10 flex flex-wrap items-center justify-center gap-3 pt-4">
+            {state.phase === "active" && (
               <>
                 <Button
                   size="icon"
-                  variant={
-                    muted
-                      ? "secondary"
-                      : "outline"
-                  }
-                  className="h-14 w-14 rounded-full"
+                  variant={muted ? "secondary" : "outline"}
+                  className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
                   onClick={() => {
-                    const next =
-                      !muted;
-
-                    setMuted(
-                      next,
-                    );
-
-                    localRef.current
-                      ?.getAudioTracks()
-                      .forEach(
-                        (
-                          track,
-                        ) => {
-                          track.enabled =
-                            !next;
-                        },
-                      );
+                    const next = !muted;
+                    setMuted(next);
+                    localRef.current?.getAudioTracks().forEach((track) => {
+                      track.enabled = !next;
+                    });
                   }}
                 >
-                  {muted ? (
-                    <MicOff />
-                  ) : (
-                    <Mic />
-                  )}
+                  {muted ? <MicOff /> : <Mic />}
                 </Button>
 
-                {state.kind ===
-                  "video" && (
-                  <Button
-                    size="icon"
-                    variant={
-                      camOff
-                        ? "secondary"
-                        : "outline"
-                    }
-                    disabled={
-                      sharingScreen
-                    }
-                    className="h-14 w-14 rounded-full"
-                    onClick={() => {
-                      const next =
-                        !camOff;
+                <Button
+                  size="icon"
+                  variant={state.kind === "video" ? "secondary" : "outline"}
+                  className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
+                  onClick={() => void toggleCallMode()}
+                  title={state.kind === "video" ? "Switch to Voice Call" : "Switch to Video Call"}
+                >
+                  {state.kind === "video" ? <Video /> : <VideoOff />}
+                </Button>
 
-                      setCamOff(
-                        next,
-                      );
-
-                      localRef.current
-                        ?.getVideoTracks()
-                        .forEach(
-                          (
-                            track,
-                          ) => {
-                            track.enabled =
-                              !next;
-                          },
-                        );
-                    }}
-                  >
-                    {camOff ? (
-                      <CameraOff />
-                    ) : (
-                      <Camera />
-                    )}
-                  </Button>
-                )}
-
-                {state.kind ===
-                  "video" && (
-                  <Button
-                    size="icon"
-                    variant="outline"
-                    disabled={
-                      sharingScreen
-                    }
-                    className="h-14 w-14 rounded-full"
-                    onClick={() =>
-                      void switchCamera()
-                    }
-                  >
-                    <Video />
-                  </Button>
-                )}
-
-                {state.kind ===
-                  "video" && (
+                {state.kind === "video" && (
                   <>
                     <Button
                       size="icon"
-                      variant={
-                        sharingScreen
-                          ? "secondary"
-                          : "outline"
-                      }
-                      title={
-                        sharingScreen
-                          ? "Stop sharing screen"
-                          : "Share screen"
-                      }
-                      className="h-14 w-14 rounded-full"
+                      variant={camOff ? "secondary" : "outline"}
+                      disabled={sharingScreen}
+                      className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
                       onClick={() => {
-                        if (
-                          sharingScreen
-                        ) {
+                        const next = !camOff;
+                        setCamOff(next);
+                        localRef.current?.getVideoTracks().forEach((track) => {
+                          track.enabled = !next;
+                        });
+                      }}
+                    >
+                      {camOff ? <CameraOff /> : <Camera />}
+                    </Button>
+
+                    <Button
+                      size="icon"
+                      variant={sharingScreen ? "secondary" : "outline"}
+                      className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
+                      onClick={() => {
+                        if (sharingScreen) {
                           void restoreCameraAfterScreenShare();
                         } else {
                           void shareScreen();
@@ -2203,16 +2249,9 @@ export function RealtimeProvider({
 
                     <Button
                       size="icon"
-                      variant={
-                        pipActive
-                          ? "secondary"
-                          : "outline"
-                      }
-                      title="Picture in Picture"
-                      className="h-14 w-14 rounded-full"
-                      onClick={() =>
-                        void togglePictureInPicture()
-                      }
+                      variant={pipActive ? "secondary" : "outline"}
+                      className="h-14 w-14 rounded-full border-white/20 bg-white/10 text-white hover:bg-white/20"
+                      onClick={() => void togglePictureInPicture()}
                     >
                       <PictureInPicture2 />
                     </Button>
@@ -2221,33 +2260,23 @@ export function RealtimeProvider({
               </>
             )}
 
-            {state.phase ===
-              "incoming" && (
+            {state.phase === "incoming" && (
               <Button
                 size="icon"
-                className="h-16 w-16 rounded-full"
-                onClick={() =>
-                  void accept()
-                }
+                className="h-16 w-16 rounded-full bg-emerald-500 text-white hover:bg-emerald-600 shadow-xl"
+                onClick={() => void accept()}
               >
-                <Phone />
+                <Phone className="h-7 w-7" />
               </Button>
             )}
 
             <Button
               size="icon"
               variant="destructive"
-              className="h-16 w-16 rounded-full"
-              onClick={() =>
-                void (
-                  state.phase ===
-                  "incoming"
-                    ? decline()
-                    : hangUp()
-                )
-              }
+              className="h-16 w-16 rounded-full shadow-xl"
+              onClick={() => void (state.phase === "incoming" ? decline() : hangUp())}
             >
-              <PhoneOff />
+              <PhoneOff className="h-7 w-7" />
             </Button>
           </div>
         </div>

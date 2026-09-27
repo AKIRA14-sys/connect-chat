@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useProfile";
 import { auraChat, getAuraStatus, type AuraMessage } from "@/lib/aura.functions";
+import { checkAuraAccess, recordCompletedMission, MISSIONS_LIST } from "@/lib/missions.functions";
 import {
   getAdminUnlimitedCoins,
   setAdminUnlimitedCoins,
@@ -69,7 +71,22 @@ function saveMemory(lines: Line[]) {
 
 function AuraPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: isAdmin, isLoading: adminLoading } = useIsAdmin();
+  const [access, setAccess] = useState<{
+    allowed: boolean;
+    completedMissions: number;
+    coins: number;
+    requiredMissions: number;
+    requiredCoins: number;
+    isAdmin: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    if (user?.id) {
+      void checkAuraAccess(user.id).then(setAccess);
+    }
+  }, [user?.id]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [lines, setLines] = useState<Line[]>(DEFAULT_LINES);
   const [hydrated, setHydrated] = useState(false);
@@ -230,14 +247,67 @@ function AuraPage() {
     );
   }
 
-  if (!isAdmin) {
+  if (!isAdmin && access && !access.allowed) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 app-gradient px-6 text-center">
-        <h1 className="text-xl font-semibold">AURA is admin-only</h1>
-        <p className="text-sm text-muted-foreground">
-          Later AURA can help everyone. For now only the master admin can open this chat.
-        </p>
-        <Button onClick={() => void navigate({ to: "/chats" })}>Back to chats</Button>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 app-gradient px-6 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/15 text-primary shadow-xl ring-1 ring-primary/30">
+          <Sparkles className="h-8 w-8" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold">Unlock AURA AI Assistant</h1>
+          <p className="mt-1 max-w-sm text-xs text-muted-foreground">
+            AURA AI is available for Master Admin for free, or for members who complete the required milestones:
+          </p>
+        </div>
+
+        <div className="w-full max-w-xs space-y-3 rounded-2xl border border-border/60 bg-surface/90 p-4 text-left shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium">🎯 Completed Missions:</span>
+            <span className={access.completedMissions >= access.requiredMissions ? "font-bold text-emerald-400" : "font-bold text-amber-400"}>
+              {access.completedMissions} / {access.requiredMissions}
+            </span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full bg-primary transition-all"
+              style={{ width: `${Math.min(100, (access.completedMissions / access.requiredMissions) * 100)}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-xs pt-1">
+            <span className="font-medium">🪙 Shop Wallet Balance:</span>
+            <span className={access.coins >= 2000 ? "font-bold text-emerald-400" : "font-bold text-amber-400"}>
+              {access.coins.toLocaleString()} / 2,000 XCoins
+            </span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full bg-emerald-400 transition-all"
+              style={{ width: `${Math.min(100, (access.coins / 2000) * 100)}%` }}
+            />
+          </div>
+
+          <Button
+            type="button"
+            className="w-full mt-2 text-xs font-semibold"
+            onClick={() => {
+              const randomMission = MISSIONS_LIST[Math.floor(Math.random() * MISSIONS_LIST.length)];
+              if (randomMission) {
+                recordCompletedMission(randomMission.id);
+                toast.success(`Completed Mission: ${randomMission.title}!`);
+                if (user?.id) {
+                  void checkAuraAccess(user.id).then(setAccess);
+                }
+              }
+            }}
+          >
+            🎯 Claim Daily Mission Task (+1 Mission)
+          </Button>
+        </div>
+
+        <Button onClick={() => void navigate({ to: "/chats" })} variant="outline" className="mt-2">
+          Back to Chats
+        </Button>
       </div>
     );
   }
