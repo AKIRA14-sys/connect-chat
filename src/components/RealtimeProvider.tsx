@@ -18,6 +18,7 @@ import {
   MonitorUp,
   Phone,
   PhoneOff,
+  PictureInPicture2,
   Video,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -191,6 +192,8 @@ export function RealtimeProvider({
   const [camOff, setCamOff] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [sharingScreen, setSharingScreen] = useState(false);
+  const [pipActive, setPipActive] = useState(false);
+  const [remoteStreamVersion, setRemoteStreamVersion] = useState(0);
 
   /*
    * =======================================================
@@ -408,6 +411,7 @@ export function RealtimeProvider({
     setCamOff(false);
     setSeconds(0);
     setSharingScreen(false);
+    setRemoteStreamVersion(0);
 
     setState({
       phase: "idle",
@@ -537,6 +541,40 @@ export function RealtimeProvider({
 
   /*
    * =======================================================
+   * SYNC REMOTE STREAM TO VIDEO/AUDIO ELEMENTS
+   * =======================================================
+   */
+
+  useEffect(() => {
+    if (state.phase === "idle" || !remoteRef.current) return;
+
+    const remoteStream = remoteRef.current;
+
+    if (remoteVideo.current && state.kind === "video") {
+      if (remoteVideo.current.srcObject !== remoteStream) {
+        remoteVideo.current.srcObject = remoteStream;
+      }
+      void remoteVideo.current.play().catch((err) => {
+        console.warn("[WHATSXUP WEBRTC] Remote video playback error:", err);
+      });
+    }
+
+    if (remoteAudio.current) {
+      if (remoteAudio.current.srcObject !== remoteStream) {
+        remoteAudio.current.srcObject = remoteStream;
+      }
+      void remoteAudio.current.play().catch((err) => {
+        console.warn("[WHATSXUP WEBRTC] Remote audio playback error:", err);
+      });
+    }
+  }, [
+    state.phase,
+    callKind,
+    remoteStreamVersion,
+  ]);
+
+  /*
+   * =======================================================
    * APPLY PENDING ICE
    * =======================================================
    */
@@ -604,15 +642,17 @@ export function RealtimeProvider({
         });
 
       const remote =
-        new MediaStream();
+        remoteRef.current || new MediaStream();
 
       remoteRef.current = remote;
 
       pc.ontrack = (event) => {
+        console.log("[WHATSXUP WEBRTC] Remote track received:", event.track.kind, event.track.id);
+
         const incomingTracks =
           event.streams[0]?.getTracks();
 
-        if (incomingTracks) {
+        if (incomingTracks && incomingTracks.length > 0) {
           incomingTracks.forEach(
             (track) => {
               if (
@@ -628,7 +668,7 @@ export function RealtimeProvider({
               }
             },
           );
-        } else {
+        } else if (event.track) {
           if (
             !remote
               .getTracks()
@@ -644,23 +684,7 @@ export function RealtimeProvider({
           }
         }
 
-        if (remoteVideo.current) {
-          remoteVideo.current.srcObject =
-            remote;
-
-          void remoteVideo.current
-            .play()
-            .catch(() => undefined);
-        }
-
-        if (remoteAudio.current) {
-          remoteAudio.current.srcObject =
-            remote;
-
-          void remoteAudio.current
-            .play()
-            .catch(() => undefined);
-        }
+        setRemoteStreamVersion((v) => v + 1);
       };
 
       /*
@@ -1133,6 +1157,77 @@ export function RealtimeProvider({
 
   /*
    * =======================================================
+   * INCOMING CALL RINGTONE AND VIBRATION
+   * =======================================================
+   */
+
+  useEffect(() => {
+    if (state.phase !== "incoming") return;
+
+    let audioCtx: AudioContext | null = null;
+    let ringInterval: ReturnType<typeof setInterval> | null = null;
+
+    const playChime = () => {
+      try {
+        if (!audioCtx) {
+          const AudioContextClass =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext })
+              .webkitAudioContext;
+          if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+          }
+        }
+        if (audioCtx && audioCtx.state === "suspended") {
+          void audioCtx.resume();
+        }
+
+        if (audioCtx) {
+          const osc1 = audioCtx.createOscillator();
+          const osc2 = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+
+          osc1.frequency.setValueAtTime(440, audioCtx.currentTime);
+          osc2.frequency.setValueAtTime(480, audioCtx.currentTime);
+
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+
+          osc1.connect(gain);
+          osc2.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          osc1.start();
+          osc2.start();
+          osc1.stop(audioCtx.currentTime + 1.2);
+          osc2.stop(audioCtx.currentTime + 1.2);
+        }
+      } catch {
+        // Ignore audio context errors
+      }
+
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try {
+          navigator.vibrate([400, 200, 400]);
+        } catch {
+          // Ignore vibration errors
+        }
+      }
+    };
+
+    playChime();
+    ringInterval = setInterval(playChime, 2500);
+
+    return () => {
+      if (ringInterval) clearInterval(ringInterval);
+      if (audioCtx) {
+        void audioCtx.close().catch(() => undefined);
+      }
+    };
+  }, [state.phase]);
+
+  /*
+   * =======================================================
    * SWITCH CAMERA
    * =======================================================
    */
@@ -1414,6 +1509,7 @@ export function RealtimeProvider({
         }
 
         setSharingScreen(true);
+        toast.info("Screen sharing started");
 
         screenTrack.onended =
           () => {
@@ -1441,6 +1537,29 @@ export function RealtimeProvider({
       state,
       restoreCameraAfterScreenShare,
     ]);
+
+  /*
+   * =======================================================
+   * PICTURE IN PICTURE
+   * =======================================================
+   */
+
+  const togglePictureInPicture = useCallback(async () => {
+    if (!remoteVideo.current) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+        setPipActive(false);
+      } else if (document.pictureInPictureEnabled) {
+        await remoteVideo.current.requestPictureInPicture();
+        setPipActive(true);
+      } else {
+        toast.info("Picture-in-Picture is not supported by this browser.");
+      }
+    } catch (error) {
+      console.error("[WHATSXUP PIP]", error);
+    }
+  }, []);
 
   /*
    * =======================================================
@@ -2045,26 +2164,49 @@ export function RealtimeProvider({
 
                 {state.kind ===
                   "video" && (
-                  <Button
-                    size="icon"
-                    variant={
-                      sharingScreen
-                        ? "secondary"
-                        : "outline"
-                    }
-                    className="h-14 w-14 rounded-full"
-                    onClick={() => {
-                      if (
+                  <>
+                    <Button
+                      size="icon"
+                      variant={
                         sharingScreen
-                      ) {
-                        void restoreCameraAfterScreenShare();
-                      } else {
-                        void shareScreen();
+                          ? "secondary"
+                          : "outline"
                       }
-                    }}
-                  >
-                    <MonitorUp />
-                  </Button>
+                      title={
+                        sharingScreen
+                          ? "Stop sharing screen"
+                          : "Share screen"
+                      }
+                      className="h-14 w-14 rounded-full"
+                      onClick={() => {
+                        if (
+                          sharingScreen
+                        ) {
+                          void restoreCameraAfterScreenShare();
+                        } else {
+                          void shareScreen();
+                        }
+                      }}
+                    >
+                      <MonitorUp />
+                    </Button>
+
+                    <Button
+                      size="icon"
+                      variant={
+                        pipActive
+                          ? "secondary"
+                          : "outline"
+                      }
+                      title="Picture in Picture"
+                      className="h-14 w-14 rounded-full"
+                      onClick={() =>
+                        void togglePictureInPicture()
+                      }
+                    >
+                      <PictureInPicture2 />
+                    </Button>
+                  </>
                 )}
               </>
             )}

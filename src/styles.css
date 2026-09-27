@@ -390,34 +390,38 @@
   position: relative;
 }
 
-/* SENDER (you) — right */
+/* SENDER (you) — right teal bubble with smooth tail */
 .xup-msg-bubble--mine {
   margin-left: auto;
-  background: #14b8a6;
-  background: linear-gradient(165deg, #2dd4bf 0%, #14b8a6 55%, #0f766e 100%);
+  background: linear-gradient(165deg, #2dd4bf 0%, #14b8a6 55%, #0d9488 100%);
   color: #042f2e;
-  border-radius: 16px 16px 4px 16px;
-  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.25);
+  border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.22);
 }
 
-/* RECEIVER — left */
+/* RECEIVER — left dark surface with smooth tail */
 .xup-msg-bubble--other {
   margin-right: auto;
   background: #1e293b;
-  color: #f1f5f9;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  border-radius: 16px 16px 16px 4px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  color: #f8fafc;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  border-radius: 18px 18px 18px 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.22);
 }
 
-/* Same-sender stacks: softer trailing corner */
-.xup-msg-bubble--mine.xup-b-middle,
-.xup-msg-bubble--mine.xup-b-last {
-  border-radius: 16px 8px 4px 16px;
+/* Same-sender consecutive stacked bubbles: reduced trailing radii */
+.xup-msg-bubble--mine.xup-b-middle {
+  border-radius: 18px 6px 6px 18px;
 }
-.xup-msg-bubble--other.xup-b-middle,
+.xup-msg-bubble--mine.xup-b-last {
+  border-radius: 18px 6px 4px 18px;
+}
+
+.xup-msg-bubble--other.xup-b-middle {
+  border-radius: 6px 18px 18px 6px;
+}
 .xup-msg-bubble--other.xup-b-last {
-  border-radius: 8px 16px 16px 4px;
+  border-radius: 6px 18px 18px 4px;
 }
 
 .xup-msg-sender-name {

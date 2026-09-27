@@ -1042,7 +1042,6 @@ function ChatRoom() {
       return;
     }
 
-    setSelectedMemberId(profile.id);
     // Open a DM with this user
     const { data: convId } = await supabase.rpc("get_or_create_direct", {
       _other: profile.id,
@@ -4860,7 +4859,7 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                   ) : (
                     <MessageContent
                       message={message}
-                      user={user}
+                      user={user ? ({ id: user.id } as Profile) : null}
                       decoded={decoded}
                       secretRevealed={secretRevealed}
                       toggleSecret={toggleSecret}
@@ -4906,11 +4905,11 @@ const fileInput = useRef<HTMLInputElement | null>(null);
                     {mine &&
                       !deleted &&
                       (seen ? (
-                        <CheckCheck className="h-3 w-3" />
+                        <CheckCheck className="h-3.5 w-3.5 text-[#34b7f1] dark:text-[#53bdeb] font-bold" />
                       ) : delivered ? (
-                        <CheckCheck className="h-3 w-3 opacity-80" />
+                        <CheckCheck className="h-3.5 w-3.5 opacity-75" />
                       ) : (
-                        <Check className="h-3 w-3" />
+                        <Check className="h-3.5 w-3.5 opacity-75" />
                       ))}
                   </div>
                 </div>
