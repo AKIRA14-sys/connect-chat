@@ -39,6 +39,17 @@
                 <data android:scheme="xuppin" />
             </intent-filter>
 
+            <!-- System Share Target: Share text, photos, videos, or files with WHATSXUP from Android Share menu -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+
         </activity>
 
 
