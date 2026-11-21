@@ -9,7 +9,7 @@ const config: CapacitorConfig = {
   appName: "XUPPIN",
   webDir: ".output/public",
   server: {
-    url: "https://xuppin.vercel.app",
+    url: process.env["CAPACITOR_SERVER_URL"] || "https://xuppin.vercel.app",
     androidScheme: "https",
   },
   plugins: {

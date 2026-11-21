@@ -41,6 +41,8 @@ import { useIsAdmin, useProfile } from "@/hooks/useProfile";
 import { AppShell, PageHeader } from "@/components/AppShell";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
+import { RewardedAdsTestPanel } from "@/components/RewardedAdsTestPanel";
+import { REWARDED_ADS_TEST_ENABLED } from "@/lib/rewardedAdsTestConfig";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -379,6 +381,12 @@ function SettingsPage() {
                 onClick={() => setSection("showcase")}
               />
             </SettingsGroup>
+
+            {REWARDED_ADS_TEST_ENABLED ? (
+              <SettingsGroup title="Rewarded ads · test only">
+                <RewardedAdsTestPanel />
+              </SettingsGroup>
+            ) : null}
 
             {isAdmin ? (
               <Button asChild variant="outline" className="w-full">

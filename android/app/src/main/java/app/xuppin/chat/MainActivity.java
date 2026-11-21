@@ -1,14 +1,16 @@
 package app.xuppin.chat;
 
+import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
 
 /**
- * Plain BridgeActivity on purpose.
- *
- * Capacitor's own BridgeWebChromeClient already handles WebView permission
- * requests (CAMERA / RECORD_AUDIO runtime grant) AND the file chooser used
- * by <input type=file> gallery attachment. A custom WebChromeClient here
- * would replace it and silently break gallery picking, JS dialogs and
- * geolocation — so don't add one.
+ * Capacitor's own BridgeWebChromeClient handles WebView permissions and file
+ * picking. Keep it intact; only register the local, test-only ads plugin here.
  */
-public class MainActivity extends BridgeActivity {}
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(RewardedAdsTestPlugin.class);
+        super.onCreate(savedInstanceState);
+    }
+}
