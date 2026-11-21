@@ -36,6 +36,7 @@ import { CollectiblesPanel } from "@/components/gifts/CollectiblesPanel";
 
 import { AppShell, PageHeader } from "@/components/AppShell";
 import { XCoinIcon } from "@/components/gaming/XCoinIcon";
+import { RewardedAdsTestPanel } from "@/components/RewardedAdsTestPanel";
 import { UserAvatar } from "@/components/UserAvatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,6 +61,10 @@ import {
   removeEquippedShopCosmeticLocal,
   saveEquippedShopCosmeticLocal,
 } from "@/lib/shopCosmetics.local";
+import {
+  REWARDED_ADS_TEST_ENABLED,
+  REWARDED_ADS_TEST_REWARD_XCOINS,
+} from "@/lib/rewardedAdsTestConfig";
 
 export const Route = createFileRoute("/_authenticated/shop")({
   head: () => ({
@@ -1210,6 +1215,19 @@ function ShopPage() {
         ========================== */}
         {tab === "shop" && (
           <div className="space-y-5">
+            {REWARDED_ADS_TEST_ENABLED ? (
+              <section className="overflow-hidden rounded-2xl border border-primary/25 bg-card shadow-sm">
+                <div className="border-b border-border/60 px-4 py-3">
+                  <h2 className="text-sm font-semibold">Rewarded ad test</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Preview a temporary +{REWARDED_ADS_TEST_REWARD_XCOINS.toLocaleString()} XCoins
+                    reward after watching a sample ad.
+                  </p>
+                </div>
+                <RewardedAdsTestPanel />
+              </section>
+            ) : null}
+
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

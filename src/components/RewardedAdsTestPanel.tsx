@@ -4,7 +4,10 @@ import { LoaderCircle, Play, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { requestGoogleWebRewardedTestAd } from "@/lib/rewardedAdsTest";
 import { RewardedAdsTestNative } from "@/lib/native/rewardedAdsTest";
-import { REWARDED_ADS_TEST_ENABLED } from "@/lib/rewardedAdsTestConfig";
+import {
+  REWARDED_ADS_TEST_ENABLED,
+  REWARDED_ADS_TEST_REWARD_XCOINS,
+} from "@/lib/rewardedAdsTestConfig";
 
 export function RewardedAdsTestPanel() {
   const [busy, setBusy] = useState(false);
@@ -41,7 +44,9 @@ export function RewardedAdsTestPanel() {
       },
       onReward() {
         setEarned(true);
-        setStatus("Test reward earned — local test state only.");
+        setStatus(
+          `Test reward earned — ${REWARDED_ADS_TEST_REWARD_XCOINS.toLocaleString()} temporary XCoins.`,
+        );
       },
       onClosed(rewardWasEarned) {
         setBusy(false);
@@ -68,7 +73,9 @@ export function RewardedAdsTestPanel() {
       const result = await RewardedAdsTestNative.showTestRewardedAd();
       if (result.earned) {
         setEarned(true);
-        setStatus("Test reward earned — local test state only.");
+        setStatus(
+          `Test reward earned — ${REWARDED_ADS_TEST_REWARD_XCOINS.toLocaleString()} temporary XCoins.`,
+        );
       } else {
         setStatus("Ad closed before the reward callback; no test reward earned.");
       }
@@ -92,8 +99,8 @@ export function RewardedAdsTestPanel() {
   return (
     <div className="space-y-3 p-3">
       <p className="text-xs text-muted-foreground">
-        Development only. Uses Google's sample test inventory. The reward is a temporary on-screen
-        state; it is not saved, credited, or connected to chats, coins, or account data.
+        Test builds only. Uses Google's sample test inventory. The reward appears only after the
+        completion callback and is not saved, credited, or connected to chats or account data.
       </p>
       <div className="flex flex-wrap gap-2">
         {isAndroid ? (
@@ -142,6 +149,17 @@ export function RewardedAdsTestPanel() {
         {earned ? <Sparkles className="h-4 w-4 text-primary" /> : null}
         {status}
       </p>
+      {earned ? (
+        <div className="rounded-xl border border-primary/25 bg-primary/10 p-3">
+          <p className="text-xs font-semibold text-primary">Temporary test reward</p>
+          <p className="text-xl font-black tabular-nums">
+            +{REWARDED_ADS_TEST_REWARD_XCOINS.toLocaleString()} XCoins
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Display-only; your saved wallet balance and account data are unchanged.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }
