@@ -9,11 +9,14 @@ import { env } from "node:process";
 
 const isRewardedAdsTestPreview =
   env["VERCEL_ENV"] === "preview" && env["VERCEL_GIT_COMMIT_REF"] === "review/rewarded-ads-test";
+const isRewardedAdsTestProduction =
+  env["VERCEL_ENV"] === "production" && env["REWARDED_ADS_TEST_PRODUCTION"] === "true";
 
 export default defineConfig({
   vite: {
     define: {
       __REWARDED_ADS_TEST_PREVIEW__: JSON.stringify(isRewardedAdsTestPreview),
+      __REWARDED_ADS_TEST_PRODUCTION__: JSON.stringify(isRewardedAdsTestProduction),
       __REWARDED_ADS_VERCEL_PRODUCTION__: JSON.stringify(env["VERCEL_ENV"] === "production"),
     },
   },

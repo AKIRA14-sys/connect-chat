@@ -5,4 +5,5 @@ interface ImportMetaEnv {
 }
 
 declare const __REWARDED_ADS_TEST_PREVIEW__: boolean;
+declare const __REWARDED_ADS_TEST_PRODUCTION__: boolean;
 declare const __REWARDED_ADS_VERCEL_PRODUCTION__: boolean;

@@ -99,8 +99,9 @@ export function RewardedAdsTestPanel() {
   return (
     <div className="space-y-3 p-3">
       <p className="text-xs text-muted-foreground">
-        Test builds only. Uses Google's sample test inventory. The reward appears only after the
-        completion callback and is not saved, credited, or connected to chats or account data.
+        Test mode only. Uses Google's sample test inventory. The temporary reward appears only after
+        the ad's reward callback; it is display-only and never changes your saved wallet balance or
+        account data.
       </p>
       <div className="flex flex-wrap gap-2">
         {isAndroid ? (
