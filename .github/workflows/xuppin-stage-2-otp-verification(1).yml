@@ -1,0 +1,90 @@
+name: XUPPIN - Stage 2 OTP Integration Check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-otp:
+    name: Verify Supabase email OTP integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the existing OTP implementation
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from "node:fs";
+
+          const file = "src/routes/auth.tsx";
+          const source = fs.readFileSync(file, "utf8");
+
+          const checks = [
+            ["OTP request uses Supabase signInWithOtp", /supabase\.auth\.signInWithOtp\s*\(/],
+            ["New-user signup is enabled in the OTP request", /shouldCreateUser\s*:\s*true/],
+            ["OTP verification uses Supabase verifyOtp", /supabase\.auth\.verifyOtp\s*\(/],
+            ["Email OTP verification uses type email", /type\s*:\s*["']email["']/],
+            ["OTP must contain exactly six digits", /\\d\{6\}/],
+            ["Password is set after email verification", /supabase\.auth\.updateUser\s*\(\s*\{\s*password\s*\}/],
+            ["Resend-code handler calls the same OTP request", /onClick\s*=\s*\{\s*\(\)\s*=>\s*void\s+sendOtp\(\)/],
+          ];
+
+          const failures = [];
+          for (const [label, pattern] of checks) {
+            const passed = pattern.test(source);
+            console.log(`${passed ? "PASS" : "FAIL"}: ${label}`);
+            if (!passed) failures.push(label);
+          }
+
+          if (failures.length) {
+            console.error("\nOTP integration check failed. No application files were changed.");
+            process.exit(1);
+          }
+
+          console.log("\nAll static OTP integration checks passed.");
+          NODE
+
+      - name: Build the application
+        run: npm run build
+
+      - name: Save Stage 2 verification report
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p stage-2-report
+          {
+            echo "# XUPPIN Stage 2 - OTP Integration Check"
+            echo
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Branch: $GITHUB_REF_NAME"
+            echo "- Static OTP checks: see workflow step output"
+            echo "- Build: see workflow step output"
+            echo
+            echo "This workflow checks the repository implementation and production build."
+            echo "It does not send a real email, change Supabase settings, or verify SMTP delivery."
+            echo "No application source files are modified by this workflow."
+          } > stage-2-report/REPORT.md
+
+      - name: Upload Stage 2 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: XUPPIN-Stage-2-OTP-Verification
+          path: stage-2-report/REPORT.md
+          if-no-files-found: error
