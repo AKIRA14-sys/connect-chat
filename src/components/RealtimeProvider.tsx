@@ -1814,6 +1814,7 @@ export function RealtimeProvider({
           await notifyIncomingCall({
             data: {
               calleeId: peer.id,
+              callId: data.id,
               kind,
               callerName,
               callerAvatar,
