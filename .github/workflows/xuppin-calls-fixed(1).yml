@@ -1,0 +1,122 @@
+name: XUPPIN - Fix incoming call ID (Corrected)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: xuppin-incoming-call-fix
+  cancel-in-progress: false
+
+jobs:
+  fix-and-open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create a separate working branch
+        id: branch
+        shell: bash
+        run: |
+          BRANCH="fix/incoming-call-id-${GITHUB_RUN_NUMBER}"
+          git switch -c "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Add call ID to the incoming-call notification
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path("src/components/RealtimeProvider.tsx")
+          if not path.exists():
+              raise SystemExit(f"Cannot find {path}; no files were changed.")
+
+          source = path.read_text(encoding="utf-8")
+          start = source.find("await notifyIncomingCall({")
+          if start < 0:
+              raise SystemExit("Could not find the incoming-call notification call.")
+
+          end = source.find("});", start)
+          if end < 0:
+              raise SystemExit("Could not find the end of the incoming-call notification call.")
+
+          end += 3
+          call_block = source[start:end]
+
+          # Check only this notification call, not the entire file.
+          if re.search(r"\bcallId\s*:", call_block):
+              print("The incoming-call notification already contains callId.")
+          else:
+              pattern = re.compile(r"(calleeId:\s*peer\.id,)(\s*)(kind,)")
+              updated_block, count = pattern.subn(
+                  r"\1\2callId: data.id,\2\3",
+                  call_block,
+                  count=1,
+              )
+              if count != 1:
+                  raise SystemExit("Could not safely locate calleeId and kind inside the notification.")
+
+              source = source[:start] + updated_block + source[end:]
+              path.write_text(source, encoding="utf-8")
+              print("Added callId: data.id to the incoming-call notification.")
+
+          # Verify the exact notification block before building.
+          verified_start = source.find("await notifyIncomingCall({")
+          verified_end = source.find("});", verified_start)
+          verified_block = source[verified_start:verified_end + 3]
+          if "callId: data.id" not in verified_block:
+              raise SystemExit("Verification failed: callId is missing from the notification.")
+
+      - name: Install dependencies and verify production build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit and push the fix branch
+        id: commit
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new change was needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/RealtimeProvider.tsx
+          git commit -m "fix: include call ID in incoming call push"
+          git push --set-upstream origin "${{ steps.branch.outputs.name }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.name }}" \
+            --title "Fix incoming call push call ID" \
+            --body "## What this fixes
+          Adds the Supabase call row ID to the incoming-call push payload.
+
+          ## Verification
+          The workflow checks the specific notification block and runs the production build.
+          It intentionally does not run the repository-wide lint check because the current
+          repository has thousands of existing formatting findings unrelated to this fix.
+
+          ## Scope
+          This does not by itself add Android full-screen CallStyle notifications,
+          notification Answer/Decline actions, or reliable call recovery after the app process is killed."
+
+      - name: Explain when no PR was needed
+        if: steps.commit.outputs.changed == 'false'
+        run: echo "No PR was created because the callId fix was already present in the notification."
