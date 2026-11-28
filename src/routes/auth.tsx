@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -12,10 +12,7 @@ export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "Sign in — XUPPIN" },
-      {
-        name: "description",
-        content: "Sign in or create your XUPPIN account with email verification.",
-      },
+      { name: "description", content: "Sign in or create your XUPPIN account with email verification." },
     ],
   }),
   component: AuthPage,
@@ -28,17 +25,24 @@ function AuthPage() {
   const [mode, setMode] = useState<Mode>("signup-email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [otp, setOtp] = useState("");
+  const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [busy, setBusy] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setTimeout(() => setResendSeconds(value => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendSeconds]);
 
   function goAfterAuth() {
     let pending: string | null = null;
     try {
       pending = sessionStorage.getItem(PENDING_JOIN_KEY);
       if (pending) sessionStorage.removeItem(PENDING_JOIN_KEY);
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
     if (pending && pending.startsWith("/g/")) {
       window.location.assign(pending);
       return;
@@ -46,58 +50,34 @@ function AuthPage() {
     void navigate({ to: "/chats" });
   }
 
-  /** Existing users: email + password */
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
-    }
+    if (password.length < 8) return toast.error("Password must be at least 8 characters.");
     setBusy(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) return toast.error(error.message);
     goAfterAuth();
   }
 
-  /** Step 1: send 6-digit code to email */
   async function sendOtp(e?: React.FormEvent) {
     e?.preventDefault();
     const em = email.trim().toLowerCase();
-    if (!em.includes("@")) {
-      toast.error("Enter a valid email.");
-      return;
-    }
+    if (!em.includes("@")) return toast.error("Enter a valid email.");
     setBusy(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: em,
-      options: {
-        shouldCreateUser: true,
-      },
-    });
+    const { error } = await supabase.auth.signInWithOtp({ email: em, options: { shouldCreateUser: true } });
     setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    toast.success("Check your email for the 6-digit code.");
+    if (error) return toast.error(error.message);
+    setOtp(["", "", "", "", "", ""]);
+    setResendSeconds(30);
     setMode("signup-otp");
+    toast.success("Check your email for the six-digit code.");
   }
 
-  /** Step 2: verify OTP */
   async function verifyOtp(e: React.FormEvent) {
     e.preventDefault();
-    const token = otp.trim().replace(/\s/g, "");
-    if (token.length < 6) {
-      toast.error("Enter the 6-digit code from your email.");
-      return;
-    }
+    const token = otp.join("");
+    if (!/^\d{6}$/.test(token)) return toast.error("Enter all six digits.");
     setBusy(true);
     const { error } = await supabase.auth.verifyOtp({
       email: email.trim().toLowerCase(),
@@ -106,206 +86,132 @@ function AuthPage() {
     });
     setBusy(false);
     if (error) {
-      toast.error(error.message);
-      return;
+      setVerified(false);
+      return toast.error(error.message);
     }
-    toast.success("Email verified. Set a password.");
-    setMode("signup-password");
+    setVerified(true);
+    toast.success("Email verified. Choose your password.");
+    window.setTimeout(() => setMode("signup-password"), 850);
   }
 
-  /** Step 3: set password after OTP */
   async function setPasswordAfterOtp(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      toast.error("Password must be at least 8 characters.");
-      return;
-    }
+    if (password.length < 8) return toast.error("Password must be at least 8 characters.");
     setBusy(true);
     const { error } = await supabase.auth.updateUser({ password });
     setBusy(false);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
+    if (error) return toast.error(error.message);
     toast.success("Account ready.");
     goAfterAuth();
   }
 
+  function updateDigit(index: number, raw: string) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) {
+      setOtp(current => current.map((v, i) => i === index ? "" : v));
+      return;
+    }
+    if (digits.length > 1) {
+      const pasted = digits.slice(0, 6).split("");
+      setOtp(current => current.map((v, i) => pasted[i] ?? v));
+      otpRefs.current[Math.min(pasted.length, 5)]?.focus();
+      return;
+    }
+    setOtp(current => current.map((v, i) => i === index ? digits : v));
+    if (index < 5) otpRefs.current[index + 1]?.focus();
+  }
+
+  function handleOtpKey(index: number, key: string) {
+    if (key === "Backspace" && !otp[index] && index > 0) otpRefs.current[index - 1]?.focus();
+  }
+
   return (
-    <main className="flex min-h-screen flex-col justify-center app-gradient px-6 py-12">
-      <div className="mx-auto w-full max-w-sm">
-        <div className="mb-10 text-center">
-          <img
-            src="/icons/icon-192.png"
-            alt="XUPPIN"
-            width={72}
-            height={72}
-            className="mx-auto rounded-2xl"
-          />
-          <h1 className="mt-5 text-3xl font-bold tracking-tight">XUPPIN</h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "signin"
-              ? "Sign in with email and password."
-              : "We send a code to your email so only a real inbox can join."}
-          </p>
+    <main className="xuppin-auth relative flex min-h-screen flex-col justify-center overflow-hidden px-5 py-12">
+      <style>{`
+        @keyframes xup-float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-13px) } }
+        @keyframes xup-glow { 0%,100% { box-shadow: 0 0 18px rgba(34,197,94,.12) } 50% { box-shadow: 0 0 32px rgba(34,197,94,.32) } }
+        @keyframes xup-enter { from { opacity:0; transform:translateY(22px) scale(.97) } to { opacity:1; transform:translateY(0) scale(1) } }
+        @keyframes xup-check { 0% { transform:scale(.3) rotate(-25deg); opacity:0 } 70% { transform:scale(1.15); opacity:1 } 100% { transform:scale(1); opacity:1 } }
+        .xuppin-auth { background: radial-gradient(ellipse at 15% 15%,rgba(16,185,129,.24),transparent 38%),radial-gradient(ellipse at 85% 80%,rgba(34,197,94,.15),transparent 38%),linear-gradient(145deg,#07130f,#101a17 55%,#080d0c); color:#f4fff8; }
+        .xup-orb { position:absolute; border-radius:9999px; filter:blur(2px); background:rgba(34,197,94,.12); animation:xup-float 7s ease-in-out infinite; pointer-events:none; }
+        .xup-glass { background:rgba(255,255,255,.075); border:1px solid rgba(255,255,255,.16); box-shadow:0 24px 80px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.12); backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px); animation:xup-enter .65s cubic-bezier(.2,.8,.2,1) both; }
+        .xup-digit { width:clamp(39px,12vw,48px); height:56px; text-align:center; border-radius:14px; color:#d9ffe6; font-size:24px; font-weight:700; outline:none; background:rgba(4,30,18,.62); border:1px solid rgba(74,222,128,.32); box-shadow:inset 0 1px 8px rgba(0,0,0,.25); transition:all .2s ease; }
+        .xup-digit:focus { border-color:#4ade80; box-shadow:0 0 0 3px rgba(74,222,128,.15),0 0 22px rgba(34,197,94,.24); transform:translateY(-2px); }
+        .xup-primary { background:linear-gradient(100deg,#16a34a,#22c55e); color:#04130a; box-shadow:0 8px 28px rgba(34,197,94,.2); }
+        .xup-primary:disabled { opacity:.55; }
+      `}</style>
+      <div className="xup-orb h-52 w-52 -left-20 top-12" />
+      <div className="xup-orb h-64 w-64 -right-24 bottom-8" style={{ animationDelay: "-3s" }} />
+      <div className="relative z-10 mx-auto w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <img src="/icons/icon-192.png" alt="XUPPIN" width={68} height={68} className="mx-auto rounded-2xl shadow-lg" />
+          <h1 className="mt-4 text-3xl font-bold tracking-[.16em]">XUPPIN</h1>
+          <p className="mt-2 text-sm text-emerald-100/65">Messages that bring us closer.</p>
         </div>
 
-        {/* SIGN IN */}
-        {mode === "signin" && (
-          <form
-            onSubmit={signIn}
-            className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-panel"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
+        {mode === "signup-otp" ? (
+          <form onSubmit={verifyOtp} className="xup-glass rounded-[30px] p-6 sm:p-7">
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/25 bg-emerald-400/10 text-2xl" style={{animation:"xup-glow 3s infinite"}}>✉</div>
+            <div className="text-center">
+              <h2 className="text-2xl font-semibold">Verify your email</h2>
+              <p className="mt-2 text-sm leading-6 text-emerald-50/65">We sent a six-digit code to</p>
+              <p className="mt-1 break-all text-sm font-semibold text-emerald-300">{email}</p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+            <div className="mt-7 flex justify-center gap-1.5 sm:gap-2" aria-label="Six digit verification code">
+              {otp.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={el => { otpRefs.current[index] = el; }}
+                  className="xup-digit"
+                  aria-label={`Verification digit ${index + 1}`}
+                  inputMode="numeric"
+                  autoComplete={index === 0 ? "one-time-code" : "off"}
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={digit}
+                  onChange={e => updateDigit(index, e.target.value)}
+                  onKeyDown={e => handleOtpKey(index, e.key)}
+                  onFocus={e => e.currentTarget.select()}
+                />
+              ))}
             </div>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Please wait…" : "Sign in"}
+            {verified && <div className="mt-5 flex items-center justify-center gap-2 text-emerald-300"><span className="text-2xl" style={{animation:"xup-check .45s both"}}>✓</span><span className="text-sm font-semibold">Email verified</span></div>}
+            <Button type="submit" className="xup-primary mt-7 h-12 w-full rounded-xl font-semibold" disabled={busy || otp.join("").length !== 6 || verified}>
+              {busy ? "Verifying…" : verified ? "Verified ✓" : "Verify email"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              New to XUPPIN?{" "}
-              <button
-                type="button"
-                className="font-medium text-primary underline"
-                onClick={() => setMode("signup-email")}
-              >
-                Create account
+            <div className="mt-5 text-center text-sm text-emerald-50/60">
+              Didn't receive the code?{" "}
+              <button type="button" className="font-semibold text-emerald-300 underline underline-offset-4 disabled:opacity-40" disabled={busy || resendSeconds > 0} onClick={() => void sendOtp()}>
+                {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : "Resend code"}
               </button>
-            </p>
-          </form>
-        )}
-
-        {/* SIGN UP — email */}
-        {mode === "signup-email" && (
-          <form
-            onSubmit={sendOtp}
-            className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-panel"
-          >
-            <div className="space-y-2">
-              <Label htmlFor="email2">Email</Label>
-              <Input
-                id="email2"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-              />
             </div>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Sending…" : "Send verification code"}
-            </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{" "}
-              <button
-                type="button"
-                className="font-medium text-primary underline"
-                onClick={() => setMode("signin")}
-              >
-                Sign in
-              </button>
-            </p>
+            <button type="button" className="mt-5 w-full text-center text-xs text-white/45 underline" onClick={() => setMode("signup-email")}>Change email address</button>
+          </form>
+        ) : mode === "signup-password" ? (
+          <form onSubmit={setPasswordAfterOtp} className="xup-glass space-y-4 rounded-[30px] p-6 sm:p-7">
+            <h2 className="text-center text-2xl font-semibold">Create password</h2>
+            <p className="text-center text-sm text-emerald-50/65">Your email is verified. Choose a password for next time.</p>
+            <div className="space-y-2"><Label htmlFor="password2">Password</Label><Input id="password2" type="password" autoComplete="new-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" /></div>
+            <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Saving…" : "Finish & continue"}</Button>
+          </form>
+        ) : mode === "signin" ? (
+          <form onSubmit={signIn} className="xup-glass space-y-4 rounded-[30px] p-6 sm:p-7">
+            <h2 className="text-center text-2xl font-semibold">Welcome back</h2>
+            <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></div>
+            <div className="space-y-2"><Label htmlFor="password">Password</Label><Input id="password" type="password" autoComplete="current-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} /></div>
+            <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Please wait…" : "Sign in"}</Button>
+            <p className="text-center text-sm text-white/60">New to XUPPIN? <button type="button" className="font-semibold text-emerald-300 underline" onClick={() => setMode("signup-email")}>Create account</button></p>
+          </form>
+        ) : (
+          <form onSubmit={sendOtp} className="xup-glass space-y-4 rounded-[30px] p-6 sm:p-7">
+            <h2 className="text-center text-2xl font-semibold">Create your account</h2>
+            <p className="text-center text-sm text-emerald-50/65">Verify your email to get started.</p>
+            <div className="space-y-2"><Label htmlFor="email2">Email</Label><Input id="email2" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></div>
+            <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Sending…" : "Send verification code"}</Button>
+            <p className="text-center text-sm text-white/60">Already have an account? <button type="button" className="font-semibold text-emerald-300 underline" onClick={() => setMode("signin")}>Sign in</button></p>
           </form>
         )}
-
-        {/* SIGN UP — OTP */}
-        {mode === "signup-otp" && (
-          <form
-            onSubmit={verifyOtp}
-            className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-panel"
-          >
-            <p className="text-sm text-muted-foreground">
-              Code sent to <strong>{email}</strong>
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="otp">6-digit code</Label>
-              <Input
-                id="otp"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="123456"
-                maxLength={8}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Checking…" : "Verify code"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="w-full"
-              disabled={busy}
-              onClick={() => void sendOtp()}
-            >
-              Resend code
-            </Button>
-            <button
-              type="button"
-              className="w-full text-center text-sm text-muted-foreground underline"
-              onClick={() => setMode("signup-email")}
-            >
-              Change email
-            </button>
-          </form>
-        )}
-
-        {/* SIGN UP — password after verify */}
-        {mode === "signup-password" && (
-          <form
-            onSubmit={setPasswordAfterOtp}
-            className="space-y-4 rounded-3xl border border-border bg-card p-6 shadow-panel"
-          >
-            <p className="text-sm text-muted-foreground">
-              Email verified. Choose a password for next time.
-            </p>
-            <div className="space-y-2">
-              <Label htmlFor="password2">Password</Label>
-              <Input
-                id="password2"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={busy}>
-              {busy ? "Saving…" : "Finish & continue"}
-            </Button>
-          </form>
-        )}
-
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Your email is never shown to other users. People find you by username
-          only.
-        </p>
+        <p className="mt-6 text-center text-xs text-white/40">Your email is private. People find you by username.</p>
       </div>
     </main>
   );
