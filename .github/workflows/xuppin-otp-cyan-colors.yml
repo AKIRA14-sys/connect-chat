@@ -1,0 +1,71 @@
+name: XUPPIN - Fix OTP Preview Colors
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  fix-otp-colors:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Update OTP screen to XUPPIN dark-cyan theme
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/routes/auth.tsx")
+          source = path.read_text()
+
+          # Keep the OTP behavior untouched; update only the auth screen palette.
+          source = source.replace("emerald", "cyan")
+          replacements = {
+              "rgba(16,185,129,.24)": "rgba(56,189,248,.16)",
+              "rgba(34,197,94,.15)": "rgba(34,211,238,.12)",
+              "linear-gradient(145deg,#07130f,#101a17 55%,#080d0c)": "linear-gradient(145deg,var(--background),var(--surface) 55%,var(--background))",
+              "color:#f4fff8": "color:var(--foreground)",
+              "rgba(34,197,94,.12)": "rgba(56,189,248,.12)",
+              "rgba(34,197,94,.32)": "rgba(34,211,238,.28)",
+              "rgba(255,255,255,.16)": "rgba(125,211,252,.18)",
+              "rgba(255,255,255,.075)": "rgba(125,211,252,.07)",
+              "rgba(255,255,255,.12)": "rgba(125,211,252,.10)",
+              "rgba(74,222,128,.32)": "rgba(56,189,248,.38)",
+              "rgba(74,222,128,.15)": "rgba(56,189,248,.16)",
+              "rgba(34,197,94,.24)": "rgba(34,211,238,.24)",
+              "rgba(34,197,94,.2)": "rgba(34,211,238,.20)",
+              "#d9ffe6": "#dff7ff",
+              "#4ade80": "#38bdf8",
+              "linear-gradient(100deg,#16a34a,#22c55e)": "linear-gradient(100deg,#0ea5e9,#22d3ee)",
+              "#04130a": "#071421",
+          }
+          for old, new in replacements.items():
+              source = source.replace(old, new)
+
+          path.write_text(source)
+          PY
+
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: fix/otp-preview-dark-cyan-colors
+          delete-branch: true
+          base: main
+          title: "fix(auth): match OTP screen to XUPPIN dark-cyan theme"
+          body: |
+            Updates only the animated OTP screen color palette to match XUPPIN's existing dark-navy and cyan design tokens.
+            Keeps Supabase OTP request/verification logic, input behavior, and signup flow unchanged.
+            This is a preview styling correction, not the native Android migration.
+          commit-message: "fix(auth): match OTP screen to dark-cyan theme"
