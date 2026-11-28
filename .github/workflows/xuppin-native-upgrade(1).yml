@@ -1,0 +1,142 @@
+name: XUPPIN - Native Android Upgrade (Phase 1)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: xuppin-native-upgrade
+  cancel-in-progress: false
+
+jobs:
+  prepare-native-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-35" "platforms;android-36" "build-tools;35.0.0" "build-tools;36.0.0"
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Build the web application
+        run: npm run build
+
+      # Capacitor can use bundled files only if the configured webDir contains
+      # a real entry page. Do not remove server.url unless that is proven.
+      - name: Verify that Capacitor can run from bundled files
+        shell: bash
+        run: |
+          set -euo pipefail
+          WEB_DIR="$(node -e "const fs=require('fs');const s=fs.readFileSync('capacitor.config.ts','utf8');const m=s.match(/webDir:\s*['\"]([^'\"]+)['\"]/);if(!m)process.exit(2);process.stdout.write(m[1]);")"
+          echo "Configured Capacitor webDir: $WEB_DIR"
+          if [ ! -f "$WEB_DIR/index.html" ]; then
+            echo "::error::The production build did not create $WEB_DIR/index.html."
+            echo "XUPPIN currently uses a hosted server URL. Switching it off now could leave the installed APK with a blank screen."
+            echo "This workflow has deliberately stopped without changing capacitor.config.ts."
+            echo "A static/mobile entry build must be prepared before the app can safely run fully from bundled web assets."
+            exit 1
+          fi
+
+      - name: Create upgrade branch
+        id: branch
+        shell: bash
+        run: |
+          BRANCH="feat/xuppin-native-android-foundation-${GITHUB_RUN_NUMBER}"
+          git switch -c "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Switch production Capacitor app to bundled web files
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("capacitor.config.ts")
+          source = path.read_text(encoding="utf-8")
+
+          # Remove only the known remote server block. Keep all other config.
+          pattern = r'\n\s*server:\s*\{\s*url:\s*"https://xuppin\.vercel\.app",\s*androidScheme:\s*"https",?\s*\},'
+          updated, count = re.subn(pattern, "", source, count=1)
+          if count != 1:
+              raise SystemExit(
+                  "Expected remote Capacitor server block was not found exactly once; "
+                  "refusing to rewrite the config automatically."
+              )
+          path.write_text(updated, encoding="utf-8")
+          print("Capacitor production config now points to the verified bundled webDir.")
+          PY
+
+      - name: Copy Firebase configuration for Android push
+        run: |
+          if [ -f google-services.json ]; then
+            cp google-services.json android/app/google-services.json
+          else
+            echo "::warning::google-services.json is missing; Firebase push may not be configured in this build."
+          fi
+
+      - name: Synchronize Capacitor Android project
+        run: npx cap sync android
+
+      - name: Build Android debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: XUPPIN-bundled-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create pull request with the verified packaging change
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.branch.outputs.name }}
+          base: main
+          delete-branch: true
+          commit-message: "chore(android): use verified bundled Capacitor web assets"
+          title: "Prepare XUPPIN for a bundled Android app"
+          body: |
+            ## What this change does
+            - Builds the web app and verifies that the configured Capacitor `webDir` contains `index.html`.
+            - Removes the production `server.url` override only after that check succeeds.
+            - Syncs Capacitor and builds a debug APK from the bundled web assets.
+
+            ## Important scope
+            This is the first packaging step. Capacitor still renders the React interface in Android WebView; this removes dependence on loading the hosted website only when a valid local entry page is present.
+
+            This does **not** yet implement native Android CallStyle notifications, lock-screen answer/decline actions, process-death call recovery, native screen capture, or a full Kotlin/Compose rewrite. Those require separate native and backend work and device testing.
+
+            Existing camera, microphone, push, share, file, and haptics integrations are retained. This workflow does not add broad Android permissions without a feature-specific implementation.
+
+      - name: Confirm result
+        run: |
+          echo "APK build succeeded. Review the pull request before merging."
+          echo "Download the APK from this workflow run's Artifacts section for testing."
