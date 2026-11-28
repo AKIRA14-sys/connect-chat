@@ -129,15 +129,15 @@ function AuthPage() {
     <main className="xuppin-auth relative flex min-h-screen flex-col justify-center overflow-hidden px-5 py-12">
       <style>{`
         @keyframes xup-float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-13px) } }
-        @keyframes xup-glow { 0%,100% { box-shadow: 0 0 18px rgba(34,197,94,.12) } 50% { box-shadow: 0 0 32px rgba(34,197,94,.32) } }
+        @keyframes xup-glow { 0%,100% { box-shadow: 0 0 18px rgba(56,189,248,.12) } 50% { box-shadow: 0 0 32px rgba(34,211,238,.28) } }
         @keyframes xup-enter { from { opacity:0; transform:translateY(22px) scale(.97) } to { opacity:1; transform:translateY(0) scale(1) } }
         @keyframes xup-check { 0% { transform:scale(.3) rotate(-25deg); opacity:0 } 70% { transform:scale(1.15); opacity:1 } 100% { transform:scale(1); opacity:1 } }
-        .xuppin-auth { background: radial-gradient(ellipse at 15% 15%,rgba(16,185,129,.24),transparent 38%),radial-gradient(ellipse at 85% 80%,rgba(34,197,94,.15),transparent 38%),linear-gradient(145deg,#07130f,#101a17 55%,#080d0c); color:#f4fff8; }
-        .xup-orb { position:absolute; border-radius:9999px; filter:blur(2px); background:rgba(34,197,94,.12); animation:xup-float 7s ease-in-out infinite; pointer-events:none; }
-        .xup-glass { background:rgba(255,255,255,.075); border:1px solid rgba(255,255,255,.16); box-shadow:0 24px 80px rgba(0,0,0,.38),inset 0 1px rgba(255,255,255,.12); backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px); animation:xup-enter .65s cubic-bezier(.2,.8,.2,1) both; }
-        .xup-digit { width:clamp(39px,12vw,48px); height:56px; text-align:center; border-radius:14px; color:#d9ffe6; font-size:24px; font-weight:700; outline:none; background:rgba(4,30,18,.62); border:1px solid rgba(74,222,128,.32); box-shadow:inset 0 1px 8px rgba(0,0,0,.25); transition:all .2s ease; }
-        .xup-digit:focus { border-color:#4ade80; box-shadow:0 0 0 3px rgba(74,222,128,.15),0 0 22px rgba(34,197,94,.24); transform:translateY(-2px); }
-        .xup-primary { background:linear-gradient(100deg,#16a34a,#22c55e); color:#04130a; box-shadow:0 8px 28px rgba(34,197,94,.2); }
+        .xuppin-auth { background: radial-gradient(ellipse at 15% 15%,rgba(56,189,248,.16),transparent 38%),radial-gradient(ellipse at 85% 80%,rgba(34,211,238,.12),transparent 38%),linear-gradient(145deg,var(--background),var(--surface) 55%,var(--background)); color:var(--foreground); }
+        .xup-orb { position:absolute; border-radius:9999px; filter:blur(2px); background:rgba(56,189,248,.12); animation:xup-float 7s ease-in-out infinite; pointer-events:none; }
+        .xup-glass { background:rgba(125,211,252,.07); border:1px solid rgba(125,211,252,.18); box-shadow:0 24px 80px rgba(0,0,0,.38),inset 0 1px rgba(125,211,252,.10); backdrop-filter:blur(24px); -webkit-backdrop-filter:blur(24px); animation:xup-enter .65s cubic-bezier(.2,.8,.2,1) both; }
+        .xup-digit { width:clamp(39px,12vw,48px); height:56px; text-align:center; border-radius:14px; color:#dff7ff; font-size:24px; font-weight:700; outline:none; background:rgba(4,30,18,.62); border:1px solid rgba(56,189,248,.38); box-shadow:inset 0 1px 8px rgba(0,0,0,.25); transition:all .2s ease; }
+        .xup-digit:focus { border-color:#38bdf8; box-shadow:0 0 0 3px rgba(56,189,248,.16),0 0 22px rgba(34,211,238,.24); transform:translateY(-2px); }
+        .xup-primary { background:linear-gradient(100deg,#0ea5e9,#22d3ee); color:#071421; box-shadow:0 8px 28px rgba(34,211,238,.20); }
         .xup-primary:disabled { opacity:.55; }
       `}</style>
       <div className="xup-orb h-52 w-52 -left-20 top-12" />
@@ -146,16 +146,16 @@ function AuthPage() {
         <div className="mb-8 text-center">
           <img src="/icons/icon-192.png" alt="XUPPIN" width={68} height={68} className="mx-auto rounded-2xl shadow-lg" />
           <h1 className="mt-4 text-3xl font-bold tracking-[.16em]">XUPPIN</h1>
-          <p className="mt-2 text-sm text-emerald-100/65">Messages that bring us closer.</p>
+          <p className="mt-2 text-sm text-cyan-100/65">Messages that bring us closer.</p>
         </div>
 
         {mode === "signup-otp" ? (
           <form onSubmit={verifyOtp} className="xup-glass rounded-[30px] p-6 sm:p-7">
-            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-emerald-300/25 bg-emerald-400/10 text-2xl" style={{animation:"xup-glow 3s infinite"}}>✉</div>
+            <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-300/25 bg-cyan-400/10 text-2xl" style={{animation:"xup-glow 3s infinite"}}>✉</div>
             <div className="text-center">
               <h2 className="text-2xl font-semibold">Verify your email</h2>
-              <p className="mt-2 text-sm leading-6 text-emerald-50/65">We sent a six-digit code to</p>
-              <p className="mt-1 break-all text-sm font-semibold text-emerald-300">{email}</p>
+              <p className="mt-2 text-sm leading-6 text-cyan-50/65">We sent a six-digit code to</p>
+              <p className="mt-1 break-all text-sm font-semibold text-cyan-300">{email}</p>
             </div>
             <div className="mt-7 flex justify-center gap-1.5 sm:gap-2" aria-label="Six digit verification code">
               {otp.map((digit, index) => (
@@ -175,13 +175,13 @@ function AuthPage() {
                 />
               ))}
             </div>
-            {verified && <div className="mt-5 flex items-center justify-center gap-2 text-emerald-300"><span className="text-2xl" style={{animation:"xup-check .45s both"}}>✓</span><span className="text-sm font-semibold">Email verified</span></div>}
+            {verified && <div className="mt-5 flex items-center justify-center gap-2 text-cyan-300"><span className="text-2xl" style={{animation:"xup-check .45s both"}}>✓</span><span className="text-sm font-semibold">Email verified</span></div>}
             <Button type="submit" className="xup-primary mt-7 h-12 w-full rounded-xl font-semibold" disabled={busy || otp.join("").length !== 6 || verified}>
               {busy ? "Verifying…" : verified ? "Verified ✓" : "Verify email"}
             </Button>
-            <div className="mt-5 text-center text-sm text-emerald-50/60">
+            <div className="mt-5 text-center text-sm text-cyan-50/60">
               Didn't receive the code?{" "}
-              <button type="button" className="font-semibold text-emerald-300 underline underline-offset-4 disabled:opacity-40" disabled={busy || resendSeconds > 0} onClick={() => void sendOtp()}>
+              <button type="button" className="font-semibold text-cyan-300 underline underline-offset-4 disabled:opacity-40" disabled={busy || resendSeconds > 0} onClick={() => void sendOtp()}>
                 {resendSeconds > 0 ? `Resend in ${resendSeconds}s` : "Resend code"}
               </button>
             </div>
@@ -190,7 +190,7 @@ function AuthPage() {
         ) : mode === "signup-password" ? (
           <form onSubmit={setPasswordAfterOtp} className="xup-glass space-y-4 rounded-[30px] p-6 sm:p-7">
             <h2 className="text-center text-2xl font-semibold">Create password</h2>
-            <p className="text-center text-sm text-emerald-50/65">Your email is verified. Choose a password for next time.</p>
+            <p className="text-center text-sm text-cyan-50/65">Your email is verified. Choose a password for next time.</p>
             <div className="space-y-2"><Label htmlFor="password2">Password</Label><Input id="password2" type="password" autoComplete="new-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" /></div>
             <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Saving…" : "Finish & continue"}</Button>
           </form>
@@ -200,15 +200,15 @@ function AuthPage() {
             <div className="space-y-2"><Label htmlFor="email">Email</Label><Input id="email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></div>
             <div className="space-y-2"><Label htmlFor="password">Password</Label><Input id="password" type="password" autoComplete="current-password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)} /></div>
             <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Please wait…" : "Sign in"}</Button>
-            <p className="text-center text-sm text-white/60">New to XUPPIN? <button type="button" className="font-semibold text-emerald-300 underline" onClick={() => setMode("signup-email")}>Create account</button></p>
+            <p className="text-center text-sm text-white/60">New to XUPPIN? <button type="button" className="font-semibold text-cyan-300 underline" onClick={() => setMode("signup-email")}>Create account</button></p>
           </form>
         ) : (
           <form onSubmit={sendOtp} className="xup-glass space-y-4 rounded-[30px] p-6 sm:p-7">
             <h2 className="text-center text-2xl font-semibold">Create your account</h2>
-            <p className="text-center text-sm text-emerald-50/65">Verify your email to get started.</p>
+            <p className="text-center text-sm text-cyan-50/65">Verify your email to get started.</p>
             <div className="space-y-2"><Label htmlFor="email2">Email</Label><Input id="email2" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" /></div>
             <Button type="submit" className="xup-primary w-full rounded-xl" disabled={busy}>{busy ? "Sending…" : "Send verification code"}</Button>
-            <p className="text-center text-sm text-white/60">Already have an account? <button type="button" className="font-semibold text-emerald-300 underline" onClick={() => setMode("signin")}>Sign in</button></p>
+            <p className="text-center text-sm text-white/60">Already have an account? <button type="button" className="font-semibold text-cyan-300 underline" onClick={() => setMode("signin")}>Sign in</button></p>
           </form>
         )}
         <p className="mt-6 text-center text-xs text-white/40">Your email is private. People find you by username.</p>
