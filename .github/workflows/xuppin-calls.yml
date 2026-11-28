@@ -1,0 +1,102 @@
+name: XUPPIN - Fix incoming call ID
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: xuppin-incoming-call-fix
+  cancel-in-progress: false
+
+jobs:
+  fix-and-open-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Create a separate working branch
+        id: branch
+        shell: bash
+        run: |
+          BRANCH="fix/incoming-call-id-${GITHUB_RUN_NUMBER}"
+          git switch -c "$BRANCH"
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Fix missing callId in incoming-call push
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/components/RealtimeProvider.tsx")
+          if not path.exists():
+              raise SystemExit(f"Cannot find {path}; no files were changed.")
+
+          source = path.read_text(encoding="utf-8")
+          import re
+
+          pattern = re.compile(
+              r"(await\s+notifyIncomingCall\(\{\s*data:\s*\{\s*"
+              r"calleeId:\s*peer\.id,)(\s*)(kind,)"
+          )
+
+          if "callId: data.id" in source:
+              print("The callId fix is already present; nothing to change.")
+          else:
+              updated, count = pattern.subn(r"\1\2callId: data.id,\2\3", source, count=1)
+              if count != 1:
+                  raise SystemExit(
+                      "Could not safely locate the outgoing-call notification block. "
+                      "Stopped without changing files."
+                  )
+              path.write_text(updated, encoding="utf-8")
+              print("Added the database call ID to the incoming-call push.")
+      - name: Check the change
+        run: |
+          npm ci
+          npm run build
+          npm run lint
+
+      - name: Commit and push the fix branch
+        id: commit
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new change was needed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/RealtimeProvider.tsx
+          git commit -m "fix: include call ID in incoming call push"
+          git push --set-upstream origin "${{ steps.branch.outputs.name }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "${{ steps.branch.outputs.name }}" \
+            --title "Fix incoming call push call ID" \
+            --body "## What this fixes
+          Adds the Supabase call row ID to the incoming-call push payload.
+
+          ## Why
+          The notification sender already forwards a callId when supplied, but the outgoing-call notification did not supply it. This change connects those pieces so the receiver can identify the specific call.
+
+          ## Scope
+          This is a small, build-checked first fix. It does **not** by itself add Android full-screen CallStyle notifications, notification Answer/Decline actions, or reliable call recovery after the app process is killed."
+
+      - name: Explain when no PR was needed
+        if: steps.commit.outputs.changed == 'false'
+        run: echo "No PR was created because the callId fix was already present."
